@@ -20,13 +20,19 @@ constexpr int PWM_FREQ_HZ = 25000; // 25 kHz
 constexpr int PWM_RES_BITS = 10;   // 10-bit 0..1023
 
 // ACS758 params (CJMCU-758 powered from 3.3V)
-constexpr float ADC_REF_V = 3.3f;  // ESP32 ADC reference
-constexpr int ADC_MAX = 4095;      // 12-bit resolution
-constexpr float ACS_SENS = 0.026f; // ~26 mV/A at 3.3V (ACS758-050B)
+constexpr float ADC_REF_V = 3.3f; // ESP32 ADC reference
+constexpr int ADC_MAX = 4095;     // 12-bit resolution
+constexpr float ACS_SENS = 0.04f; // ~40 mV/A at 5V (ACS758-050B)
 
 // Will hold zero-current offsets (in volts)
 float acs1_offset_V = 0.0f;
 float acs2_offset_V = 0.0f;
+
+// Filtered current values for exponential moving average
+float acs1_filtered_A = 0.0f;
+float acs2_filtered_A = 0.0f;
+constexpr float FILTER_ALPHA =
+    0.2f; // Filter coefficient (lower = more smoothing)
 
 float readCurrentA(int adcPin, float offsetV) {
     long rawSum = 0;
@@ -42,12 +48,12 @@ float readCurrentA(int adcPin, float offsetV) {
     float rawAvg = (float)rawSum / SAMPLES;
     float volts = rawAvg * (ADC_REF_V / ADC_MAX);
 
-    // Deadband: If measurement is less than 0.15A (noise floor), ignore it
+    // Deadband: If measurement is less than 0.03A (noise floor), ignore it
     float delta = volts - offsetV;
     float amps = delta / ACS_SENS;
 
     // Optional: Deadband to stop seeing "0.02A" when off
-    if (amps < 0.05f)
+    if (abs(amps) < 0.03)
         return 0.0f;
 
     return amps;
@@ -123,25 +129,29 @@ void loop() {
     // Duty sweep for 24V LED strip (18V min = 75% duty, up to 95%)
     static float duty = 0.75f; // Start at 75% (18V)
     static float delta = 0.01f;
+
     // Set PWM duty
     setPwmDuty(duty);
 
-    // Read branch currents
-    float I1 = readCurrentA(PIN_ACS1, acs1_offset_V);
-    float I2 = readCurrentA(PIN_ACS2, acs2_offset_V);
-    float Itotal = I1 + I2;
+    // Read raw averaged current values from burst sampling
+    float I1_raw = readCurrentA(PIN_ACS1, acs1_offset_V);
+    float I2_raw = readCurrentA(PIN_ACS2, acs2_offset_V);
+
+    // Apply exponential moving average filter for temporal smoothing
+    acs1_filtered_A =
+        FILTER_ALPHA * I1_raw + (1.0f - FILTER_ALPHA) * acs1_filtered_A;
+    acs2_filtered_A =
+        FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
+
+    float Itotal = acs1_filtered_A + acs2_filtered_A;
 
     Serial.print("Duty=");
     Serial.print(duty, 3);
-    // Serial.print("  I1=");
-    //  Serial.print(I1, 3);
     Serial.print(" | I2=");
-    Serial.print(I2, 3);
-    //  Serial.print(" A  Itotal=");
-    // Serial.print(Itotal, 3);
+    Serial.print(acs2_filtered_A, 3);
     Serial.println(" A");
 
-    delay(500); // 10x faster updates
+    delay(500);
 
     // Update duty for next loop
     duty += delta;
