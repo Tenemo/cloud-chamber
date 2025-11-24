@@ -116,8 +116,8 @@ void TECController::computeControl(float target_current, float total_current,
                                    float dt, float &output_duty) {
     // Check for dangerous overcurrent on individual branches
     float per_tec_limit = TARGET_CURRENT_PER_TEC * PER_TEC_LIMIT_MULTIPLIER;
-    bool tec_overshoot = (tec1_current > per_tec_limit) ||
-                         (tec2_current > per_tec_limit);
+    bool tec_overshoot =
+        (tec1_current > per_tec_limit) || (tec2_current > per_tec_limit);
 
     float error = target_current - total_current;
 
@@ -173,7 +173,8 @@ void TECController::resetPI() {
 
 bool TECController::checkOvercurrent(float total_current) {
     // Only trigger emergency shutdown on severe total overcurrent
-    float threshold = TARGET_CURRENT_PER_TEC * 2.0f * TOTAL_OVERCURRENT_MULTIPLIER;
+    float threshold =
+        TARGET_CURRENT_PER_TEC * 2.0f * TOTAL_OVERCURRENT_MULTIPLIER;
     return (total_current > threshold);
 }
 
