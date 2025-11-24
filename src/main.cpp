@@ -42,7 +42,7 @@ constexpr float DETECTION_CURRENT_THRESHOLD =
     0.2f; // 200mA minimum to detect power
 
 // Soft-start parameters
-constexpr unsigned long SOFT_START_DURATION_MS = 25000; // 25 seconds ramp-up
+constexpr unsigned long SOFT_START_DURATION_MS = 5000; // 10 seconds ramp-up
 bool soft_start_complete = false;
 unsigned long soft_start_begin_time = 0;
 
@@ -116,13 +116,13 @@ void calibrateSensors() {
 
     delay(100);
 
-    const int N = 100;
+    const int N = 50;
     uint32_t sum1 = 0, sum2 = 0;
 
     for (int i = 0; i < N; ++i) {
         sum1 += analogRead(PIN_ACS1);
         sum2 += analogRead(PIN_ACS2);
-        delay(5);
+        delay(2);
     }
 
     float adc1_off = sum1 / float(N);
