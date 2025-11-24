@@ -143,6 +143,12 @@ void loop() {
     acs2_filtered_A =
         FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
 
+    // Apply threshold: values below 0.1A are treated as 0
+    if (abs(acs1_filtered_A) < 0.1f)
+        acs1_filtered_A = 0.0f;
+    if (abs(acs2_filtered_A) < 0.1f)
+        acs2_filtered_A = 0.0f;
+
     float Itotal = acs1_filtered_A + acs2_filtered_A;
 
     Serial.print("Duty=");
