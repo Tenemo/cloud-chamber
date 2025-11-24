@@ -79,6 +79,14 @@ constexpr int Y_TOTAL = LINE_HEIGHT * 4;
 constexpr int Y_DUTY = LINE_HEIGHT * 5;
 constexpr int Y_TARGET = LINE_HEIGHT * 6;
 
+// Previous display values to detect changes
+float prev_I1 = -999.0f;
+float prev_I2 = -999.0f;
+float prev_total = -999.0f;
+float prev_duty = -999.0f;
+float prev_target = -999.0f;
+SystemState prev_state = STATE_INIT;
+
 Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
 bool display_initialized = false;
 
@@ -114,13 +122,21 @@ void initializeDisplayLayout() {
     display.printLine("Duty:", 0, Y_DUTY, 1);
     display.printLine("Target:", 0, Y_TARGET, 1);
     display_initialized = true;
+
+    // Reset previous values to force first update
+    prev_I1 = -999.0f;
+    prev_I2 = -999.0f;
+    prev_total = -999.0f;
+    prev_duty = -999.0f;
+    prev_target = -999.0f;
+    prev_state = STATE_INIT;
 }
 
 void clearValueArea(int y) {
     display.fillBox(VALUE_X, y, VALUE_WIDTH, LINE_HEIGHT, 0x0000);
 }
 
-void updateDisplayValues(float I1, float I2, float duty, const char *status) {
+void updateDisplayValues(float I1, float I2, float duty, SystemState state) {
     unsigned long current_time = millis();
 
     if (current_time - last_display_update < DISPLAY_INTERVAL_MS) {
@@ -133,38 +149,58 @@ void updateDisplayValues(float I1, float I2, float duty, const char *status) {
     }
 
     char buf[32];
-
-    // Update status
-    clearValueArea(Y_STATUS);
-    snprintf(buf, sizeof(buf), "%s", status);
-    display.printLine(buf, VALUE_X, Y_STATUS, 1);
-
-    // Update TEC1 current
-    clearValueArea(Y_TEC1);
-    snprintf(buf, sizeof(buf), "%.2f A", I1);
-    display.printLine(buf, VALUE_X, Y_TEC1, 1);
-
-    // Update TEC2 current
-    clearValueArea(Y_TEC2);
-    snprintf(buf, sizeof(buf), "%.2f A", I2);
-    display.printLine(buf, VALUE_X, Y_TEC2, 1);
-
-    // Update total current
-    clearValueArea(Y_TOTAL);
     float total = I1 + I2;
-    snprintf(buf, sizeof(buf), "%.2f A", total);
-    display.printLine(buf, VALUE_X, Y_TOTAL, 1);
-
-    // Update duty cycle
-    clearValueArea(Y_DUTY);
-    snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
-    display.printLine(buf, VALUE_X, Y_DUTY, 1);
-
-    // Update target
-    clearValueArea(Y_TARGET);
     float target = TARGET_CURRENT_PER_TEC * 2.0f;
-    snprintf(buf, sizeof(buf), "%.2f A", target);
-    display.printLine(buf, VALUE_X, Y_TARGET, 1);
+
+    // Update status only if changed
+    if (state != prev_state) {
+        clearValueArea(Y_STATUS);
+        const char *status_text =
+            (state == STATE_SOFT_START) ? "SOFT START" : "RUNNING";
+        snprintf(buf, sizeof(buf), "%s", status_text);
+        display.printLine(buf, VALUE_X, Y_STATUS, 1);
+        prev_state = state;
+    }
+
+    // Update TEC1 current only if changed significantly
+    if (abs(I1 - prev_I1) > 0.01f) {
+        clearValueArea(Y_TEC1);
+        snprintf(buf, sizeof(buf), "%.2f A", I1);
+        display.printLine(buf, VALUE_X, Y_TEC1, 1);
+        prev_I1 = I1;
+    }
+
+    // Update TEC2 current only if changed significantly
+    if (abs(I2 - prev_I2) > 0.01f) {
+        clearValueArea(Y_TEC2);
+        snprintf(buf, sizeof(buf), "%.2f A", I2);
+        display.printLine(buf, VALUE_X, Y_TEC2, 1);
+        prev_I2 = I2;
+    }
+
+    // Update total current only if changed significantly
+    if (abs(total - prev_total) > 0.01f) {
+        clearValueArea(Y_TOTAL);
+        snprintf(buf, sizeof(buf), "%.2f A", total);
+        display.printLine(buf, VALUE_X, Y_TOTAL, 1);
+        prev_total = total;
+    }
+
+    // Update duty cycle only if changed significantly
+    if (abs(duty - prev_duty) > 0.001f) {
+        clearValueArea(Y_DUTY);
+        snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
+        display.printLine(buf, VALUE_X, Y_DUTY, 1);
+        prev_duty = duty;
+    }
+
+    // Target is constant, only update on first draw
+    if (abs(target - prev_target) > 0.01f) {
+        clearValueArea(Y_TARGET);
+        snprintf(buf, sizeof(buf), "%.2f A", target);
+        display.printLine(buf, VALUE_X, Y_TARGET, 1);
+        prev_target = target;
+    }
 }
 
 void calibrateSensors() {
@@ -282,18 +318,15 @@ void loop() {
     float I_total = I1_display + I2_display;
 
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
-    const char *status_text = "RUNNING";
 
     if (current_state == STATE_SOFT_START) {
         unsigned long elapsed = current_time - soft_start_begin_time;
         if (elapsed < SOFT_START_DURATION_MS) {
             float ramp_fraction = (float)elapsed / SOFT_START_DURATION_MS;
             target_total_current *= ramp_fraction;
-            status_text = "SOFT START";
         } else {
             soft_start_complete = true;
             current_state = STATE_RUNNING;
-            status_text = "RUNNING";
             Serial.println("Soft-start complete - full power enabled");
         }
     }
@@ -308,7 +341,7 @@ void loop() {
 
     setPwmDuty(current_duty);
 
-    updateDisplayValues(I1_display, I2_display, current_duty, status_text);
+    updateDisplayValues(I1_display, I2_display, current_duty, current_state);
 
     Serial.print("Target: ");
     Serial.print(target_total_current, 2);
