@@ -10,8 +10,7 @@ class Display {
 
     void begin();
     void clear();
-    void printLine(const char *text, int x, int y,
-                   uint16_t color = COLOR_RGB565_WHITE, uint8_t textSize = 1);
+    void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
     void drawBox(int x, int y, int w, int h, uint16_t color);
     void setRotation(uint8_t rotation);
@@ -19,7 +18,7 @@ class Display {
     DFRobot_ST7789_240x320_HW_SPI *getTFT();
 
   private:
-    DFRobot_ST7789_240x320_HW_SPI tft;
+    DFRobot_ST7735_128x160_HW_SPI _screen;
     int8_t _backlight;
     uint8_t _textSize;
     uint16_t _textColor;
