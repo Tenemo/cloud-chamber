@@ -25,10 +25,11 @@ constexpr int ADC_MAX = 4095;
 constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
-constexpr float TARGET_CURRENT_PER_TEC = 3.5f; // Amperes per TEC (also hard limit)
-constexpr float MAX_DUTY_TEST = 0.60f;         // 60% duty limit
+constexpr float TARGET_CURRENT_PER_TEC =
+    4.00f;                             // Amperes per TEC (also hard limit)
+constexpr float MAX_DUTY_TEST = 0.60f; // 60% duty limit
 constexpr float MIN_DUTY = 0.0f;
-constexpr float CURRENT_TOLERANCE = 0.05f;  // ±50mA acceptable deviation
+constexpr float CURRENT_TOLERANCE = 0.05f; // ±50mA acceptable deviation
 
 // PI controller gains (tune these based on system response)
 constexpr float KP = 0.02f;          // Proportional gain
@@ -41,7 +42,7 @@ constexpr float DETECTION_CURRENT_THRESHOLD =
     0.2f; // 200mA minimum to detect power
 
 // Soft-start parameters
-constexpr unsigned long SOFT_START_DURATION_MS = 5000; // 5 seconds ramp-up
+constexpr unsigned long SOFT_START_DURATION_MS = 25000; // 25 seconds ramp-up
 bool soft_start_complete = false;
 unsigned long soft_start_begin_time = 0;
 
