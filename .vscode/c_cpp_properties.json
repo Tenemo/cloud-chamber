@@ -8,6 +8,7 @@
         {
             "name": "PlatformIO",
             "includePath": [
+                "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/include",
                 "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/src",
                 "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/.pio/libdeps/dfrobot_firebeetle2_esp32s3/Adafruit GFX Library",
                 "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/.pio/libdeps/dfrobot_firebeetle2_esp32s3/Adafruit BusIO",
@@ -251,6 +252,7 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
+                    "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/include",
                     "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/src",
                     "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/.pio/libdeps/dfrobot_firebeetle2_esp32s3/Adafruit GFX Library",
                     "c:/_sync/_personal/pollub/Cloud chamber/cloud-chamber/.pio/libdeps/dfrobot_firebeetle2_esp32s3/Adafruit BusIO",
