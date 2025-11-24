@@ -1,3 +1,4 @@
+// Contents of: "lib/TECController/TECController.cpp":
 #include "TECController.h"
 #include "config.h"
 
@@ -117,15 +118,20 @@ void TECController::computeControl(float target_current, float total_current,
                               (tec2_current > TARGET_CURRENT_PER_TEC);
 
     if (tec_limit_exceeded) {
-        resetPI();
-        output_duty = _pi_last_output - 0.01f;
-        output_duty = constrain(output_duty, MIN_DUTY, MAX_DUTY);
-        _pi_last_output = output_duty;
+        // At least one TEC exceeded per-branch limit (e.g.
+        // TARGET_CURRENT_PER_TEC): drop duty by 5 percentage points and prevent
+        // further increase.
+        _pi_integral = 0.0f; // stop further integral build-up
+
+        float reduced = _pi_last_output - 0.05f; // 5% absolute duty drop
+        output_duty = (reduced > MIN_DUTY) ? reduced : MIN_DUTY;
     } else {
         float error = target_current - total_current;
         output_duty = computePI(error, dt);
     }
 
+    output_duty = constrain(output_duty, MIN_DUTY, MAX_DUTY);
+    _pi_last_output = output_duty;
     setPwmDuty(output_duty);
 }
 
@@ -133,11 +139,17 @@ float TECController::computePI(float error, float dt) {
     _pi_integral += error * dt;
     _pi_integral = constrain(_pi_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
 
-    float output = KP * error + KI * _pi_integral;
-    output = _pi_last_output + output;
-    output = constrain(output, MIN_DUTY, MAX_DUTY);
+    float delta = KP * error + KI * _pi_integral;
 
-    _pi_last_output = output;
+    // Limit how fast duty can change per update to slow ramp-up.
+    const float max_step = 0.02f; // max +/-2% duty per control step
+    if (delta > max_step) {
+        delta = max_step;
+    } else if (delta < -max_step) {
+        delta = -max_step;
+    }
+
+    float output = _pi_last_output + delta;
     return output;
 }
 
@@ -154,30 +166,14 @@ bool TECController::checkOvercurrent(float total_current) {
 void TECController::handleOvercurrentError() {
     _logger.logErrorOvercurrent();
     _state = STATE_ERROR;
-
-    emergencyShutdown();
-
-    while (true) {
-        float tec1, tec2, total;
-        readCurrents(tec1, tec2, total);
-
-        float volts1 = _tec1_offset_voltage + (tec1 * ACS_SENS);
-        float volts2 = _tec2_offset_voltage + (tec2 * ACS_SENS);
-
-        Serial.print("OVERCURRENT - TEC1: ");
-        Serial.print(tec1, 2);
-        Serial.print("A (");
-        Serial.print(volts1, 3);
-        Serial.print("V) | TEC2: ");
-        Serial.print(tec2, 2);
-        Serial.print("A (");
-        Serial.print(volts2, 3);
-        Serial.print("V) | Total: ");
-        Serial.print(total, 2);
-        Serial.println("A");
-
-        delay(1000);
+    // Drop duty by 5% immediately on overcurrent, but do not fully
+    // power-cycle the bridge here.
+    float reduced = _pi_last_output - 0.05f;
+    if (reduced < MIN_DUTY) {
+        reduced = MIN_DUTY;
     }
+    _pi_last_output = reduced;
+    setPwmDuty(_pi_last_output);
 }
 
 bool TECController::calibrateSensor(int pin, float &offset_voltage) {
@@ -235,7 +231,14 @@ void TECController::emergencyShutdown() {
 }
 
 void TECController::update() {
+    static unsigned long last_time = millis();
     unsigned long current_time = millis();
+
+    float dt = (current_time - last_time) / 1000.0f;
+    if (dt <= 0.0f) {
+        dt = CONTROL_INTERVAL_MS / 1000.0f;
+    }
+    last_time = current_time;
 
     float tec1_current, tec2_current, total_current;
     readCurrents(tec1_current, tec2_current, total_current);
@@ -258,7 +261,6 @@ void TECController::update() {
         handleSoftStart(current_time, target_total_current);
     }
 
-    float dt = CONTROL_INTERVAL_MS / 1000.0f;
     computeControl(target_total_current, total_current, tec1_current,
                    tec2_current, dt, current_duty);
 
