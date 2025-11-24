@@ -61,7 +61,7 @@ constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
 constexpr float TARGET_CURRENT_PER_TEC =
-    3.50f;                             // Amperes per TEC (also hard limit)
+    3.00f;                             // Amperes per TEC (also hard limit)
 constexpr float MAX_DUTY_TEST = 0.65f; // 65% duty limit
 constexpr float MIN_DUTY = 0.0f;
 constexpr float CURRENT_TOLERANCE = 0.05f; // ±50mA acceptable deviation
