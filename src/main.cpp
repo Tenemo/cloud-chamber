@@ -151,7 +151,7 @@ void loop() {
     Serial.print(acs2_filtered_A, 3);
     Serial.println(" A");
 
-    delay(500);
+    delay(200);
 
     // Update duty for next loop
     duty += delta;
