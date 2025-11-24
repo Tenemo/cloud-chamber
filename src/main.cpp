@@ -48,12 +48,14 @@ TECController tec_controller(logger);
 
 unsigned long last_control_update = 0;
 
-void setup() {
+static void initLogging() {
     esp_log_level_set("*", ESP_LOG_ERROR);
     esp_task_wdt_init(60, true);
     Serial.begin(115200);
     logger.logInitialization();
+}
 
+static bool initHardwareAndCalibrate() {
     logger.initializeDisplay();
     tec_controller.begin();
 
@@ -61,11 +63,20 @@ void setup() {
     float offset1, offset2;
     tec_controller.getCalibrationOffsets(offset1, offset2);
     logger.showStartupSequence(cal_success, offset1, offset2);
+    return cal_success;
+}
 
-    if (!cal_success) {
-        while (true) {
-            delay(100);
-        }
+static void waitForeverOnCalibrationFailure() {
+    while (true) {
+        delay(100);
+    }
+}
+
+void setup() {
+    initLogging();
+
+    if (!initHardwareAndCalibrate()) {
+        waitForeverOnCalibrationFailure();
     }
 
     tec_controller.startPowerDetection();

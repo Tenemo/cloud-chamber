@@ -65,7 +65,6 @@ class Logger {
                        SystemState state);
 
   private:
-    void printSeparator();
     void clearValueArea(int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void clearDisplay();

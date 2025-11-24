@@ -3,12 +3,18 @@
 
 const char *getStateText(SystemState state) {
     switch (state) {
+    case STATE_INIT:
+        return "INIT";
+    case STATE_CALIBRATING:
+        return "CALIB";
     case STATE_WAITING_FOR_POWER:
         return "WAIT PWR";
     case STATE_SOFT_START:
         return "SOFT START";
     case STATE_RUNNING:
         return "RUNNING";
+    case STATE_ERROR:
+        return "ERROR";
     default:
         return "UNKNOWN";
     }
@@ -21,8 +27,6 @@ Logger::Logger()
       _layout{0}, prev_display_I1(-999.0f), prev_display_I2(-999.0f),
       prev_display_total(-999.0f), prev_display_duty(-999.0f),
       prev_display_target(-999.0f), prev_display_state(STATE_INIT) {}
-
-void Logger::printSeparator() { Serial.println(); }
 
 bool Logger::shouldLogMeasurements(const CurrentMeasurements &measurements,
                                    float change_threshold) {
