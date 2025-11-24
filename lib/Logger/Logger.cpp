@@ -28,7 +28,6 @@ bool Logger::shouldLogMeasurements(const CurrentMeasurements &measurements,
                                    float change_threshold) {
     bool should_log = false;
 
-    // Check if any value has changed significantly
     if (abs(measurements.tec1_current - prev_tec1_current) > change_threshold ||
         abs(measurements.tec2_current - prev_tec2_current) > change_threshold ||
         abs(measurements.total_current - prev_total_current) >
@@ -37,7 +36,6 @@ bool Logger::shouldLogMeasurements(const CurrentMeasurements &measurements,
         should_log = true;
     }
 
-    // Update previous values
     prev_tec1_current = measurements.tec1_current;
     prev_tec2_current = measurements.tec2_current;
     prev_total_current = measurements.total_current;
@@ -74,13 +72,11 @@ void Logger::showStartupSequence(bool cal_success, float offset1,
     if (!_screen)
         return;
 
-    // Show startup screen
     clearDisplay();
     printLine("TEC Controller", 5, 20, 2);
     printLine("Initializing...", 10, 60, 1);
     delay(1000);
 
-    // Show calibration results
     clearDisplay();
     if (cal_success) {
         printLine("Calibration OK", 5, 20, 1);
@@ -129,7 +125,6 @@ void Logger::initializeDisplayLayout() {
     printLine("Target:", 0, _layout.y_target, 1);
     display_initialized = true;
 
-    // Reset previous values to force first update
     prev_display_I1 = -999.0f;
     prev_display_I2 = -999.0f;
     prev_display_total = -999.0f;
@@ -157,7 +152,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
     float total = I1 + I2;
     float target = TARGET_CURRENT_PER_TEC * 2.0f;
 
-    // Update status only if changed
     if (state != prev_display_state) {
         clearValueArea(_layout.y_status);
         snprintf(buf, sizeof(buf), "%s", getStateText(state));
@@ -165,7 +159,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_state = state;
     }
 
-    // Update TEC1 current only if changed significantly
     if (abs(I1 - prev_display_I1) > 0.01f) {
         clearValueArea(_layout.y_tec1);
         snprintf(buf, sizeof(buf), "%.2f A", I1);
@@ -173,7 +166,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_I1 = I1;
     }
 
-    // Update TEC2 current only if changed significantly
     if (abs(I2 - prev_display_I2) > 0.01f) {
         clearValueArea(_layout.y_tec2);
         snprintf(buf, sizeof(buf), "%.2f A", I2);
@@ -181,7 +173,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_I2 = I2;
     }
 
-    // Update total current only if changed significantly
     if (abs(total - prev_display_total) > 0.01f) {
         clearValueArea(_layout.y_total);
         snprintf(buf, sizeof(buf), "%.2f A", total);
@@ -189,7 +180,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_total = total;
     }
 
-    // Update duty cycle only if changed significantly
     if (abs(duty - prev_display_duty) > 0.001f) {
         clearValueArea(_layout.y_duty);
         snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
@@ -197,7 +187,6 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_duty = duty;
     }
 
-    // Target is constant, only update on first draw
     if (abs(target - prev_display_target) > 0.01f) {
         clearValueArea(_layout.y_target);
         snprintf(buf, sizeof(buf), "%.2f A", target);

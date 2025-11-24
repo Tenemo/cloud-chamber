@@ -9,22 +9,18 @@ TECController::TECController(Logger &logger)
       _adc_max_value((1 << 12) - 1) {}
 
 void TECController::begin() {
-    // Configure status LED
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
 
-    // Configure enable pins
     pinMode(PIN_L_EN, OUTPUT);
     pinMode(PIN_R_EN, OUTPUT);
     digitalWrite(PIN_L_EN, LOW);
     digitalWrite(PIN_R_EN, LOW);
 
-    // Configure PWM
     ledcSetup(PWM_CHANNEL, PWM_FREQ_HZ, PWM_RES_BITS);
     ledcAttachPin(PIN_RPWM, PWM_CHANNEL);
     ledcWrite(PWM_CHANNEL, 0);
 
-    // Configure ADC
     analogReadResolution(12);
 }
 
@@ -51,14 +47,10 @@ bool TECController::calibrateSensors() {
 void TECController::startPowerDetection() {
     _logger.logWaitingForPower();
 
-    // Enable status LED to indicate system is active
     digitalWrite(STATUS_LED_PIN, HIGH);
-
-    // Enable H-bridge
     digitalWrite(PIN_L_EN, HIGH);
     digitalWrite(PIN_R_EN, HIGH);
 
-    // Start with detection duty
     setPwmDuty(DETECTION_DUTY);
     _state = STATE_WAITING_FOR_POWER;
 
@@ -100,7 +92,6 @@ bool TECController::handleWaitingForPower(float total_current,
         return true;
     }
 
-    // Stay at detection duty
     setPwmDuty(DETECTION_DUTY);
     current_duty = DETECTION_DUTY;
     return false;
@@ -122,18 +113,15 @@ void TECController::handleSoftStart(unsigned long current_time,
 void TECController::computeControl(float target_current, float total_current,
                                    float tec1_current, float tec2_current,
                                    float dt, float &output_duty) {
-    // Check if any individual TEC exceeds its limit
     bool tec_limit_exceeded = (tec1_current > TARGET_CURRENT_PER_TEC) ||
                               (tec2_current > TARGET_CURRENT_PER_TEC);
 
     if (tec_limit_exceeded) {
-        // Reset PI and force duty reduction
         resetPI();
-        output_duty = _pi_last_output - 0.01f; // Aggressive reduction
+        output_duty = _pi_last_output - 0.01f;
         output_duty = constrain(output_duty, MIN_DUTY, MAX_DUTY);
         _pi_last_output = output_duty;
     } else {
-        // Normal PI control
         float error = target_current - total_current;
         output_duty = computePI(error, dt);
     }
@@ -142,19 +130,11 @@ void TECController::computeControl(float target_current, float total_current,
 }
 
 float TECController::computePI(float error, float dt) {
-    // Accumulate integral with time weighting
     _pi_integral += error * dt;
-
-    // Apply anti-windup by clamping integral term
     _pi_integral = constrain(_pi_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
 
-    // Compute PI output
     float output = KP * error + KI * _pi_integral;
-
-    // Add to previous output (incremental control)
     output = _pi_last_output + output;
-
-    // Clamp output to valid range
     output = constrain(output, MIN_DUTY, MAX_DUTY);
 
     _pi_last_output = output;
@@ -177,7 +157,6 @@ void TECController::handleOvercurrentError() {
 
     emergencyShutdown();
 
-    // Continuous error logging loop
     while (true) {
         float tec1, tec2, total;
         readCurrents(tec1, tec2, total);
@@ -205,7 +184,7 @@ bool TECController::calibrateSensor(int pin, float &offset_voltage) {
     const int num_samples = 50;
     float voltage = readAverageVoltage(pin, num_samples);
 
-    // Sanity check: offset should be roughly half of reference voltage
+    // Sanity check: ACS758 outputs ~Vcc/2 at zero current
     if (voltage < 0.1f || voltage > (ADC_REF_V - 0.1f)) {
         return false;
     }
@@ -220,7 +199,6 @@ float TECController::readSensorCurrent(int pin, float offset_voltage,
     float delta_voltage = voltage - offset_voltage;
     float raw_current = delta_voltage / ACS_SENS;
 
-    // Apply exponential moving average filter
     filtered_current =
         FILTER_ALPHA * raw_current + (1.0f - FILTER_ALPHA) * filtered_current;
 
@@ -259,19 +237,16 @@ void TECController::emergencyShutdown() {
 void TECController::update() {
     unsigned long current_time = millis();
 
-    // Read currents
     float tec1_current, tec2_current, total_current;
     readCurrents(tec1_current, tec2_current, total_current);
 
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
     float current_duty = _pi_last_output;
 
-    // State machine handling
     if (_state == STATE_WAITING_FOR_POWER) {
         bool power_detected =
             handleWaitingForPower(total_current, current_duty);
 
-        // Update display and return if still waiting
         _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
 
         if (!power_detected) {
@@ -283,15 +258,12 @@ void TECController::update() {
         handleSoftStart(current_time, target_total_current);
     }
 
-    // Compute control output
     float dt = CONTROL_INTERVAL_MS / 1000.0f;
     computeControl(target_total_current, total_current, tec1_current,
                    tec2_current, dt, current_duty);
 
-    // Update display
     _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
 
-    // Log measurements if significant change
     float error = target_total_current - total_current;
     CurrentMeasurements measurements = {tec1_current, tec2_current,
                                         total_current, current_duty, error};
@@ -302,13 +274,11 @@ void TECController::update() {
                                 error);
     }
 
-    // Check for imbalance
     float current_imbalance = abs(tec1_current - tec2_current);
     if (current_imbalance > 1.0f && total_current > 1.0f) {
         _logger.logWarningImbalance(current_imbalance);
     }
 
-    // Check for overcurrent
     if (checkOvercurrent(total_current)) {
         handleOvercurrentError();
     }
