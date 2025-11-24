@@ -37,7 +37,7 @@ constexpr float KI = 0.001f;         // Integral gain
 constexpr float INTEGRAL_MAX = 0.2f; // Anti-windup limit
 
 // Power detection parameters
-constexpr float DETECTION_DUTY = 0.05f; // 5% duty for power detection
+constexpr float DETECTION_DUTY = 0.25f; // 25% duty for power detection
 constexpr float DETECTION_CURRENT_THRESHOLD =
     0.2f; // 200mA minimum to detect power
 
@@ -297,6 +297,38 @@ void loop() {
         display.printLine("System shutdown", 0, 45, 1);
 
         while (true) {
+            // Continue reading and logging current values with voltages
+            long rawSum1 = 0, rawSum2 = 0;
+            const int SAMPLES = 1000;
+
+            for (int i = 0; i < SAMPLES; i++) {
+                rawSum1 += analogRead(PIN_ACS1);
+                rawSum2 += analogRead(PIN_ACS2);
+            }
+
+            float rawAvg1 = (float)rawSum1 / SAMPLES;
+            float rawAvg2 = (float)rawSum2 / SAMPLES;
+            float volts1 = rawAvg1 * (ADC_REF_V / ADC_MAX);
+            float volts2 = rawAvg2 * (ADC_REF_V / ADC_MAX);
+
+            float I1_error = (volts1 - acs1_offset_V) / ACS_SENS;
+            float I2_error = (volts2 - acs2_offset_V) / ACS_SENS;
+            float I1_clamped = CurrentLogger::clampSmallCurrent(I1_error);
+            float I2_clamped = CurrentLogger::clampSmallCurrent(I2_error);
+            float I_total_error = I1_clamped + I2_clamped;
+
+            Serial.print("OVERCURRENT - TEC1: ");
+            Serial.print(I1_clamped, 2);
+            Serial.print("A (");
+            Serial.print(volts1, 3);
+            Serial.print("V) | TEC2: ");
+            Serial.print(I2_clamped, 2);
+            Serial.print("A (");
+            Serial.print(volts2, 3);
+            Serial.print("V) | Total: ");
+            Serial.print(I_total_error, 2);
+            Serial.println("A");
+
             delay(1000);
         }
     }
