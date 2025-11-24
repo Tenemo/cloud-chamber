@@ -77,7 +77,6 @@ void Logger::showStartupSequence(bool cal_success, float offset1,
         return;
 
     clearDisplay();
-    printLine("TEC Controller", 5, 20, 2);
     printLine("Initializing...", 10, 60, 1);
     delay(1000);
 
