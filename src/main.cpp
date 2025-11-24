@@ -79,7 +79,7 @@ void setup() {
 
     if (!cal_success) {
         while (true) {
-            delay(1000);
+            delay(100);
         }
     }
 
