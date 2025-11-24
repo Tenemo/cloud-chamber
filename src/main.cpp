@@ -26,7 +26,7 @@ constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
 constexpr float TARGET_CURRENT_PER_TEC = 4.0f; // Amperes per TEC
-constexpr float MAX_DUTY_TEST = 0.50f;         // 50% duty limit
+constexpr float MAX_DUTY_TEST = 0.60f;         // 60% duty limit
 constexpr float MIN_DUTY = 0.0f;
 constexpr float MAX_CURRENT_PER_TEC = 4.0f; // Hard limit per TEC
 constexpr float CURRENT_TOLERANCE = 0.05f;  // ±50mA acceptable deviation
@@ -245,26 +245,28 @@ void loop() {
     }
 
     // Check if any individual TEC exceeds its limit
-    bool tec_limit_reached = (I1_display >= MAX_CURRENT_PER_TEC) ||
-                             (I2_display >= MAX_CURRENT_PER_TEC);
+    bool tec_limit_exceeded = (I1_display > MAX_CURRENT_PER_TEC) ||
+                              (I2_display > MAX_CURRENT_PER_TEC);
 
     float error = target_total_current - I_total;
 
-    // Only integrate error if we're not at the individual TEC limit
-    if (!tec_limit_reached || error < 0) {
+    // If any TEC exceeds limit, force duty reduction
+    if (tec_limit_exceeded) {
+        // Force negative control output to reduce duty
+        float control_output = -0.01f; // Aggressive reduction
+        current_duty =
+            constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
+        // Clear integral to prevent windup
+        error_integral = 0.0f;
+    } else {
+        // Normal PI control
         error_integral += error * (CONTROL_INTERVAL_MS / 1000.0f);
         error_integral = constrain(error_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
+
+        float control_output = KP * error + KI * error_integral;
+        current_duty =
+            constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
     }
-
-    float control_output = KP * error + KI * error_integral;
-
-    // If at TEC limit and trying to increase, don't increase duty
-    if (tec_limit_reached && control_output > 0) {
-        control_output = 0;
-    }
-
-    current_duty =
-        constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
 
     setPwmDuty(current_duty);
 
