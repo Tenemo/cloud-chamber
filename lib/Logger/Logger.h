@@ -25,7 +25,6 @@ struct DisplayLayout {
     int y_target;
 };
 
-// Helper function to convert state to display text
 const char *getStateText(SystemState state);
 
 struct CurrentMeasurements {
@@ -56,11 +55,9 @@ class Logger {
     void logWarningImbalance(float imbalance);
     void logErrorOvercurrent();
 
-    // Display initialization and control
     void initializeDisplay();
     void showStartupSequence(bool cal_success, float offset1, float offset2);
 
-    // Check if measurement values have changed significantly
     bool shouldLogMeasurements(const CurrentMeasurements &measurements,
                                float change_threshold = 0.01f);
     void initializeDisplayLayout();
@@ -68,29 +65,24 @@ class Logger {
                        SystemState state);
 
   private:
-    // Helper methods for consistent formatting
     void printSeparator();
     void clearValueArea(int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void clearDisplay();
     void fillBox(int x, int y, int w, int h, uint16_t color);
 
-    // Previous values for serial logging change detection
     float prev_tec1_current;
     float prev_tec2_current;
     float prev_total_current;
     float prev_duty;
 
-    // Display management
     DFRobot_ST7735_128x160_HW_SPI *_screen;
     int8_t _backlight;
     bool display_initialized;
     unsigned long last_display_update;
 
-    // Display layout configuration
     DisplayLayout _layout;
 
-    // Previous display values for memoization
     float prev_display_I1;
     float prev_display_I2;
     float prev_display_total;

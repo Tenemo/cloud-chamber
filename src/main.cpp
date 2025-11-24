@@ -54,13 +54,9 @@ void setup() {
     Serial.begin(115200);
     logger.logInitialization();
 
-    // Initialize display (pins and layout from config.h)
     logger.initializeDisplay();
-
-    // Initialize TEC controller hardware (includes status LED setup)
     tec_controller.begin();
 
-    // Calibrate sensors and show startup UI
     bool cal_success = tec_controller.calibrateSensors();
     float offset1, offset2;
     tec_controller.getCalibrationOffsets(offset1, offset2);
@@ -72,9 +68,7 @@ void setup() {
         }
     }
 
-    // Start power detection (enables status LED and H-bridge)
     tec_controller.startPowerDetection();
-
     last_control_update = millis();
 }
 
@@ -86,6 +80,5 @@ void loop() {
     }
     last_control_update = current_time;
 
-    // Main control loop - all logic encapsulated in TECController
     tec_controller.update();
 }
