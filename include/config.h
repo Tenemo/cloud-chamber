@@ -16,26 +16,30 @@ constexpr int PIN_R_EN = D9; // GPIO0
 constexpr float TARGET_CURRENT_PER_TEC = 3.00f;
 constexpr float MAX_DUTY = 0.60f;
 constexpr float MIN_DUTY = 0.0f;
-// PI tuning for smoother response at slow loop
-constexpr float KP = 0.01f;
-constexpr float KI = 0.0005f;
-constexpr float INTEGRAL_MAX = 0.1f;
+
+// Retuned PI for faster 50ms loop
+constexpr float KP = 0.08f;          // Increased proportional gain
+constexpr float KI = 0.004f;         // Increased integral gain
+constexpr float INTEGRAL_MAX = 0.2f; // Increased integral limit
 
 constexpr float ADC_REF_V = 3.3f;
 constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
-// Strong smoothing and many samples for high-accuracy current readings
-constexpr float FILTER_ALPHA = 0.08f;
-constexpr int ADC_SAMPLES = 1200;
 
-// 2 Hz control loop for slower, smoother updates
-constexpr unsigned long CONTROL_INTERVAL_MS = 500;
+// Reduced samples and faster filter for quicker response
+constexpr float FILTER_ALPHA = 0.15f; // Faster response
+constexpr int ADC_SAMPLES = 300;      // Good accuracy, faster reading
+
+// 20 Hz control loop - responsive current control
+constexpr unsigned long CONTROL_INTERVAL_MS = 50;
 constexpr unsigned long DISPLAY_INTERVAL_MS = 250;
 constexpr unsigned long SOFT_START_DURATION_MS = 5000;
 
 constexpr float DETECTION_DUTY = 0.25f;
 constexpr float DETECTION_THRESHOLD = 0.2f;
 
-constexpr float OVERCURRENT_MULTIPLIER = 1.25f;
+// Overshoot protection
+constexpr float PER_TEC_LIMIT_MULTIPLIER = 1.15f;     // 15% over per-TEC target
+constexpr float TOTAL_OVERCURRENT_MULTIPLIER = 1.25f; // 25% over total target
 
 constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;

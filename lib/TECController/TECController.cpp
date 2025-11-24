@@ -114,19 +114,27 @@ void TECController::handleSoftStart(unsigned long current_time,
 void TECController::computeControl(float target_current, float total_current,
                                    float tec1_current, float tec2_current,
                                    float dt, float &output_duty) {
-    bool tec_limit_exceeded = (tec1_current > TARGET_CURRENT_PER_TEC) ||
-                              (tec2_current > TARGET_CURRENT_PER_TEC);
+    // Check for dangerous overcurrent on individual branches
+    float per_tec_limit = TARGET_CURRENT_PER_TEC * PER_TEC_LIMIT_MULTIPLIER;
+    bool tec_overshoot = (tec1_current > per_tec_limit) ||
+                         (tec2_current > per_tec_limit);
 
-    if (tec_limit_exceeded) {
-        // At least one TEC exceeded per-branch limit (e.g.
-        // TARGET_CURRENT_PER_TEC): drop duty by 5 percentage points and prevent
-        // further increase.
-        _pi_integral = 0.0f; // stop further integral build-up
+    float error = target_current - total_current;
 
-        float reduced = _pi_last_output - 0.05f; // 5% absolute duty drop
-        output_duty = (reduced > MIN_DUTY) ? reduced : MIN_DUTY;
+    if (tec_overshoot) {
+        // One TEC is drawing too much - prevent further integral windup,
+        // but do not hard-reset it (that causes oscillation).
+        if (_pi_integral > 0.0f) {
+            _pi_integral -= KI * 0.5f * dt; // Slowly bleed off integral
+            if (_pi_integral < 0.0f)
+                _pi_integral = 0.0f;
+        }
+
+        // Use proportional action to gently back off
+        float p_term = KP * error;
+        output_duty = _pi_last_output + p_term * dt;
     } else {
-        float error = target_current - total_current;
+        // Normal operation - full PI control
         output_duty = computePI(error, dt);
     }
 
@@ -136,13 +144,18 @@ void TECController::computeControl(float target_current, float total_current,
 }
 
 float TECController::computePI(float error, float dt) {
+    // Accumulate integral
     _pi_integral += error * dt;
     _pi_integral = constrain(_pi_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
 
-    float delta = KP * error + KI * _pi_integral;
+    // Calculate PI output components
+    float p_term = KP * error;
+    float i_term = KI * _pi_integral;
 
-    // Limit how fast duty can change per update to slow ramp-up.
-    const float max_step = 0.02f; // max +/-2% duty per control step
+    float delta = p_term + i_term;
+
+    // Allow up to 5% duty change per update at 20 Hz
+    const float max_step = 0.05f;
     if (delta > max_step) {
         delta = max_step;
     } else if (delta < -max_step) {
@@ -159,7 +172,8 @@ void TECController::resetPI() {
 }
 
 bool TECController::checkOvercurrent(float total_current) {
-    float threshold = TARGET_CURRENT_PER_TEC * 2.0f * OVERCURRENT_MULTIPLIER;
+    // Only trigger emergency shutdown on severe total overcurrent
+    float threshold = TARGET_CURRENT_PER_TEC * 2.0f * TOTAL_OVERCURRENT_MULTIPLIER;
     return (total_current > threshold);
 }
 
