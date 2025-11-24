@@ -25,10 +25,9 @@ constexpr int ADC_MAX = 4095;
 constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
-constexpr float TARGET_CURRENT_PER_TEC = 4.0f; // Amperes per TEC
+constexpr float TARGET_CURRENT_PER_TEC = 3.5f; // Amperes per TEC (also hard limit)
 constexpr float MAX_DUTY_TEST = 0.60f;         // 60% duty limit
 constexpr float MIN_DUTY = 0.0f;
-constexpr float MAX_CURRENT_PER_TEC = 4.0f; // Hard limit per TEC
 constexpr float CURRENT_TOLERANCE = 0.05f;  // ±50mA acceptable deviation
 
 // PI controller gains (tune these based on system response)
@@ -245,8 +244,8 @@ void loop() {
     }
 
     // Check if any individual TEC exceeds its limit
-    bool tec_limit_exceeded = (I1_display > MAX_CURRENT_PER_TEC) ||
-                              (I2_display > MAX_CURRENT_PER_TEC);
+    bool tec_limit_exceeded = (I1_display > TARGET_CURRENT_PER_TEC) ||
+                              (I2_display > TARGET_CURRENT_PER_TEC);
 
     float error = target_total_current - I_total;
 
@@ -281,7 +280,7 @@ void loop() {
     }
 
     float current_imbalance = abs(I1_display - I2_display);
-    if (current_imbalance > 0.5f && I_total > 1.0f) {
+    if (current_imbalance > 1.0f && I_total > 1.0f) {
         logger.logWarningImbalance(current_imbalance);
     }
 
