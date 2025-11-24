@@ -29,19 +29,27 @@ float acs1_offset_V = 0.0f;
 float acs2_offset_V = 0.0f;
 
 float readCurrentA(int adcPin, float offsetV) {
-    const int numSamples = 100;
-    uint32_t sum = 0;
+    long rawSum = 0;
+    // Increase samples to 1000 for better smoothing
+    const int SAMPLES = 1000;
 
-    // Collect samples over ~10ms (100 samples with 100μs spacing)
-    for (int i = 0; i < numSamples; i++) {
-        sum += analogRead(adcPin);
-        delayMicroseconds(100);
+    // BURST READ: No delay.
+    // This allows us to average out the PWM ripple effectively.
+    for (int i = 0; i < SAMPLES; i++) {
+        rawSum += analogRead(adcPin);
     }
 
-    float avgRaw = sum / float(numSamples);
-    float volts = avgRaw * (ADC_REF_V / ADC_MAX);
+    float rawAvg = (float)rawSum / SAMPLES;
+    float volts = rawAvg * (ADC_REF_V / ADC_MAX);
+
+    // Deadband: If measurement is less than 0.15A (noise floor), ignore it
     float delta = volts - offsetV;
     float amps = delta / ACS_SENS;
+
+    // Optional: Deadband to stop seeing "0.02A" when off
+    if (amps < 0.05f)
+        return 0.0f;
+
     return amps;
 }
 
