@@ -1,0 +1,19 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "PlatformIO Test",
+			"type": "shell",
+			"command": "platformio",
+			"args": [
+				"test",
+				"-e",
+				"dfrobot_firebeetle2_esp32s3"
+			],
+			"problemMatcher": [
+				"$platformio"
+			],
+			"group": "test"
+		}
+	]
+}
