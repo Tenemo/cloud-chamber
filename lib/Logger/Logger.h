@@ -13,6 +13,21 @@ enum SystemState {
     STATE_ERROR
 };
 
+struct DisplayLayout {
+    int line_height;
+    int value_x;
+    int value_width;
+    int y_status;
+    int y_tec1;
+    int y_tec2;
+    int y_total;
+    int y_duty;
+    int y_target;
+};
+
+// Helper function to convert state to display text
+const char *getStateText(SystemState state);
+
 struct CurrentMeasurements {
     float tec1_current;
     float tec2_current;
@@ -30,7 +45,7 @@ class Logger {
     void logCalibrationResults(float acs1_offset_V, float acs2_offset_V);
     void logWaitingForPower();
     void logPowerDetected(float detected_current);
-    void logSoftStartBegin(float target_current_per_tec, float max_duty);
+    void logSoftStartBegin();
     void logSoftStartComplete();
     void logControlActive();
 
@@ -42,22 +57,15 @@ class Logger {
     void logErrorOvercurrent();
 
     // Display initialization and control
-    void initializeDisplay(int8_t dc, int8_t cs, int8_t rst, int8_t backlight);
-    void showCalibrationUI(bool success, float offset1, float offset2);
-    void showStartupScreen();
+    void initializeDisplay();
+    void showStartupSequence(bool cal_success, float offset1, float offset2);
 
     // Check if measurement values have changed significantly
     bool shouldLogMeasurements(const CurrentMeasurements &measurements,
                                float change_threshold = 0.01f);
-
-    // Display update methods
-    void setDisplayLayout(int line_height, int value_x, int value_width,
-                          int y_status, int y_tec1, int y_tec2, int y_total,
-                          int y_duty, int y_target);
-    void initializeDisplayLayout(float target_current_per_tec);
+    void initializeDisplayLayout();
     void updateDisplay(float tec1_current, float tec2_current, float duty,
-                       SystemState state, float target_current_per_tec,
-                       unsigned long display_interval_ms);
+                       SystemState state);
 
   private:
     // Helper methods for consistent formatting
@@ -80,15 +88,7 @@ class Logger {
     unsigned long last_display_update;
 
     // Display layout configuration
-    int line_height;
-    int value_x;
-    int value_width;
-    int y_status;
-    int y_tec1;
-    int y_tec2;
-    int y_total;
-    int y_duty;
-    int y_target;
+    DisplayLayout _layout;
 
     // Previous display values for memoization
     float prev_display_I1;

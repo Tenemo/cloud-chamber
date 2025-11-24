@@ -54,28 +54,17 @@ void setup() {
     Serial.begin(115200);
     logger.logInitialization();
 
-    // Initialize display via logger
-    logger.initializeDisplay(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
-    logger.showStartupScreen();
+    // Initialize display (pins and layout from config.h)
+    logger.initializeDisplay();
 
-    // Configure logger display layout
-    logger.setDisplayLayout(LINE_HEIGHT, VALUE_X, VALUE_WIDTH, Y_STATUS, Y_TEC1,
-                            Y_TEC2, Y_TOTAL, Y_DUTY, Y_TARGET);
-
-    // Status LED
-    pinMode(STATUS_LED_PIN, OUTPUT);
-    digitalWrite(STATUS_LED_PIN, LOW);
-
-    delay(1000);
-
-    // Initialize TEC controller hardware
+    // Initialize TEC controller hardware (includes status LED setup)
     tec_controller.begin();
 
-    // Calibrate sensors
+    // Calibrate sensors and show startup UI
     bool cal_success = tec_controller.calibrateSensors();
     float offset1, offset2;
     tec_controller.getCalibrationOffsets(offset1, offset2);
-    logger.showCalibrationUI(cal_success, offset1, offset2);
+    logger.showStartupSequence(cal_success, offset1, offset2);
 
     if (!cal_success) {
         while (true) {
@@ -83,8 +72,7 @@ void setup() {
         }
     }
 
-    // Start power detection
-    digitalWrite(STATUS_LED_PIN, HIGH);
+    // Start power detection (enables status LED and H-bridge)
     tec_controller.startPowerDetection();
 
     last_control_update = millis();
@@ -99,5 +87,5 @@ void loop() {
     last_control_update = current_time;
 
     // Main control loop - all logic encapsulated in TECController
-    tec_controller.update(CONTROL_INTERVAL_MS, DISPLAY_INTERVAL_MS);
+    tec_controller.update();
 }

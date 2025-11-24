@@ -21,7 +21,7 @@ class TECController {
     TECController(Logger &logger);
 
     /**
-     * @brief Initialize hardware (PWM, enables, sensors)
+     * @brief Initialize hardware (PWM, enables, sensors, status LED)
      */
     void begin();
 
@@ -39,12 +39,8 @@ class TECController {
 
     /**
      * @brief Main control loop update (call periodically)
-     *
-     * @param control_interval_ms Time since last update in milliseconds
-     * @param display_interval_ms Display update interval
      */
-    void update(unsigned long control_interval_ms,
-                unsigned long display_interval_ms);
+    void update();
 
     /**
      * @brief Get current system state
