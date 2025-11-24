@@ -36,8 +36,10 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
+#include "CurrentSensor.h"
 #include "Display.h"
 #include "Logger.h"
+#include "PIController.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
@@ -71,6 +73,9 @@ constexpr float KP = 0.02f;          // Proportional gain
 constexpr float KI = 0.001f;         // Integral gain
 constexpr float INTEGRAL_MAX = 0.2f; // Anti-windup limit
 
+// Current filtering parameter
+constexpr float FILTER_ALPHA = 0.2f; // Exponential filter coefficient
+
 // Power detection parameters
 constexpr float DETECTION_DUTY = 0.25f; // 25% duty for power detection
 constexpr float DETECTION_CURRENT_THRESHOLD =
@@ -91,14 +96,15 @@ Logger logger;
 float acs1_offset_V = 0.0f;
 float acs2_offset_V = 0.0f;
 
-// Filtered current measurements
-float acs1_filtered_A = 0.0f;
-float acs2_filtered_A = 0.0f;
-constexpr float FILTER_ALPHA = 0.2f;
+// Number of ADC samples per reading (reduced from 1000 for better performance)
+constexpr int ADC_SAMPLES = 150;
 
-// PI controller state
-float error_integral = 0.0f;
-float current_duty = 0.0f;
+// CurrentSensor instances for TEC1 and TEC2
+CurrentSensor tec1_sensor(PIN_ACS1, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA);
+CurrentSensor tec2_sensor(PIN_ACS2, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA);
+
+// PI controller instance
+PIController pid_controller(KP, KI, MIN_DUTY, MAX_DUTY_TEST, INTEGRAL_MAX);
 
 // Safety monitoring
 unsigned long last_control_update = 0;
@@ -118,22 +124,6 @@ constexpr int Y_TARGET = LINE_HEIGHT * 6;
 
 Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
 
-float readCurrentA(int adcPin, float offsetV) {
-    long rawSum = 0;
-    const int SAMPLES = 1000;
-
-    for (int i = 0; i < SAMPLES; i++) {
-        rawSum += analogRead(adcPin);
-    }
-
-    float rawAvg = (float)rawSum / SAMPLES;
-    float volts = rawAvg * (ADC_REF_V / ADC_MAX);
-    float delta = volts - offsetV;
-    float amps = delta / ACS_SENS;
-
-    return amps;
-}
-
 void setPwmDuty(float duty01) {
     duty01 = constrain(duty01, MIN_DUTY, MAX_DUTY_TEST);
     uint32_t maxVal = (1u << PWM_RES_BITS) - 1u;
@@ -151,19 +141,20 @@ void calibrateSensors() {
 
     delay(100);
 
-    const int N = 50;
-    uint32_t sum1 = 0, sum2 = 0;
+    // Calibrate both current sensors (50 samples each)
+    bool cal1_success = tec1_sensor.calibrate(50);
+    bool cal2_success = tec2_sensor.calibrate(50);
 
-    for (int i = 0; i < N; ++i) {
-        sum1 += analogRead(PIN_ACS1);
-        sum2 += analogRead(PIN_ACS2);
-        delay(2);
+    if (!cal1_success || !cal2_success) {
+        display.printLine("Calibration FAILED!", 0, 60, 1);
+        Serial.println("ERROR: Sensor calibration failed!");
+        while (true) {
+            delay(1000);
+        } // Halt on calibration failure
     }
 
-    float adc1_off = sum1 / float(N);
-    float adc2_off = sum2 / float(N);
-    acs1_offset_V = adc1_off * (ADC_REF_V / ADC_MAX);
-    acs2_offset_V = adc2_off * (ADC_REF_V / ADC_MAX);
+    float acs1_offset_V = tec1_sensor.getOffsetVoltage();
+    float acs2_offset_V = tec2_sensor.getOffsetVoltage();
 
     logger.logCalibrationResults(acs1_offset_V, acs2_offset_V);
 
@@ -234,16 +225,13 @@ void loop() {
     }
     last_control_update = current_time;
 
-    float I1_raw = readCurrentA(PIN_ACS1, acs1_offset_V);
-    float I2_raw = readCurrentA(PIN_ACS2, acs2_offset_V);
+    // Read current from both sensors (with filtering)
+    float I1_raw = tec1_sensor.readCurrent(ADC_SAMPLES);
+    float I2_raw = tec2_sensor.readCurrent(ADC_SAMPLES);
 
-    acs1_filtered_A =
-        FILTER_ALPHA * I1_raw + (1.0f - FILTER_ALPHA) * acs1_filtered_A;
-    acs2_filtered_A =
-        FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
-
-    float I1_display = Logger::clampSmallCurrent(acs1_filtered_A);
-    float I2_display = Logger::clampSmallCurrent(acs2_filtered_A);
+    // Apply small current clamping to reduce noise
+    float I1_display = CurrentSensor::clampSmallCurrent(I1_raw);
+    float I2_display = CurrentSensor::clampSmallCurrent(I2_raw);
     float I_total = I1_display + I2_display;
 
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
@@ -259,7 +247,7 @@ void loop() {
         } else {
             // Stay at detection duty, don't run PI controller
             setPwmDuty(DETECTION_DUTY);
-            current_duty = DETECTION_DUTY;
+            float current_duty = DETECTION_DUTY;
             logger.updateDisplay(I1_display, I2_display, current_duty,
                                  current_state, TARGET_CURRENT_PER_TEC,
                                  DISPLAY_INTERVAL_MS);
@@ -284,23 +272,22 @@ void loop() {
                               (I2_display > TARGET_CURRENT_PER_TEC);
 
     float error = target_total_current - I_total;
+    float dt = CONTROL_INTERVAL_MS / 1000.0f; // Convert to seconds
+
+    float current_duty;
 
     // If any TEC exceeds limit, force duty reduction
     if (tec_limit_exceeded) {
-        // Force negative control output to reduce duty
-        float control_output = -0.01f; // Aggressive reduction
+        // Reset PI controller and force duty reduction
+        pid_controller.reset();
         current_duty =
-            constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
-        // Clear integral to prevent windup
-        error_integral = 0.0f;
+            pid_controller.getOutput() - 0.01f; // Aggressive reduction
+        current_duty = constrain(current_duty, MIN_DUTY, MAX_DUTY_TEST);
+        // Manually set the output for next iteration
+        pid_controller.setOutputLimits(MIN_DUTY, MAX_DUTY_TEST);
     } else {
         // Normal PI control
-        error_integral += error * (CONTROL_INTERVAL_MS / 1000.0f);
-        error_integral = constrain(error_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
-
-        float control_output = KP * error + KI * error_integral;
-        current_duty =
-            constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
+        current_duty = pid_controller.compute(error, dt);
     }
 
     setPwmDuty(current_duty);
@@ -334,25 +321,17 @@ void loop() {
         display.printLine("System shutdown", 0, 45, 1);
 
         while (true) {
-            // Continue reading and logging current values with voltages
-            long rawSum1 = 0, rawSum2 = 0;
-            const int SAMPLES = 1000;
-
-            for (int i = 0; i < SAMPLES; i++) {
-                rawSum1 += analogRead(PIN_ACS1);
-                rawSum2 += analogRead(PIN_ACS2);
-            }
-
-            float rawAvg1 = (float)rawSum1 / SAMPLES;
-            float rawAvg2 = (float)rawSum2 / SAMPLES;
-            float volts1 = rawAvg1 * (ADC_REF_V / ADC_MAX);
-            float volts2 = rawAvg2 * (ADC_REF_V / ADC_MAX);
-
-            float I1_error = (volts1 - acs1_offset_V) / ACS_SENS;
-            float I2_error = (volts2 - acs2_offset_V) / ACS_SENS;
-            float I1_clamped = Logger::clampSmallCurrent(I1_error);
-            float I2_clamped = Logger::clampSmallCurrent(I2_error);
+            // Continue reading and logging current values
+            float I1_error = tec1_sensor.readCurrent(ADC_SAMPLES);
+            float I2_error = tec2_sensor.readCurrent(ADC_SAMPLES);
+            float I1_clamped = CurrentSensor::clampSmallCurrent(I1_error);
+            float I2_clamped = CurrentSensor::clampSmallCurrent(I2_error);
             float I_total_error = I1_clamped + I2_clamped;
+
+            float volts1 =
+                tec1_sensor.getOffsetVoltage() + (I1_error * ACS_SENS);
+            float volts2 =
+                tec2_sensor.getOffsetVoltage() + (I2_error * ACS_SENS);
 
             Serial.print("OVERCURRENT - TEC1: ");
             Serial.print(I1_clamped, 2);
