@@ -1,5 +1,6 @@
 #include "TECController.h"
 #include "Display.h"
+#include "config.h"
 
 TECController::TECController(Logger &logger)
     : _tec1_sensor(PIN_ACS1, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA),
