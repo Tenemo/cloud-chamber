@@ -3,6 +3,7 @@
 
 #include "CurrentSensor.h"
 #include "Logger.h"
+#include "config.h"
 #include <Arduino.h>
 
 /**
@@ -13,46 +14,12 @@
  */
 class TECController {
   public:
-    struct Config {
-        // Hardware pins
-        int pin_acs1;
-        int pin_acs2;
-        int pin_rpwm;
-        int pin_l_en;
-        int pin_r_en;
-
-        // Sensor parameters
-        float adc_ref_v;
-        float acs_sensitivity;
-        float filter_alpha;
-        int adc_samples;
-
-        // Control parameters
-        float target_current_per_tec;
-        float max_duty;
-        float min_duty;
-
-        // PI gains
-        float kp;
-        float ki;
-        float integral_max;
-
-        // Detection and startup
-        float detection_duty;
-        float detection_threshold;
-        unsigned long soft_start_duration_ms;
-
-        // Safety
-        float overcurrent_multiplier;
-    };
-
     /**
-     * @brief Construct controller with configuration
+     * @brief Construct controller (uses constants from config.h)
      *
-     * @param config Configuration parameters
      * @param logger Reference to logger instance
      */
-    TECController(const Config &config, Logger &logger);
+    TECController(Logger &logger);
 
     /**
      * @brief Initialize hardware (PWM, enables, sensors)
@@ -110,9 +77,6 @@ class TECController {
     // PI control methods
     float computePI(float error, float dt);
     void resetPI();
-
-    // Configuration
-    Config _config;
 
     // Component instances
     CurrentSensor _tec1_sensor;

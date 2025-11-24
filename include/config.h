@@ -1,8 +1,6 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#include "TECController.h"
-
 // === DISPLAY PINS ===
 #define TFT_DC 3         // Display DC pin
 #define TFT_CS 18        // Display CS pin
@@ -54,27 +52,5 @@ constexpr int Y_TEC2 = LINE_HEIGHT * 3;
 constexpr int Y_TOTAL = LINE_HEIGHT * 4;
 constexpr int Y_DUTY = LINE_HEIGHT * 5;
 constexpr int Y_TARGET = LINE_HEIGHT * 6;
-
-// === TEC CONTROLLER CONFIGURATION ===
-const TECController::Config TEC_CONFIG = {
-    .pin_acs1 = PIN_ACS1,
-    .pin_acs2 = PIN_ACS2,
-    .pin_rpwm = PIN_RPWM,
-    .pin_l_en = PIN_L_EN,
-    .pin_r_en = PIN_R_EN,
-    .adc_ref_v = ADC_REF_V,
-    .acs_sensitivity = ACS_SENS,
-    .filter_alpha = FILTER_ALPHA,
-    .adc_samples = ADC_SAMPLES,
-    .target_current_per_tec = TARGET_CURRENT_PER_TEC,
-    .max_duty = MAX_DUTY,
-    .min_duty = MIN_DUTY,
-    .kp = KP,
-    .ki = KI,
-    .integral_max = INTEGRAL_MAX,
-    .detection_duty = DETECTION_DUTY,
-    .detection_threshold = DETECTION_THRESHOLD,
-    .soft_start_duration_ms = SOFT_START_DURATION_MS,
-    .overcurrent_multiplier = OVERCURRENT_MULTIPLIER};
 
 #endif // CONFIG_H

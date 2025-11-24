@@ -46,7 +46,7 @@
 // === GLOBAL INSTANCES ===
 Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
 Logger logger;
-TECController tec_controller(TEC_CONFIG, logger);
+TECController tec_controller(logger);
 
 unsigned long last_control_update = 0;
 
