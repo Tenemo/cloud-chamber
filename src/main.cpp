@@ -20,9 +20,9 @@ constexpr int PWM_FREQ_HZ = 25000; // 25 kHz
 constexpr int PWM_RES_BITS = 10;   // 10-bit 0..1023
 
 // ACS758 params (CJMCU-758 powered from 3.3V)
-constexpr float ADC_REF_V = 3.3f; // ESP32 ADC reference
-constexpr int ADC_MAX = 4095;     // 12-bit resolution
-constexpr float ACS_SENS = 0.04f; // ~40 mV/A at 5V (ACS758-050B)
+constexpr float ADC_REF_V = 3.3f;  // ESP32 ADC reference
+constexpr int ADC_MAX = 4095;      // 12-bit resolution
+constexpr float ACS_SENS = 0.026f; // ~26 mV/A at 3.3V (ACS758-050B)
 
 // Will hold zero-current offsets (in volts)
 float acs1_offset_V = 0.0f;
@@ -51,10 +51,6 @@ float readCurrentA(int adcPin, float offsetV) {
     // Deadband: If measurement is less than 0.03A (noise floor), ignore it
     float delta = volts - offsetV;
     float amps = delta / ACS_SENS;
-
-    // Optional: Deadband to stop seeing "0.02A" when off
-    if (abs(amps) < 0.03)
-        return 0.0f;
 
     return amps;
 }
