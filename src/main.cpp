@@ -1,6 +1,7 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
+#include "CurrentLogger.h"
 #include "Display.h"
 #include "config.h"
 #include <Arduino.h>
@@ -40,14 +41,10 @@ bool soft_start_complete = false;
 unsigned long soft_start_begin_time = 0;
 
 // System state tracking
-enum SystemState {
-    STATE_INIT,
-    STATE_CALIBRATING,
-    STATE_SOFT_START,
-    STATE_RUNNING,
-    STATE_ERROR
-};
 SystemState current_state = STATE_INIT;
+
+// Logger instance
+CurrentLogger logger;
 
 // Zero-current offsets (calibrated during setup)
 float acs1_offset_V = 0.0f;
@@ -206,7 +203,7 @@ void updateDisplayValues(float I1, float I2, float duty, SystemState state) {
 void calibrateSensors() {
     current_state = STATE_CALIBRATING;
 
-    Serial.println("Calibrating current sensors...");
+    logger.logCalibrationStart();
     display.clear();
     display.printLine("Calibrating sensors...", 0, 20, 1);
     display.printLine("Please wait", 0, 40, 1);
@@ -227,12 +224,7 @@ void calibrateSensors() {
     acs1_offset_V = adc1_off * (ADC_REF_V / ADC_MAX);
     acs2_offset_V = adc2_off * (ADC_REF_V / ADC_MAX);
 
-    Serial.print("ACS1 zero offset: ");
-    Serial.print(acs1_offset_V, 4);
-    Serial.println(" V");
-    Serial.print("ACS2 zero offset: ");
-    Serial.print(acs2_offset_V, 4);
-    Serial.println(" V");
+    logger.logCalibrationResults(acs1_offset_V, acs2_offset_V);
 
     char buf1[32], buf2[32];
     snprintf(buf1, sizeof(buf1), "ACS1: %.3fV", acs1_offset_V);
@@ -248,7 +240,7 @@ void setup() {
     esp_log_level_set("*", ESP_LOG_ERROR);
     esp_task_wdt_init(60, true);
     Serial.begin(115200);
-    Serial.println("\n=== TEC Controller Initializing ===");
+    logger.logInitialization();
 
     current_state = STATE_INIT;
 
@@ -275,13 +267,7 @@ void setup() {
 
     calibrateSensors();
 
-    Serial.println("Starting soft-start sequence...");
-    Serial.print("Target current per TEC: ");
-    Serial.print(TARGET_CURRENT_PER_TEC, 2);
-    Serial.println(" A");
-    Serial.print("Maximum duty cycle: ");
-    Serial.print(MAX_DUTY_TEST * 100.0f, 1);
-    Serial.println("%");
+    logger.logSoftStartBegin(TARGET_CURRENT_PER_TEC, MAX_DUTY_TEST);
 
     digitalWrite(PIN_L_EN, HIGH);
     digitalWrite(PIN_R_EN, HIGH);
@@ -294,7 +280,7 @@ void setup() {
 
     display_initialized = false;
 
-    Serial.println("=== TEC Controller Active ===\n");
+    logger.logControlActive();
 }
 
 void loop() {
@@ -327,7 +313,7 @@ void loop() {
         } else {
             soft_start_complete = true;
             current_state = STATE_RUNNING;
-            Serial.println("Soft-start complete - full power enabled");
+            logger.logSoftStartComplete();
         }
     }
 
@@ -343,29 +329,16 @@ void loop() {
 
     updateDisplayValues(I1_display, I2_display, current_duty, current_state);
 
-    Serial.print("Target: ");
-    Serial.print(target_total_current, 2);
-    Serial.print("A | Measured: ");
-    Serial.print(I_total, 2);
-    Serial.print("A | TEC1: ");
-    Serial.print(I1_display, 2);
-    Serial.print("A | TEC2: ");
-    Serial.print(I2_display, 2);
-    Serial.print("A | Duty: ");
-    Serial.print(current_duty * 100.0f, 1);
-    Serial.print("% | Error: ");
-    Serial.print(error, 3);
-    Serial.println("A");
+    logger.logMeasurements(target_total_current, I_total, I1_display,
+                           I2_display, current_duty, error);
 
     float current_imbalance = abs(I1_display - I2_display);
     if (current_imbalance > 0.5f && I_total > 1.0f) {
-        Serial.print("WARNING: Branch current imbalance detected: ");
-        Serial.print(current_imbalance, 2);
-        Serial.println("A");
+        logger.logWarningImbalance(current_imbalance);
     }
 
     if (I_total > (TARGET_CURRENT_PER_TEC * 2.5f)) {
-        Serial.println("ERROR: Overcurrent detected - shutting down");
+        logger.logErrorOvercurrent();
         current_state = STATE_ERROR;
 
         setPwmDuty(0.0f);
