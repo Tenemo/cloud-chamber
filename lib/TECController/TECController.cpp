@@ -9,6 +9,10 @@ TECController::TECController(Logger &logger)
       _adc_max_value((1 << 12) - 1) {}
 
 void TECController::begin() {
+    // Configure status LED
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, LOW);
+
     // Configure enable pins
     pinMode(PIN_L_EN, OUTPUT);
     pinMode(PIN_R_EN, OUTPUT);
@@ -46,6 +50,9 @@ bool TECController::calibrateSensors() {
 
 void TECController::startPowerDetection() {
     _logger.logWaitingForPower();
+
+    // Enable status LED to indicate system is active
+    digitalWrite(STATUS_LED_PIN, HIGH);
 
     // Enable H-bridge
     digitalWrite(PIN_L_EN, HIGH);
@@ -87,7 +94,7 @@ bool TECController::handleWaitingForPower(float total_current,
                                           float &current_duty) {
     if (total_current >= DETECTION_THRESHOLD) {
         _logger.logPowerDetected(total_current);
-        _logger.logSoftStartBegin(TARGET_CURRENT_PER_TEC, MAX_DUTY);
+        _logger.logSoftStartBegin();
         _state = STATE_SOFT_START;
         _soft_start_begin_time = millis();
         return true;
@@ -249,8 +256,7 @@ void TECController::emergencyShutdown() {
     digitalWrite(PIN_R_EN, LOW);
 }
 
-void TECController::update(unsigned long control_interval_ms,
-                           unsigned long display_interval_ms) {
+void TECController::update() {
     unsigned long current_time = millis();
 
     // Read currents
@@ -266,8 +272,7 @@ void TECController::update(unsigned long control_interval_ms,
             handleWaitingForPower(total_current, current_duty);
 
         // Update display and return if still waiting
-        _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state,
-                              TARGET_CURRENT_PER_TEC, display_interval_ms);
+        _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
 
         if (!power_detected) {
             return;
@@ -279,13 +284,12 @@ void TECController::update(unsigned long control_interval_ms,
     }
 
     // Compute control output
-    float dt = control_interval_ms / 1000.0f;
+    float dt = CONTROL_INTERVAL_MS / 1000.0f;
     computeControl(target_total_current, total_current, tec1_current,
                    tec2_current, dt, current_duty);
 
     // Update display
-    _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state,
-                          TARGET_CURRENT_PER_TEC, display_interval_ms);
+    _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
 
     // Log measurements if significant change
     float error = target_total_current - total_current;
