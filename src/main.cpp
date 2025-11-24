@@ -15,7 +15,7 @@
  * The system drives TECs using a BTS7960 H-Bridge in a custom "Buck Converter"
  * configuration to provide smooth DC power rather than raw PWM (which degrades
  * TEC efficiency):
- * * 1. Source: 24V DC Power Supply.
+ * 1. Source: 24V DC Power Supply.
  * 2. Driver: BTS7960 H-Bridge. Both L_EN and R_EN are held HIGH to enable the
  * bridge.
  * 3. Switching:
@@ -36,82 +36,44 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
-#include "CurrentSensor.h"
 #include "Display.h"
 #include "Logger.h"
-#include "PIController.h"
+#include "TECController.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-// Current sensor & H-bridge pins
+// === HARDWARE CONFIGURATION ===
 constexpr int PIN_ACS1 = A1; // GPIO5  - CJMCU #1 (TEC1 branch)
 constexpr int PIN_ACS2 = A2; // GPIO6  - CJMCU #2 (TEC2 branch)
 constexpr int PIN_RPWM = A0; // GPIO4  - BTS7960 RPWM
 constexpr int PIN_L_EN = A4; // GPIO10 - BTS7960 L_EN
 constexpr int PIN_R_EN = D9; // GPIO0  - BTS7960 R_EN
 
-// PWM configuration
-constexpr int PWM_CHANNEL = 0;
-constexpr int PWM_FREQ_HZ = 25000; // 25 kHz
-constexpr int PWM_RES_BITS = 10;   // 10-bit resolution (0-1023)
-
-// ACS758 sensor parameters (powered from 3.3V)
-constexpr float ADC_REF_V = 3.3f;
-constexpr int ADC_MAX = 4095;
-constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
-
-// TEC control parameters
-constexpr float TARGET_CURRENT_PER_TEC =
-    3.00f;                             // Amperes per TEC (also hard limit)
-constexpr float MAX_DUTY_TEST = 0.65f; // 65% duty limit
+// === CONTROL PARAMETERS ===
+constexpr float TARGET_CURRENT_PER_TEC = 3.00f; // Amperes per TEC
+constexpr float MAX_DUTY = 0.65f;               // 65% duty limit
 constexpr float MIN_DUTY = 0.0f;
-constexpr float CURRENT_TOLERANCE = 0.05f; // ±50mA acceptable deviation
-
-// PI controller gains (tune these based on system response)
 constexpr float KP = 0.02f;          // Proportional gain
 constexpr float KI = 0.001f;         // Integral gain
 constexpr float INTEGRAL_MAX = 0.2f; // Anti-windup limit
 
-// Current filtering parameter
+// === SENSOR PARAMETERS ===
+constexpr float ADC_REF_V = 3.3f;
+constexpr float ACS_SENS = 0.026f;   // 26 mV/A at 3.3V supply
 constexpr float FILTER_ALPHA = 0.2f; // Exponential filter coefficient
-
-// Power detection parameters
-constexpr float DETECTION_DUTY = 0.25f; // 25% duty for power detection
-constexpr float DETECTION_CURRENT_THRESHOLD =
-    0.2f; // 200mA minimum to detect power
-
-// Soft-start parameters
-constexpr unsigned long SOFT_START_DURATION_MS = 5000; // 10 seconds ramp-up
-bool soft_start_complete = false;
-unsigned long soft_start_begin_time = 0;
-
-// System state tracking
-SystemState current_state = STATE_INIT;
-
-// Logger instance
-Logger logger;
-
-// Zero-current offsets (calibrated during setup)
-float acs1_offset_V = 0.0f;
-float acs2_offset_V = 0.0f;
-
-// Number of ADC samples per reading (reduced from 1000 for better performance)
 constexpr int ADC_SAMPLES = 150;
 
-// CurrentSensor instances for TEC1 and TEC2
-CurrentSensor tec1_sensor(PIN_ACS1, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA);
-CurrentSensor tec2_sensor(PIN_ACS2, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA);
+// === TIMING ===
+constexpr unsigned long CONTROL_INTERVAL_MS = 100;     // 10Hz control loop
+constexpr unsigned long DISPLAY_INTERVAL_MS = 250;     // 4Hz display update
+constexpr unsigned long SOFT_START_DURATION_MS = 5000; // 5 seconds ramp-up
 
-// PI controller instance
-PIController pid_controller(KP, KI, MIN_DUTY, MAX_DUTY_TEST, INTEGRAL_MAX);
+// === POWER DETECTION ===
+constexpr float DETECTION_DUTY = 0.25f;
+constexpr float DETECTION_THRESHOLD = 0.2f; // 200mA minimum
 
-// Safety monitoring
-unsigned long last_control_update = 0;
-constexpr unsigned long CONTROL_INTERVAL_MS = 100; // 10Hz control loop
-constexpr unsigned long DISPLAY_INTERVAL_MS = 250; // 4Hz display update
-
-// Display layout constants
+// === DISPLAY LAYOUT ===
 constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;
 constexpr int VALUE_WIDTH = 70;
@@ -122,45 +84,52 @@ constexpr int Y_TOTAL = LINE_HEIGHT * 4;
 constexpr int Y_DUTY = LINE_HEIGHT * 5;
 constexpr int Y_TARGET = LINE_HEIGHT * 6;
 
+// === GLOBAL INSTANCES ===
 Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
+Logger logger;
 
-void setPwmDuty(float duty01) {
-    duty01 = constrain(duty01, MIN_DUTY, MAX_DUTY_TEST);
-    uint32_t maxVal = (1u << PWM_RES_BITS) - 1u;
-    uint32_t val = uint32_t(duty01 * maxVal + 0.5f);
-    ledcWrite(PWM_CHANNEL, val);
-}
+// TEC Controller configuration
+TECController::Config tec_config = {
+    .pin_acs1 = PIN_ACS1,
+    .pin_acs2 = PIN_ACS2,
+    .pin_rpwm = PIN_RPWM,
+    .pin_l_en = PIN_L_EN,
+    .pin_r_en = PIN_R_EN,
+    .adc_ref_v = ADC_REF_V,
+    .acs_sensitivity = ACS_SENS,
+    .filter_alpha = FILTER_ALPHA,
+    .adc_samples = ADC_SAMPLES,
+    .target_current_per_tec = TARGET_CURRENT_PER_TEC,
+    .max_duty = MAX_DUTY,
+    .min_duty = MIN_DUTY,
+    .kp = KP,
+    .ki = KI,
+    .integral_max = INTEGRAL_MAX,
+    .detection_duty = DETECTION_DUTY,
+    .detection_threshold = DETECTION_THRESHOLD,
+    .soft_start_duration_ms = SOFT_START_DURATION_MS,
+    .overcurrent_multiplier = 1.25f // 25% over target triggers shutdown
+};
 
-void calibrateSensors() {
-    current_state = STATE_CALIBRATING;
+TECController tec_controller(tec_config, logger);
 
-    logger.logCalibrationStart();
+unsigned long last_control_update = 0;
+
+void showCalibrationUI(bool success, float offset1, float offset2) {
     display.clear();
     display.printLine("Calibrating sensors...", 0, 20, 1);
     display.printLine("Please wait", 0, 40, 1);
 
-    delay(100);
-
-    // Calibrate both current sensors (50 samples each)
-    bool cal1_success = tec1_sensor.calibrate(50);
-    bool cal2_success = tec2_sensor.calibrate(50);
-
-    if (!cal1_success || !cal2_success) {
+    if (!success) {
         display.printLine("Calibration FAILED!", 0, 60, 1);
-        Serial.println("ERROR: Sensor calibration failed!");
         while (true) {
             delay(1000);
-        } // Halt on calibration failure
+        }
     }
 
-    float acs1_offset_V = tec1_sensor.getOffsetVoltage();
-    float acs2_offset_V = tec2_sensor.getOffsetVoltage();
-
-    logger.logCalibrationResults(acs1_offset_V, acs2_offset_V);
-
     char buf1[32], buf2[32];
-    snprintf(buf1, sizeof(buf1), "ACS1: %.3fV", acs1_offset_V);
-    snprintf(buf2, sizeof(buf2), "ACS2: %.3fV", acs2_offset_V);
+    snprintf(buf1, sizeof(buf1), "ACS1: %.3fV", offset1);
+    snprintf(buf2, sizeof(buf2), "ACS2: %.3fV", offset2);
     display.printLine(buf1, 0, 60, 1);
     display.printLine(buf2, 0, 75, 1);
     display.printLine("Calibration complete", 0, 95, 1);
@@ -174,8 +143,7 @@ void setup() {
     Serial.begin(115200);
     logger.logInitialization();
 
-    current_state = STATE_INIT;
-
+    // Initialize display
     display.begin();
     display.clear();
     display.printLine("TEC Controller", 0, 0, 1);
@@ -185,36 +153,26 @@ void setup() {
     logger.setDisplay(&display, LINE_HEIGHT, VALUE_X, VALUE_WIDTH, Y_STATUS,
                       Y_TEC1, Y_TEC2, Y_TOTAL, Y_DUTY, Y_TARGET);
 
+    // Status LED
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
 
-    pinMode(PIN_L_EN, OUTPUT);
-    pinMode(PIN_R_EN, OUTPUT);
-    digitalWrite(PIN_L_EN, LOW);
-    digitalWrite(PIN_R_EN, LOW);
-
-    ledcSetup(PWM_CHANNEL, PWM_FREQ_HZ, PWM_RES_BITS);
-    ledcAttachPin(PIN_RPWM, PWM_CHANNEL);
-    ledcWrite(PWM_CHANNEL, 0);
-
-    analogReadResolution(12);
-
     delay(1000);
 
-    calibrateSensors();
+    // Initialize TEC controller hardware
+    tec_controller.begin();
 
-    logger.logWaitingForPower();
+    // Calibrate sensors
+    bool cal_success = tec_controller.calibrateSensors();
+    float offset1, offset2;
+    tec_controller.getCalibrationOffsets(offset1, offset2);
+    showCalibrationUI(cal_success, offset1, offset2);
 
-    digitalWrite(PIN_L_EN, HIGH);
-    digitalWrite(PIN_R_EN, HIGH);
+    // Start power detection
     digitalWrite(STATUS_LED_PIN, HIGH);
+    tec_controller.startPowerDetection();
 
-    // Start with detection duty to check for power
-    setPwmDuty(DETECTION_DUTY);
-    current_state = STATE_WAITING_FOR_POWER;
     last_control_update = millis();
-
-    logger.logControlActive();
 }
 
 void loop() {
@@ -225,127 +183,6 @@ void loop() {
     }
     last_control_update = current_time;
 
-    // Read current from both sensors (with filtering)
-    float I1_raw = tec1_sensor.readCurrent(ADC_SAMPLES);
-    float I2_raw = tec2_sensor.readCurrent(ADC_SAMPLES);
-
-    // Apply small current clamping to reduce noise
-    float I1_display = CurrentSensor::clampSmallCurrent(I1_raw);
-    float I2_display = CurrentSensor::clampSmallCurrent(I2_raw);
-    float I_total = I1_display + I2_display;
-
-    float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
-
-    // Handle state machine
-    if (current_state == STATE_WAITING_FOR_POWER) {
-        // Keep detection duty and wait for current
-        if (I_total >= DETECTION_CURRENT_THRESHOLD) {
-            logger.logPowerDetected(I_total);
-            logger.logSoftStartBegin(TARGET_CURRENT_PER_TEC, MAX_DUTY_TEST);
-            current_state = STATE_SOFT_START;
-            soft_start_begin_time = current_time;
-        } else {
-            // Stay at detection duty, don't run PI controller
-            setPwmDuty(DETECTION_DUTY);
-            float current_duty = DETECTION_DUTY;
-            logger.updateDisplay(I1_display, I2_display, current_duty,
-                                 current_state, TARGET_CURRENT_PER_TEC,
-                                 DISPLAY_INTERVAL_MS);
-            return;
-        }
-    }
-
-    if (current_state == STATE_SOFT_START) {
-        unsigned long elapsed = current_time - soft_start_begin_time;
-        if (elapsed < SOFT_START_DURATION_MS) {
-            float ramp_fraction = (float)elapsed / SOFT_START_DURATION_MS;
-            target_total_current *= ramp_fraction;
-        } else {
-            soft_start_complete = true;
-            current_state = STATE_RUNNING;
-            logger.logSoftStartComplete();
-        }
-    }
-
-    // Check if any individual TEC exceeds its limit
-    bool tec_limit_exceeded = (I1_display > TARGET_CURRENT_PER_TEC) ||
-                              (I2_display > TARGET_CURRENT_PER_TEC);
-
-    float error = target_total_current - I_total;
-    float dt = CONTROL_INTERVAL_MS / 1000.0f; // Convert to seconds
-
-    float current_duty;
-
-    // If any TEC exceeds limit, force duty reduction
-    if (tec_limit_exceeded) {
-        // Reset PI controller and force duty reduction
-        pid_controller.reset();
-        current_duty =
-            pid_controller.getOutput() - 0.01f; // Aggressive reduction
-        current_duty = constrain(current_duty, MIN_DUTY, MAX_DUTY_TEST);
-        // Manually set the output for next iteration
-        pid_controller.setOutputLimits(MIN_DUTY, MAX_DUTY_TEST);
-    } else {
-        // Normal PI control
-        current_duty = pid_controller.compute(error, dt);
-    }
-
-    setPwmDuty(current_duty);
-
-    logger.updateDisplay(I1_display, I2_display, current_duty, current_state,
-                         TARGET_CURRENT_PER_TEC, DISPLAY_INTERVAL_MS);
-
-    CurrentMeasurements measurements = {I1_display, I2_display, I_total,
-                                        current_duty, error};
-    if (logger.shouldLogMeasurements(measurements)) {
-        logger.logMeasurements(target_total_current, I_total, I1_display,
-                               I2_display, current_duty, error);
-    }
-
-    float current_imbalance = abs(I1_display - I2_display);
-    if (current_imbalance > 1.0f && I_total > 1.0f) {
-        logger.logWarningImbalance(current_imbalance);
-    }
-
-    if (I_total > (TARGET_CURRENT_PER_TEC * 2.5f)) {
-        logger.logErrorOvercurrent();
-        current_state = STATE_ERROR;
-
-        setPwmDuty(0.0f);
-        digitalWrite(PIN_L_EN, LOW);
-        digitalWrite(PIN_R_EN, LOW);
-        digitalWrite(STATUS_LED_PIN, LOW);
-
-        display.clear();
-        display.printLine("ERROR: OVERCURRENT", 0, 30, 1);
-        display.printLine("System shutdown", 0, 45, 1);
-
-        while (true) {
-            // Continue reading and logging current values
-            float I1_error = tec1_sensor.readCurrent(ADC_SAMPLES);
-            float I2_error = tec2_sensor.readCurrent(ADC_SAMPLES);
-            float I1_clamped = CurrentSensor::clampSmallCurrent(I1_error);
-            float I2_clamped = CurrentSensor::clampSmallCurrent(I2_error);
-            float I_total_error = I1_clamped + I2_clamped;
-
-            float volts1 =
-                tec1_sensor.getOffsetVoltage() + (I1_error * ACS_SENS);
-            float volts2 =
-                tec2_sensor.getOffsetVoltage() + (I2_error * ACS_SENS);
-
-            Serial.print("OVERCURRENT - TEC1: ");
-            Serial.print(I1_clamped, 2);
-            Serial.print("A (");
-            Serial.print(volts1, 3);
-            Serial.print("V) | TEC2: ");
-            Serial.print(I2_clamped, 2);
-            Serial.print("A (");
-            Serial.print(volts2, 3);
-            Serial.print("V) | Total: ");
-            Serial.print(I_total_error, 2);
-            Serial.println("A");
-
-            delay(1000);
-        }
-    }
+    // Main control loop - all logic encapsulated in TECController
+    tec_controller.update(CONTROL_INTERVAL_MS, DISPLAY_INTERVAL_MS);
 }
