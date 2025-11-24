@@ -13,7 +13,7 @@ constexpr int PIN_RPWM = A0; // GPIO4
 constexpr int PIN_L_EN = A4; // GPIO10
 constexpr int PIN_R_EN = D9; // GPIO0
 
-constexpr float TARGET_CURRENT_PER_TEC = 3.00f;
+constexpr float TARGET_CURRENT_PER_TEC = 3.50f;
 constexpr float MAX_DUTY = 0.60f;
 constexpr float MIN_DUTY = 0.0f;
 
@@ -29,9 +29,9 @@ constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 constexpr float FILTER_ALPHA = 0.15f; // Faster response
 constexpr int ADC_SAMPLES = 300;      // Good accuracy, faster reading
 
-// 20 Hz control loop - responsive current control
-constexpr unsigned long CONTROL_INTERVAL_MS = 50;
-constexpr unsigned long DISPLAY_INTERVAL_MS = 250;
+// 10 Hz control loop - slightly slower, still responsive
+constexpr unsigned long CONTROL_INTERVAL_MS = 200;
+constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
 constexpr unsigned long SOFT_START_DURATION_MS = 5000;
 
 constexpr float DETECTION_DUTY = 0.25f;
