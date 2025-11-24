@@ -25,15 +25,21 @@ constexpr int ADC_MAX = 4095;
 constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
-constexpr float TARGET_CURRENT_PER_TEC = 2.0f; // Amperes per TEC
-constexpr float MAX_DUTY_TEST = 0.40f;         // 40% duty limit for testing
+constexpr float TARGET_CURRENT_PER_TEC = 4.0f; // Amperes per TEC
+constexpr float MAX_DUTY_TEST = 0.50f;         // 50% duty limit
 constexpr float MIN_DUTY = 0.0f;
-constexpr float CURRENT_TOLERANCE = 0.05f; // ±50mA acceptable deviation
+constexpr float MAX_CURRENT_PER_TEC = 4.0f; // Hard limit per TEC
+constexpr float CURRENT_TOLERANCE = 0.05f;  // ±50mA acceptable deviation
 
 // PI controller gains (tune these based on system response)
 constexpr float KP = 0.02f;          // Proportional gain
 constexpr float KI = 0.001f;         // Integral gain
 constexpr float INTEGRAL_MAX = 0.2f; // Anti-windup limit
+
+// Power detection parameters
+constexpr float DETECTION_DUTY = 0.05f; // 5% duty for power detection
+constexpr float DETECTION_CURRENT_THRESHOLD =
+    0.2f; // 200mA minimum to detect power
 
 // Soft-start parameters
 constexpr unsigned long SOFT_START_DURATION_MS = 5000; // 5 seconds ramp-up
@@ -61,7 +67,6 @@ float current_duty = 0.0f;
 
 // Safety monitoring
 unsigned long last_control_update = 0;
-unsigned long last_display_update = 0;
 constexpr unsigned long CONTROL_INTERVAL_MS = 100; // 10Hz control loop
 constexpr unsigned long DISPLAY_INTERVAL_MS = 250; // 4Hz display update
 
@@ -76,16 +81,7 @@ constexpr int Y_TOTAL = LINE_HEIGHT * 4;
 constexpr int Y_DUTY = LINE_HEIGHT * 5;
 constexpr int Y_TARGET = LINE_HEIGHT * 6;
 
-// Previous display values to detect changes
-float prev_I1 = -999.0f;
-float prev_I2 = -999.0f;
-float prev_total = -999.0f;
-float prev_duty = -999.0f;
-float prev_target = -999.0f;
-SystemState prev_state = STATE_INIT;
-
 Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
-bool display_initialized = false;
 
 float readCurrentA(int adcPin, float offsetV) {
     long rawSum = 0;
@@ -108,96 +104,6 @@ void setPwmDuty(float duty01) {
     uint32_t maxVal = (1u << PWM_RES_BITS) - 1u;
     uint32_t val = uint32_t(duty01 * maxVal + 0.5f);
     ledcWrite(PWM_CHANNEL, val);
-}
-
-void initializeDisplayLayout() {
-    display.clear();
-    display.printLine("Status:", 0, Y_STATUS, 1);
-    display.printLine("TEC1:", 0, Y_TEC1, 1);
-    display.printLine("TEC2:", 0, Y_TEC2, 1);
-    display.printLine("Total:", 0, Y_TOTAL, 1);
-    display.printLine("Duty:", 0, Y_DUTY, 1);
-    display.printLine("Target:", 0, Y_TARGET, 1);
-    display_initialized = true;
-
-    // Reset previous values to force first update
-    prev_I1 = -999.0f;
-    prev_I2 = -999.0f;
-    prev_total = -999.0f;
-    prev_duty = -999.0f;
-    prev_target = -999.0f;
-    prev_state = STATE_INIT;
-}
-
-void clearValueArea(int y) {
-    display.fillBox(VALUE_X, y, VALUE_WIDTH, LINE_HEIGHT, 0x0000);
-}
-
-void updateDisplayValues(float I1, float I2, float duty, SystemState state) {
-    unsigned long current_time = millis();
-
-    if (current_time - last_display_update < DISPLAY_INTERVAL_MS) {
-        return;
-    }
-    last_display_update = current_time;
-
-    if (!display_initialized) {
-        initializeDisplayLayout();
-    }
-
-    char buf[32];
-    float total = I1 + I2;
-    float target = TARGET_CURRENT_PER_TEC * 2.0f;
-
-    // Update status only if changed
-    if (state != prev_state) {
-        clearValueArea(Y_STATUS);
-        const char *status_text =
-            (state == STATE_SOFT_START) ? "SOFT START" : "RUNNING";
-        snprintf(buf, sizeof(buf), "%s", status_text);
-        display.printLine(buf, VALUE_X, Y_STATUS, 1);
-        prev_state = state;
-    }
-
-    // Update TEC1 current only if changed significantly
-    if (abs(I1 - prev_I1) > 0.01f) {
-        clearValueArea(Y_TEC1);
-        snprintf(buf, sizeof(buf), "%.2f A", I1);
-        display.printLine(buf, VALUE_X, Y_TEC1, 1);
-        prev_I1 = I1;
-    }
-
-    // Update TEC2 current only if changed significantly
-    if (abs(I2 - prev_I2) > 0.01f) {
-        clearValueArea(Y_TEC2);
-        snprintf(buf, sizeof(buf), "%.2f A", I2);
-        display.printLine(buf, VALUE_X, Y_TEC2, 1);
-        prev_I2 = I2;
-    }
-
-    // Update total current only if changed significantly
-    if (abs(total - prev_total) > 0.01f) {
-        clearValueArea(Y_TOTAL);
-        snprintf(buf, sizeof(buf), "%.2f A", total);
-        display.printLine(buf, VALUE_X, Y_TOTAL, 1);
-        prev_total = total;
-    }
-
-    // Update duty cycle only if changed significantly
-    if (abs(duty - prev_duty) > 0.001f) {
-        clearValueArea(Y_DUTY);
-        snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
-        display.printLine(buf, VALUE_X, Y_DUTY, 1);
-        prev_duty = duty;
-    }
-
-    // Target is constant, only update on first draw
-    if (abs(target - prev_target) > 0.01f) {
-        clearValueArea(Y_TARGET);
-        snprintf(buf, sizeof(buf), "%.2f A", target);
-        display.printLine(buf, VALUE_X, Y_TARGET, 1);
-        prev_target = target;
-    }
 }
 
 void calibrateSensors() {
@@ -249,6 +155,10 @@ void setup() {
     display.printLine("TEC Controller", 0, 0, 1);
     display.printLine("Initializing...", 0, 15, 1);
 
+    // Configure logger with display
+    logger.setDisplay(&display, LINE_HEIGHT, VALUE_X, VALUE_WIDTH, Y_STATUS,
+                      Y_TEC1, Y_TEC2, Y_TOTAL, Y_DUTY, Y_TARGET);
+
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
 
@@ -267,18 +177,16 @@ void setup() {
 
     calibrateSensors();
 
-    logger.logSoftStartBegin(TARGET_CURRENT_PER_TEC, MAX_DUTY_TEST);
+    logger.logWaitingForPower();
 
     digitalWrite(PIN_L_EN, HIGH);
     digitalWrite(PIN_R_EN, HIGH);
     digitalWrite(STATUS_LED_PIN, HIGH);
 
-    current_state = STATE_SOFT_START;
-    soft_start_begin_time = millis();
+    // Start with detection duty to check for power
+    setPwmDuty(DETECTION_DUTY);
+    current_state = STATE_WAITING_FOR_POWER;
     last_control_update = millis();
-    last_display_update = millis();
-
-    display_initialized = false;
 
     logger.logControlActive();
 }
@@ -299,11 +207,30 @@ void loop() {
     acs2_filtered_A =
         FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
 
-    float I1_display = (acs1_filtered_A < 0.1f) ? 0.0f : acs1_filtered_A;
-    float I2_display = (acs2_filtered_A < 0.1f) ? 0.0f : acs2_filtered_A;
+    float I1_display = CurrentLogger::clampSmallCurrent(acs1_filtered_A);
+    float I2_display = CurrentLogger::clampSmallCurrent(acs2_filtered_A);
     float I_total = I1_display + I2_display;
 
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
+
+    // Handle state machine
+    if (current_state == STATE_WAITING_FOR_POWER) {
+        // Keep detection duty and wait for current
+        if (I_total >= DETECTION_CURRENT_THRESHOLD) {
+            logger.logPowerDetected(I_total);
+            logger.logSoftStartBegin(TARGET_CURRENT_PER_TEC, MAX_DUTY_TEST);
+            current_state = STATE_SOFT_START;
+            soft_start_begin_time = current_time;
+        } else {
+            // Stay at detection duty, don't run PI controller
+            setPwmDuty(DETECTION_DUTY);
+            current_duty = DETECTION_DUTY;
+            logger.updateDisplay(I1_display, I2_display, current_duty,
+                                 current_state, TARGET_CURRENT_PER_TEC,
+                                 DISPLAY_INTERVAL_MS);
+            return;
+        }
+    }
 
     if (current_state == STATE_SOFT_START) {
         unsigned long elapsed = current_time - soft_start_begin_time;
@@ -317,20 +244,39 @@ void loop() {
         }
     }
 
+    // Check if any individual TEC exceeds its limit
+    bool tec_limit_reached = (I1_display >= MAX_CURRENT_PER_TEC) ||
+                             (I2_display >= MAX_CURRENT_PER_TEC);
+
     float error = target_total_current - I_total;
-    error_integral += error * (CONTROL_INTERVAL_MS / 1000.0f);
-    error_integral = constrain(error_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
+
+    // Only integrate error if we're not at the individual TEC limit
+    if (!tec_limit_reached || error < 0) {
+        error_integral += error * (CONTROL_INTERVAL_MS / 1000.0f);
+        error_integral = constrain(error_integral, -INTEGRAL_MAX, INTEGRAL_MAX);
+    }
 
     float control_output = KP * error + KI * error_integral;
+
+    // If at TEC limit and trying to increase, don't increase duty
+    if (tec_limit_reached && control_output > 0) {
+        control_output = 0;
+    }
+
     current_duty =
         constrain(current_duty + control_output, MIN_DUTY, MAX_DUTY_TEST);
 
     setPwmDuty(current_duty);
 
-    updateDisplayValues(I1_display, I2_display, current_duty, current_state);
+    logger.updateDisplay(I1_display, I2_display, current_duty, current_state,
+                         TARGET_CURRENT_PER_TEC, DISPLAY_INTERVAL_MS);
 
-    logger.logMeasurements(target_total_current, I_total, I1_display,
-                           I2_display, current_duty, error);
+    CurrentMeasurements measurements = {I1_display, I2_display, I_total,
+                                        current_duty, error};
+    if (logger.shouldLogMeasurements(measurements)) {
+        logger.logMeasurements(target_total_current, I_total, I1_display,
+                               I2_display, current_duty, error);
+    }
 
     float current_imbalance = abs(I1_display - I2_display);
     if (current_imbalance > 0.5f && I_total > 1.0f) {
