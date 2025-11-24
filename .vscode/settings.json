@@ -44,6 +44,7 @@
     "msvc",
     "ostream",
     "pclk",
+    "Peltier",
     "PIXFORMAT",
     "pmmmwh",
     "PSRAM",
