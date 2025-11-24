@@ -1,7 +1,6 @@
 #ifndef TEC_CONTROLLER_H
 #define TEC_CONTROLLER_H
 
-#include "CurrentSensor.h"
 #include "Logger.h"
 #include "config.h"
 #include <Arduino.h>
@@ -78,9 +77,14 @@ class TECController {
     float computePI(float error, float dt);
     void resetPI();
 
-    // Component instances
-    CurrentSensor _tec1_sensor;
-    CurrentSensor _tec2_sensor;
+    // Sensor management methods
+    bool calibrateSensor(int pin, float &offset_voltage);
+    float readSensorCurrent(int pin, float offset_voltage,
+                            float &filtered_current);
+    float readAverageVoltage(int pin, int num_samples);
+    static float clampSmallCurrent(float current, float threshold = 0.1f);
+
+    // Component references
     Logger &_logger;
 
     // State
@@ -90,6 +94,14 @@ class TECController {
     // PI controller state
     float _pi_integral;
     float _pi_last_output;
+
+    // Sensor state (TEC1 and TEC2)
+    float _tec1_offset_voltage;
+    float _tec2_offset_voltage;
+    float _tec1_filtered_current;
+    float _tec2_filtered_current;
+    bool _sensors_calibrated;
+    int _adc_max_value;
 
     // PWM channel
     static constexpr int PWM_CHANNEL = 0;

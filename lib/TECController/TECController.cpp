@@ -2,10 +2,11 @@
 #include "config.h"
 
 TECController::TECController(Logger &logger)
-    : _tec1_sensor(PIN_ACS1, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA),
-      _tec2_sensor(PIN_ACS2, ADC_REF_V, 12, ACS_SENS, FILTER_ALPHA),
-      _logger(logger), _state(STATE_INIT), _soft_start_begin_time(0),
-      _pi_integral(0.0f), _pi_last_output(0.0f) {}
+    : _logger(logger), _state(STATE_INIT), _soft_start_begin_time(0),
+      _pi_integral(0.0f), _pi_last_output(0.0f), _tec1_offset_voltage(0.0f),
+      _tec2_offset_voltage(0.0f), _tec1_filtered_current(0.0f),
+      _tec2_filtered_current(0.0f), _sensors_calibrated(false),
+      _adc_max_value((1 << 12) - 1) {}
 
 void TECController::begin() {
     // Configure enable pins
@@ -27,16 +28,19 @@ bool TECController::calibrateSensors() {
     _state = STATE_CALIBRATING;
     _logger.logCalibrationStart();
 
-    bool cal1_success = _tec1_sensor.calibrate(50);
-    bool cal2_success = _tec2_sensor.calibrate(50);
+    bool cal1_success = calibrateSensor(PIN_ACS1, _tec1_offset_voltage);
+    bool cal2_success = calibrateSensor(PIN_ACS2, _tec2_offset_voltage);
 
     if (!cal1_success || !cal2_success) {
         Serial.println("ERROR: Sensor calibration failed!");
         return false;
     }
 
-    _logger.logCalibrationResults(_tec1_sensor.getOffsetVoltage(),
-                                  _tec2_sensor.getOffsetVoltage());
+    _tec1_filtered_current = 0.0f;
+    _tec2_filtered_current = 0.0f;
+    _sensors_calibrated = true;
+
+    _logger.logCalibrationResults(_tec1_offset_voltage, _tec2_offset_voltage);
     return true;
 }
 
@@ -62,11 +66,20 @@ void TECController::setPwmDuty(float duty) {
 }
 
 void TECController::readCurrents(float &tec1, float &tec2, float &total) {
-    float I1_raw = _tec1_sensor.readCurrent(ADC_SAMPLES);
-    float I2_raw = _tec2_sensor.readCurrent(ADC_SAMPLES);
+    if (!_sensors_calibrated) {
+        tec1 = 0.0f;
+        tec2 = 0.0f;
+        total = 0.0f;
+        return;
+    }
 
-    tec1 = CurrentSensor::clampSmallCurrent(I1_raw);
-    tec2 = CurrentSensor::clampSmallCurrent(I2_raw);
+    float I1_raw = readSensorCurrent(PIN_ACS1, _tec1_offset_voltage,
+                                     _tec1_filtered_current);
+    float I2_raw = readSensorCurrent(PIN_ACS2, _tec2_offset_voltage,
+                                     _tec2_filtered_current);
+
+    tec1 = clampSmallCurrent(I1_raw);
+    tec2 = clampSmallCurrent(I2_raw);
     total = tec1 + tec2;
 }
 
@@ -162,8 +175,8 @@ void TECController::handleOvercurrentError() {
         float tec1, tec2, total;
         readCurrents(tec1, tec2, total);
 
-        float volts1 = _tec1_sensor.getOffsetVoltage() + (tec1 * ACS_SENS);
-        float volts2 = _tec2_sensor.getOffsetVoltage() + (tec2 * ACS_SENS);
+        float volts1 = _tec1_offset_voltage + (tec1 * ACS_SENS);
+        float volts2 = _tec2_offset_voltage + (tec2 * ACS_SENS);
 
         Serial.print("OVERCURRENT - TEC1: ");
         Serial.print(tec1, 2);
@@ -181,10 +194,53 @@ void TECController::handleOvercurrentError() {
     }
 }
 
+bool TECController::calibrateSensor(int pin, float &offset_voltage) {
+    const int num_samples = 50;
+    float voltage = readAverageVoltage(pin, num_samples);
+
+    // Sanity check: offset should be roughly half of reference voltage
+    if (voltage < 0.1f || voltage > (ADC_REF_V - 0.1f)) {
+        return false;
+    }
+
+    offset_voltage = voltage;
+    return true;
+}
+
+float TECController::readSensorCurrent(int pin, float offset_voltage,
+                                       float &filtered_current) {
+    float voltage = readAverageVoltage(pin, ADC_SAMPLES);
+    float delta_voltage = voltage - offset_voltage;
+    float raw_current = delta_voltage / ACS_SENS;
+
+    // Apply exponential moving average filter
+    filtered_current =
+        FILTER_ALPHA * raw_current + (1.0f - FILTER_ALPHA) * filtered_current;
+
+    return filtered_current;
+}
+
+float TECController::readAverageVoltage(int pin, int num_samples) {
+    long raw_sum = 0;
+
+    for (int i = 0; i < num_samples; i++) {
+        raw_sum += analogRead(pin);
+    }
+
+    float raw_avg = (float)raw_sum / num_samples;
+    float voltage = raw_avg * (ADC_REF_V / _adc_max_value);
+
+    return voltage;
+}
+
+float TECController::clampSmallCurrent(float current, float threshold) {
+    return (abs(current) < threshold) ? 0.0f : current;
+}
+
 void TECController::getCalibrationOffsets(float &offset1,
                                           float &offset2) const {
-    offset1 = _tec1_sensor.getOffsetVoltage();
-    offset2 = _tec2_sensor.getOffsetVoltage();
+    offset1 = _tec1_offset_voltage;
+    offset2 = _tec2_offset_voltage;
 }
 
 void TECController::emergencyShutdown() {
