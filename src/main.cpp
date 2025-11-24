@@ -29,9 +29,18 @@ float acs1_offset_V = 0.0f;
 float acs2_offset_V = 0.0f;
 
 float readCurrentA(int adcPin, float offsetV) {
-    int raw = analogRead(adcPin);
-    float volts = raw * (ADC_REF_V / ADC_MAX);
-    float delta = volts - offsetV; // positive when current flows in IP+ -> IP-
+    const int numSamples = 100;
+    uint32_t sum = 0;
+
+    // Collect samples over ~10ms (100 samples with 100μs spacing)
+    for (int i = 0; i < numSamples; i++) {
+        sum += analogRead(adcPin);
+        delayMicroseconds(100);
+    }
+
+    float avgRaw = sum / float(numSamples);
+    float volts = avgRaw * (ADC_REF_V / ADC_MAX);
+    float delta = volts - offsetV;
     float amps = delta / ACS_SENS;
     return amps;
 }
@@ -104,9 +113,8 @@ void setup() {
 
 void loop() {
     // Duty sweep for 24V LED strip (18V min = 75% duty, up to 95%)
-    static float duty = 0.75f;    // Start at 75% (18V)
-    static float delta = 0.0005f; // 10x smaller steps for smoother dimming
-
+    static float duty = 0.75f; // Start at 75% (18V)
+    static float delta = 0.01f;
     // Set PWM duty
     setPwmDuty(duty);
 
@@ -117,15 +125,15 @@ void loop() {
 
     Serial.print("Duty=");
     Serial.print(duty, 3);
-    Serial.print("  I1=");
-    Serial.print(I1, 3);
-    Serial.print(" A  I2=");
+    // Serial.print("  I1=");
+    //  Serial.print(I1, 3);
+    Serial.print(" | I2=");
     Serial.print(I2, 3);
-    Serial.print(" A  Itotal=");
-    Serial.print(Itotal, 3);
+    //  Serial.print(" A  Itotal=");
+    // Serial.print(Itotal, 3);
     Serial.println(" A");
 
-    delay(5); // 10x faster updates
+    delay(500); // 10x faster updates
 
     // Update duty for next loop
     duty += delta;
