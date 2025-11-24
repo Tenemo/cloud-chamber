@@ -36,7 +36,6 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
-#include "Display.h"
 #include "Logger.h"
 #include "TECController.h"
 #include "config.h"
@@ -44,33 +43,10 @@
 #include <esp_task_wdt.h>
 
 // === GLOBAL INSTANCES ===
-Display display(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
 Logger logger;
 TECController tec_controller(logger);
 
 unsigned long last_control_update = 0;
-
-void showCalibrationUI(bool success, float offset1, float offset2) {
-    display.clear();
-    display.printLine("Calibrating sensors...", 0, 20, 1);
-    display.printLine("Please wait", 0, 40, 1);
-
-    if (!success) {
-        display.printLine("Calibration FAILED!", 0, 60, 1);
-        while (true) {
-            delay(1000);
-        }
-    }
-
-    char buf1[32], buf2[32];
-    snprintf(buf1, sizeof(buf1), "ACS1: %.3fV", offset1);
-    snprintf(buf2, sizeof(buf2), "ACS2: %.3fV", offset2);
-    display.printLine(buf1, 0, 60, 1);
-    display.printLine(buf2, 0, 75, 1);
-    display.printLine("Calibration complete", 0, 95, 1);
-
-    delay(2000);
-}
 
 void setup() {
     esp_log_level_set("*", ESP_LOG_ERROR);
@@ -78,15 +54,13 @@ void setup() {
     Serial.begin(115200);
     logger.logInitialization();
 
-    // Initialize display
-    display.begin();
-    display.clear();
-    display.printLine("TEC Controller", 0, 0, 1);
-    display.printLine("Initializing...", 0, 15, 1);
+    // Initialize display via logger
+    logger.initializeDisplay(TFT_DC, TFT_CS, TFT_RST, LCD_BL);
+    logger.showStartupScreen();
 
-    // Configure logger with display
-    logger.setDisplay(&display, LINE_HEIGHT, VALUE_X, VALUE_WIDTH, Y_STATUS,
-                      Y_TEC1, Y_TEC2, Y_TOTAL, Y_DUTY, Y_TARGET);
+    // Configure logger display layout
+    logger.setDisplayLayout(LINE_HEIGHT, VALUE_X, VALUE_WIDTH, Y_STATUS, Y_TEC1,
+                            Y_TEC2, Y_TOTAL, Y_DUTY, Y_TARGET);
 
     // Status LED
     pinMode(STATUS_LED_PIN, OUTPUT);
@@ -101,7 +75,13 @@ void setup() {
     bool cal_success = tec_controller.calibrateSensors();
     float offset1, offset2;
     tec_controller.getCalibrationOffsets(offset1, offset2);
-    showCalibrationUI(cal_success, offset1, offset2);
+    logger.showCalibrationUI(cal_success, offset1, offset2);
+
+    if (!cal_success) {
+        while (true) {
+            delay(1000);
+        }
+    }
 
     // Start power detection
     digitalWrite(STATUS_LED_PIN, HIGH);

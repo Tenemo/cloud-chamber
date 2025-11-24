@@ -1,9 +1,8 @@
 #ifndef LOGGER_H
 #define LOGGER_H
 
+#include "DFRobot_GDL.h"
 #include <Arduino.h>
-
-class Display; // Forward declaration
 
 enum SystemState {
     STATE_INIT,
@@ -42,18 +41,20 @@ class Logger {
     void logWarningImbalance(float imbalance);
     void logErrorOvercurrent();
 
-    // Process raw current measurements with clamping
-    static float clampSmallCurrent(float current, float threshold = 0.1f);
+    // Display initialization and control
+    void initializeDisplay(int8_t dc, int8_t cs, int8_t rst, int8_t backlight);
+    void showCalibrationUI(bool success, float offset1, float offset2);
+    void showStartupScreen();
 
     // Check if measurement values have changed significantly
     bool shouldLogMeasurements(const CurrentMeasurements &measurements,
                                float change_threshold = 0.01f);
 
     // Display update methods
-    void setDisplay(Display *disp, int line_height, int value_x,
-                    int value_width, int y_status, int y_tec1, int y_tec2,
-                    int y_total, int y_duty, int y_target);
-    void initializeDisplay(float target_current_per_tec);
+    void setDisplayLayout(int line_height, int value_x, int value_width,
+                          int y_status, int y_tec1, int y_tec2, int y_total,
+                          int y_duty, int y_target);
+    void initializeDisplayLayout(float target_current_per_tec);
     void updateDisplay(float tec1_current, float tec2_current, float duty,
                        SystemState state, float target_current_per_tec,
                        unsigned long display_interval_ms);
@@ -62,6 +63,9 @@ class Logger {
     // Helper methods for consistent formatting
     void printSeparator();
     void clearValueArea(int y);
+    void printLine(const char *text, int x, int y, uint8_t textSize = 1);
+    void clearDisplay();
+    void fillBox(int x, int y, int w, int h, uint16_t color);
 
     // Previous values for serial logging change detection
     float prev_tec1_current;
@@ -70,7 +74,8 @@ class Logger {
     float prev_duty;
 
     // Display management
-    Display *display;
+    DFRobot_ST7735_128x160_HW_SPI *_screen;
+    int8_t _backlight;
     bool display_initialized;
     unsigned long last_display_update;
 

@@ -1,5 +1,4 @@
 #include "TECController.h"
-#include "Display.h"
 #include "config.h"
 
 TECController::TECController(Logger &logger)
