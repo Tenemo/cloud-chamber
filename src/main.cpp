@@ -139,18 +139,16 @@ void loop() {
     acs2_filtered_A =
         FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
 
-    // Apply threshold: values below 0.1A are treated as 0
-    if (abs(acs1_filtered_A) < 0.1f)
-        acs1_filtered_A = 0.0f;
-    if (abs(acs2_filtered_A) < 0.1f)
-        acs2_filtered_A = 0.0f;
-
-    float Itotal = acs1_filtered_A + acs2_filtered_A;
+    // Apply threshold for display only (don't modify the filter state)
+    // We are never measuring negative currents, so clamp to zero
+    float I1_display = (acs1_filtered_A < 0.1f) ? 0.0f : acs1_filtered_A;
+    float I2_display = (acs2_filtered_A < 0.1f) ? 0.0f : acs2_filtered_A;
+    float Itotal = I1_display + I2_display;
 
     Serial.print("Duty=");
     Serial.print(duty, 3);
     Serial.print(" | I2=");
-    Serial.print(acs2_filtered_A, 3);
+    Serial.print(I2_display, 3);
     Serial.println(" A");
 
     delay(200);
