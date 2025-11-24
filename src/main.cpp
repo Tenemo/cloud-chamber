@@ -1,8 +1,43 @@
+/*
+ * PROJECT: Portable Muon Cloud Chamber Controller
+ * PLATFORM: ESP32-S3 (FireBeetle 2)
+ *
+ * PURPOSE:
+ * This firmware controls a portable thermoelectric cloud chamber designed to
+ * visualize cosmic ray muons. The system creates a supersaturated alcohol vapor
+ * layer by maintaining a high-precision temperature gradient:
+ * - Cold Plate (Bottom): Cooled to -30°C using cascaded Peltier modules
+ * (TEC2-19006).
+ * - Hot End (Top): Heated/Cooled by a 420mm Liquid AIO cooler and auxiliary
+ * heaters.
+ *
+ * POWER & CONTROL ARCHITECTURE (Synchronous Buck Topology):
+ * The system drives TECs using a BTS7960 H-Bridge in a custom "Buck Converter"
+ * configuration to provide smooth DC power rather than raw PWM (which degrades
+ * TEC efficiency):
+ * * 1. Source: 24V DC Power Supply.
+ * 2. Driver: BTS7960 H-Bridge. Both L_EN and R_EN are held HIGH to enable the
+ * bridge.
+ * 3. Switching:
+ * - Pin RPWM receives the Control PWM signal (25kHz).
+ * - Pin LPWM is directly grounded.
+ * - Because both enables are HIGH, the bridge performs "Active Freewheeling"
+ * (Synchronous Rectification) during the PWM off-state, minimizing losses.
+ * 4. Filtering: The chopped 24V output passes through a high-current LC filter
+ * (Inductor + Capacitor). This integrates the PWM into a stable DC voltage
+ * (V_out ~= V_in * DutyCycle).
+ * 5. Feedback Loop:
+ * - ACS758 Hall-effect sensors measure the actual DC current flowing to the
+ * TECs.
+ * - A PI (Proportional-Integral) loop reads the current and adjusts the PWM
+ * duty cycle to maintain a constant target amperage (Constant Current Mode).
+ */
+
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
-#include "CurrentLogger.h"
 #include "Display.h"
+#include "Logger.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
@@ -26,8 +61,8 @@ constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
 // TEC control parameters
 constexpr float TARGET_CURRENT_PER_TEC =
-    4.00f;                             // Amperes per TEC (also hard limit)
-constexpr float MAX_DUTY_TEST = 0.60f; // 60% duty limit
+    3.50f;                             // Amperes per TEC (also hard limit)
+constexpr float MAX_DUTY_TEST = 0.65f; // 65% duty limit
 constexpr float MIN_DUTY = 0.0f;
 constexpr float CURRENT_TOLERANCE = 0.05f; // ±50mA acceptable deviation
 
@@ -50,7 +85,7 @@ unsigned long soft_start_begin_time = 0;
 SystemState current_state = STATE_INIT;
 
 // Logger instance
-CurrentLogger logger;
+Logger logger;
 
 // Zero-current offsets (calibrated during setup)
 float acs1_offset_V = 0.0f;
@@ -207,8 +242,8 @@ void loop() {
     acs2_filtered_A =
         FILTER_ALPHA * I2_raw + (1.0f - FILTER_ALPHA) * acs2_filtered_A;
 
-    float I1_display = CurrentLogger::clampSmallCurrent(acs1_filtered_A);
-    float I2_display = CurrentLogger::clampSmallCurrent(acs2_filtered_A);
+    float I1_display = Logger::clampSmallCurrent(acs1_filtered_A);
+    float I2_display = Logger::clampSmallCurrent(acs2_filtered_A);
     float I_total = I1_display + I2_display;
 
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
@@ -315,8 +350,8 @@ void loop() {
 
             float I1_error = (volts1 - acs1_offset_V) / ACS_SENS;
             float I2_error = (volts2 - acs2_offset_V) / ACS_SENS;
-            float I1_clamped = CurrentLogger::clampSmallCurrent(I1_error);
-            float I2_clamped = CurrentLogger::clampSmallCurrent(I2_error);
+            float I1_clamped = Logger::clampSmallCurrent(I1_error);
+            float I2_clamped = Logger::clampSmallCurrent(I2_error);
             float I_total_error = I1_clamped + I2_clamped;
 
             Serial.print("OVERCURRENT - TEC1: ");

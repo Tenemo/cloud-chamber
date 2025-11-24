@@ -1,5 +1,5 @@
-#ifndef CURRENT_LOGGER_H
-#define CURRENT_LOGGER_H
+#ifndef LOGGER_H
+#define LOGGER_H
 
 #include <Arduino.h>
 
@@ -22,9 +22,9 @@ struct CurrentMeasurements {
     float error;
 };
 
-class CurrentLogger {
+class Logger {
   public:
-    CurrentLogger();
+    Logger();
 
     void logInitialization();
     void logCalibrationStart();
@@ -94,4 +94,4 @@ class CurrentLogger {
     SystemState prev_display_state;
 };
 
-#endif // CURRENT_LOGGER_H
+#endif // LOGGER_H
