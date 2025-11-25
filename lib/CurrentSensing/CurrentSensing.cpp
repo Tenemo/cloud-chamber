@@ -25,6 +25,7 @@ void CurrentSensing::begin() {
         _logger.registerLine("sensor1", "Sensor1:", "A", 0.0f);
         _logger.registerLine("sensor2", "Sensor2:", "A", 0.0f);
         _logger.registerLine("total", "Total:", "A", 0.0f);
+        _logger.log("Sensors initialized.");
     } else {
         // Show calibration failure
         _logger.updateLineText("sensor1", "CAL FAIL");

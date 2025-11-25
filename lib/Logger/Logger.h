@@ -68,14 +68,13 @@
 #include <map>
 
 struct DisplayLine {
-    String label;      // Display label (e.g., "Temp:", "Sensor1:")
-    String unit;       // Unit suffix (e.g., "°C", "A", "%")
-    String text_value; // For text-based values
-    float num_value;   // Current cached numeric value
-    int slot;          // Y position slot on screen
-    bool is_text;      // True if displaying text, false if displaying number
-    bool initialized;  // Whether this line has been drawn on screen
-    bool uses_wrap;    // True if value wraps to next line due to overflow
+    String label; // Display label (e.g., "Temp:", "Sensor1:")
+    String value; // Current display value (formatted string)
+    String
+        unit; // Unit suffix (e.g., "A", "C", "%") - stored for numeric updates
+    int slot; // Y position slot on screen
+    bool initialized; // Whether this line has been drawn on screen
+    bool uses_wrap;   // True if value wraps to next line due to overflow
 };
 
 struct DisplayLayout {
