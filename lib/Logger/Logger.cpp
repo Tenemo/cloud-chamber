@@ -128,6 +128,7 @@ void Logger::registerLine(const String &name, const String &label,
         // Line already exists, update it
         DisplayLine &line = _lines[name];
         line.value = formatted_value;
+        line.unit = unit; // Update unit field for numeric conversion
 
         // Force redraw by clearing the area and drawing the value
         int y = line.slot * _layout.line_height;

@@ -56,6 +56,7 @@ class CurrentSensing {
     bool _sensors_calibrated;
     int _adc_max_value;
     unsigned long _last_update_time;
+    unsigned long _last_imbalance_warning_time;
 };
 
 #endif // CURRENT_SENSING_H
