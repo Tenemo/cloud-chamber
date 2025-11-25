@@ -17,6 +17,7 @@ void Logger::initializeDisplay() {
     _screen->fillScreen(COLOR_RGB565_BLACK);
     _screen->setTextColor(COLOR_RGB565_WHITE);
     _screen->setTextSize(1);
+    _screen->setTextWrap(false); // Disable automatic text wrapping
     _screen->setCursor(0, 0);
 
     display_initialized = true;
@@ -56,7 +57,13 @@ void Logger::drawLineLabel(const String &label, int slot) {
     if (!_screen)
         return;
     int y = slot * _layout.line_height;
-    printLine(label.c_str(), 0, y, 1);
+
+    // Always print the full label
+    // If it's long, the value will wrap to the next line automatically
+    _screen->setTextSize(1);
+    _screen->setTextColor(COLOR_RGB565_WHITE);
+    _screen->setCursor(0, y);
+    _screen->print(label); // Use print() instead of println() to avoid newline
 }
 
 void Logger::drawLineValue(const DisplayLine &line) {
@@ -64,7 +71,6 @@ void Logger::drawLineValue(const DisplayLine &line) {
         return;
 
     int y = line.slot * _layout.line_height;
-    clearValueArea(y);
 
     char buf[32];
     if (line.is_text) {
@@ -78,7 +84,28 @@ void Logger::drawLineValue(const DisplayLine &line) {
         }
     }
 
-    printLine(buf, _layout.value_x, y, 1);
+    // Check if we need to wrap (either label too long or value too long)
+    int label_width = line.label.length() * 6;
+    int text_width = strlen(buf) * 6;
+    int available_width = 128 - _layout.value_x;
+    bool should_wrap =
+        (label_width > _layout.value_x) || (text_width > available_width);
+
+    if (should_wrap) {
+        // Wrap to next line below label
+        clearValueArea(y); // Clear the original value area
+        fillBox(0, y + _layout.line_height, 128, _layout.line_height, 0x0000);
+        printLine(buf, 0, y + _layout.line_height, 1);
+    } else {
+        // Normal display on same line
+        clearValueArea(y);
+        if (line.uses_wrap) {
+            // Clear wrapped line if we previously used it
+            fillBox(0, y + _layout.line_height, 128, _layout.line_height,
+                    0x0000);
+        }
+        printLine(buf, _layout.value_x, y, 1);
+    }
 }
 
 void Logger::registerLine(const String &name, const String &label,
@@ -92,6 +119,19 @@ void Logger::registerLine(const String &name, const String &label,
         return;
     }
 
+    // Check if label is too long or if value will overflow
+    int label_width = label.length() * 6;
+    char buf[32];
+    if (unit.length() > 0) {
+        snprintf(buf, sizeof(buf), "%.2f %s", initial_value, unit.c_str());
+    } else {
+        snprintf(buf, sizeof(buf), "%.2f", initial_value);
+    }
+    int text_width = strlen(buf) * 6;
+    int available_width = 128 - _layout.value_x;
+    bool will_wrap =
+        (label_width > _layout.value_x) || (text_width > available_width);
+
     DisplayLine line;
     line.label = label;
     line.unit = unit;
@@ -100,6 +140,12 @@ void Logger::registerLine(const String &name, const String &label,
     line.is_text = false;
     line.slot = _layout.next_slot++;
     line.initialized = false;
+    line.uses_wrap = will_wrap;
+
+    // Only reserve extra slot if text actually wraps
+    if (will_wrap) {
+        _layout.next_slot++;
+    }
 
     _lines[name] = line;
 
@@ -121,6 +167,13 @@ void Logger::registerTextLine(const String &name, const String &label,
         return;
     }
 
+    // Check if label is too long or if value will overflow
+    int label_width = label.length() * 6;
+    int text_width = initial_text.length() * 6;
+    int available_width = 128 - _layout.value_x;
+    bool will_wrap =
+        (label_width > _layout.value_x) || (text_width > available_width);
+
     DisplayLine line;
     line.label = label;
     line.unit = "";
@@ -129,6 +182,12 @@ void Logger::registerTextLine(const String &name, const String &label,
     line.is_text = true;
     line.slot = _layout.next_slot++;
     line.initialized = false;
+    line.uses_wrap = will_wrap;
+
+    // Only reserve extra slot if text actually wraps
+    if (will_wrap) {
+        _layout.next_slot++;
+    }
 
     _lines[name] = line;
 
@@ -166,6 +225,17 @@ void Logger::updateLine(const String &name, float value) {
     }
     last_display_update = current_time;
 
+    // Check if text will overflow
+    char buf[32];
+    if (line.unit.length() > 0) {
+        snprintf(buf, sizeof(buf), "%.2f %s", value, line.unit.c_str());
+    } else {
+        snprintf(buf, sizeof(buf), "%.2f", value);
+    }
+    int text_width = strlen(buf) * 6;
+    int available_width = 128 - _layout.value_x;
+    line.uses_wrap = (text_width > available_width);
+
     drawLineValue(line);
 }
 
@@ -195,6 +265,11 @@ void Logger::updateLineText(const String &name, const String &text) {
         return;
     }
     last_display_update = current_time;
+
+    // Check if text will overflow
+    int text_width = text.length() * 6;
+    int available_width = 128 - _layout.value_x;
+    line.uses_wrap = (text_width > available_width);
 
     drawLineValue(line);
 }
