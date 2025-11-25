@@ -349,27 +349,33 @@ void TECController::update() {
     _logger.updateLineText("status", getStateText(_state));
 
     // Serial logging (only when values change significantly)
-    float error = target_total_current - total_current;
-    bool should_log =
-        (abs(tec1_current - prev_tec1) > 0.01f ||
-         abs(tec2_current - prev_tec2) > 0.01f ||
-         abs(total_current - prev_total) > 0.01f ||
-         abs(current_duty - prev_duty) > 0.01f || _state != prev_state);
+    bool should_log = (abs(tec1_current - prev_tec1) > 0.01f ||
+                       abs(tec2_current - prev_tec2) > 0.01f ||
+                       abs(total_current - prev_total) > 0.01f ||
+                       (PWM_ENABLED && abs(current_duty - prev_duty) > 0.01f) ||
+                       _state != prev_state);
 
     if (should_log) {
-        Serial.print("Target: ");
-        Serial.print(target_total_current, 2);
-        Serial.print("A | Measured: ");
-        Serial.print(total_current, 2);
-        Serial.print("A | TEC1: ");
+        Serial.print("TEC1: ");
         Serial.print(tec1_current, 2);
         Serial.print("A | TEC2: ");
         Serial.print(tec2_current, 2);
-        Serial.print("A | Duty: ");
-        Serial.print(current_duty * 100.0f, 1);
-        Serial.print("% | Error: ");
-        Serial.print(error, 3);
-        Serial.println("A");
+        Serial.print("A | Total: ");
+        Serial.print(total_current, 2);
+        Serial.print("A");
+
+        if (PWM_ENABLED) {
+            float error = target_total_current - total_current;
+            Serial.print(" | Target: ");
+            Serial.print(target_total_current, 2);
+            Serial.print("A | Duty: ");
+            Serial.print(current_duty * 100.0f, 1);
+            Serial.print("% | Error: ");
+            Serial.print(error, 3);
+            Serial.print("A");
+        }
+
+        Serial.println();
 
         prev_tec1 = tec1_current;
         prev_tec2 = tec2_current;
