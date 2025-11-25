@@ -7,11 +7,24 @@
 #define LCD_BL 21
 #define STATUS_LED_PIN 8
 
+// System states for TEC controller
+enum SystemState {
+    STATE_INIT,
+    STATE_CALIBRATING,
+    STATE_WAITING_FOR_POWER,
+    STATE_SOFT_START,
+    STATE_RUNNING,
+    STATE_ERROR
+};
+
 constexpr int PIN_ACS1 = A1; // GPIO5
 constexpr int PIN_ACS2 = A2; // GPIO6
 constexpr int PIN_RPWM = A0; // GPIO4
-constexpr int PIN_L_EN = A4; // GPIO10
+constexpr int PIN_L_EN = A4; // GPIO10 (repurposable if H-bridge unused)
 constexpr int PIN_R_EN = D9; // GPIO0
+
+// MAX31865 RTD interface (shares SPI bus with TFT)
+constexpr int PIN_MAX31865_CS = A4; // GPIO10, used as MAX31865 chip select
 
 constexpr float TARGET_CURRENT_PER_TEC = 4.00f;
 constexpr float MAX_DUTY = 0.60f;
@@ -49,11 +62,5 @@ constexpr float TOTAL_OVERCURRENT_MULTIPLIER = 1.25f; // 25% over total target
 constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;
 constexpr int VALUE_WIDTH = 70;
-constexpr int Y_STATUS = 0;
-constexpr int Y_TEC1 = LINE_HEIGHT * 2;
-constexpr int Y_TEC2 = LINE_HEIGHT * 3;
-constexpr int Y_TOTAL = LINE_HEIGHT * 4;
-constexpr int Y_DUTY = LINE_HEIGHT * 5;
-constexpr int Y_TARGET = LINE_HEIGHT * 6;
 
 #endif

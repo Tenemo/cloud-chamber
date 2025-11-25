@@ -27,7 +27,7 @@ void TECController::begin() {
 
 bool TECController::calibrateSensors() {
     _state = STATE_CALIBRATING;
-    _logger.logCalibrationStart();
+    Serial.println("Calibrating current sensors...");
 
     bool cal1_success = calibrateSensor(PIN_ACS1, _tec1_offset_voltage);
     bool cal2_success = calibrateSensor(PIN_ACS2, _tec2_offset_voltage);
@@ -41,12 +41,18 @@ bool TECController::calibrateSensors() {
     _tec2_filtered_current = 0.0f;
     _sensors_calibrated = true;
 
-    _logger.logCalibrationResults(_tec1_offset_voltage, _tec2_offset_voltage);
+    Serial.print("ACS1 zero offset: ");
+    Serial.print(_tec1_offset_voltage, 4);
+    Serial.println(" V");
+    Serial.print("ACS2 zero offset: ");
+    Serial.print(_tec2_offset_voltage, 4);
+    Serial.println(" V");
+
     return true;
 }
 
 void TECController::startPowerDetection() {
-    _logger.logWaitingForPower();
+    Serial.println("Waiting for power supply detection (5% duty test)...");
 
     digitalWrite(STATUS_LED_PIN, HIGH);
     if (PWM_ENABLED) {
@@ -54,7 +60,7 @@ void TECController::startPowerDetection() {
         digitalWrite(PIN_R_EN, HIGH);
         setPwmDuty(DETECTION_DUTY);
         _state = STATE_WAITING_FOR_POWER;
-        _logger.logControlActive();
+        Serial.println("=== TEC Controller Active ===\n");
     } else {
         // PWM disabled: keep bridge off, but still allow current
         // measurements and status display; remain in INIT state.
@@ -94,8 +100,18 @@ void TECController::readCurrents(float &tec1, float &tec2, float &total) {
 bool TECController::handleWaitingForPower(float total_current,
                                           float &current_duty) {
     if (total_current >= DETECTION_THRESHOLD) {
-        _logger.logPowerDetected(total_current);
-        _logger.logSoftStartBegin();
+        Serial.print("Power detected! Initial current: ");
+        Serial.print(total_current, 2);
+        Serial.println(" A");
+
+        Serial.println("Starting soft-start sequence...");
+        Serial.print("Target current per TEC: ");
+        Serial.print(TARGET_CURRENT_PER_TEC, 2);
+        Serial.println(" A");
+        Serial.print("Maximum duty cycle: ");
+        Serial.print(MAX_DUTY * 100.0f, 1);
+        Serial.println("%");
+
         _state = STATE_SOFT_START;
         _soft_start_begin_time = millis();
         return true;
@@ -115,7 +131,7 @@ void TECController::handleSoftStart(unsigned long current_time,
         target_current *= ramp_fraction;
     } else {
         _state = STATE_RUNNING;
-        _logger.logSoftStartComplete();
+        Serial.println("Soft-start complete - full power enabled");
     }
 }
 
@@ -187,7 +203,7 @@ bool TECController::checkOvercurrent(float total_current) {
 }
 
 void TECController::handleOvercurrentError() {
-    _logger.logErrorOvercurrent();
+    Serial.println("ERROR: Overcurrent detected - shutting down");
     _state = STATE_ERROR;
     // Drop duty by 5% immediately on overcurrent, but do not fully
     // power-cycle the bridge here.
@@ -253,8 +269,33 @@ void TECController::emergencyShutdown() {
     digitalWrite(PIN_R_EN, LOW);
 }
 
+const char *getStateText(SystemState state) {
+    switch (state) {
+    case STATE_INIT:
+        return "INIT";
+    case STATE_CALIBRATING:
+        return "CALIB";
+    case STATE_WAITING_FOR_POWER:
+        return "WAIT PWR";
+    case STATE_SOFT_START:
+        return "SOFT START";
+    case STATE_RUNNING:
+        return "RUNNING";
+    case STATE_ERROR:
+        return "ERROR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 void TECController::update() {
     static unsigned long last_time = millis();
+    static float prev_tec1 = -999.0f;
+    static float prev_tec2 = -999.0f;
+    static float prev_total = -999.0f;
+    static float prev_duty = -999.0f;
+    static SystemState prev_state = STATE_INIT;
+
     unsigned long current_time = millis();
 
     float dt = (current_time - last_time) / 1000.0f;
@@ -274,8 +315,12 @@ void TECController::update() {
             bool power_detected =
                 handleWaitingForPower(total_current, current_duty);
 
-            _logger.updateDisplay(tec1_current, tec2_current, current_duty,
-                                  _state);
+            // Update display lines
+            _logger.updateLine("tec1", tec1_current);
+            _logger.updateLine("tec2", tec2_current);
+            _logger.updateLine("total", total_current);
+            _logger.updateLine("duty", current_duty * 100.0f);
+            _logger.updateLineText("status", getStateText(_state));
 
             if (!power_detected) {
                 return;
@@ -293,21 +338,51 @@ void TECController::update() {
         current_duty = 0.0f;
     }
 
-    _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
+    // Update display lines
+    _logger.updateLine("tec1", tec1_current);
+    _logger.updateLine("tec2", tec2_current);
+    _logger.updateLine("total", total_current);
+    if (PWM_ENABLED) {
+        _logger.updateLine("duty", current_duty * 100.0f);
+        _logger.updateLine("target", target_total_current);
+    }
+    _logger.updateLineText("status", getStateText(_state));
 
+    // Serial logging (only when values change significantly)
     float error = target_total_current - total_current;
-    CurrentMeasurements measurements = {tec1_current, tec2_current,
-                                        total_current, current_duty, error};
+    bool should_log =
+        (abs(tec1_current - prev_tec1) > 0.01f ||
+         abs(tec2_current - prev_tec2) > 0.01f ||
+         abs(total_current - prev_total) > 0.01f ||
+         abs(current_duty - prev_duty) > 0.01f || _state != prev_state);
 
-    if (_logger.shouldLogMeasurements(measurements)) {
-        _logger.logMeasurements(target_total_current, total_current,
-                                tec1_current, tec2_current, current_duty,
-                                error);
+    if (should_log) {
+        Serial.print("Target: ");
+        Serial.print(target_total_current, 2);
+        Serial.print("A | Measured: ");
+        Serial.print(total_current, 2);
+        Serial.print("A | TEC1: ");
+        Serial.print(tec1_current, 2);
+        Serial.print("A | TEC2: ");
+        Serial.print(tec2_current, 2);
+        Serial.print("A | Duty: ");
+        Serial.print(current_duty * 100.0f, 1);
+        Serial.print("% | Error: ");
+        Serial.print(error, 3);
+        Serial.println("A");
+
+        prev_tec1 = tec1_current;
+        prev_tec2 = tec2_current;
+        prev_total = total_current;
+        prev_duty = current_duty;
+        prev_state = _state;
     }
 
     float current_imbalance = abs(tec1_current - tec2_current);
     if (current_imbalance > 1.0f && total_current > 1.0f) {
-        _logger.logWarningImbalance(current_imbalance);
+        Serial.print("WARNING: Branch current imbalance detected: ");
+        Serial.print(current_imbalance, 2);
+        Serial.println("A");
     }
 
     if (PWM_ENABLED && checkOvercurrent(total_current)) {
