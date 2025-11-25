@@ -3,7 +3,8 @@
 
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), display_initialized(false),
-      last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0) {}
+      last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0),
+      _spinner_index(0), _last_spinner_update(0) {}
 
 void Logger::initializeDisplay() {
     // Initialize Serial
@@ -283,6 +284,8 @@ void Logger::updateLineText(const String &name, const String &text) {
     drawLineValue(line);
 }
 
+void Logger::update() { updateSpinner(); }
+
 bool Logger::hasLine(const String &name) const {
     return _lines.find(name) != _lines.end();
 }
@@ -292,6 +295,35 @@ void Logger::drawSeparatorLine() {
         return;
     // Draw 1px white line above log area
     _screen->drawFastHLine(0, _log_area_y_start - 1, 128, COLOR_RGB565_WHITE);
+}
+
+void Logger::updateSpinner() {
+    if (!_screen)
+        return;
+
+    unsigned long now = millis();
+
+    // Always check if enough time has passed, regardless of when this is called
+    if (now - _last_spinner_update >= 250) {
+        _last_spinner_update = now;
+
+        // Unicode spinner characters: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
+        const char *spinner_chars[] = {"|", "/", "-", "\\"};
+        _spinner_index = (_spinner_index + 1) % 4;
+
+        // Position: far right, just above separator line
+        int x = 128 - 7; // 6px per char + 1px margin
+        int y = _log_area_y_start - 1 - LINE_HEIGHT;
+
+        // Clear spinner area (7x12 pixels)
+        fillBox(x, y, 7, LINE_HEIGHT, COLOR_RGB565_BLACK);
+
+        // Draw spinner character
+        _screen->setTextSize(1);
+        _screen->setTextColor(COLOR_RGB565_WHITE);
+        _screen->setCursor(x, y);
+        _screen->print(spinner_chars[_spinner_index]);
+    }
 }
 
 void Logger::drawLogArea() {

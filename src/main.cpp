@@ -23,7 +23,6 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-// === GLOBAL INSTANCES ===
 Logger logger;
 CurrentSensing current_sensors(logger);
 PT100Sensor temp_sensor(logger);
@@ -36,12 +35,16 @@ static void initLogging() {
 void setup() {
     initLogging();
 
+    pinMode(STATUS_LED_PIN, OUTPUT);
+    digitalWrite(STATUS_LED_PIN, HIGH);
+
     logger.initializeDisplay();
     current_sensors.begin();
     temp_sensor.begin();
 }
 
 void loop() {
+    logger.update();
     current_sensors.update();
     temp_sensor.update();
 }

@@ -91,6 +91,7 @@ class Logger {
     // Core display management
     void initializeDisplay();
     void clearDisplay();
+    void update(); // Update spinner and other periodic display elements
 
     // Generic KV store interface for display lines
     void registerLine(const String &name, const String &label,
@@ -122,6 +123,10 @@ class Logger {
     DisplayLayout _layout;
     std::map<String, DisplayLine> _lines;
 
+    // Spinner state
+    int _spinner_index;
+    unsigned long _last_spinner_update;
+
     // Live log area
     String _log_lines[10]; // Support up to 10 log lines (configurable via
                            // LOG_AREA_LINES)
@@ -130,6 +135,7 @@ class Logger {
 
     void drawLogArea();
     void drawSeparatorLine();
+    void updateSpinner();
 };
 
 #endif // LOGGER_H
