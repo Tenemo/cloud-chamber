@@ -1,57 +1,17 @@
-/*
- * PROJECT: Portable Muon Cloud Chamber Controller
- * PLATFORM: ESP32-S3 (FireBeetle 2)
- *
- * PURPOSE:
- * This firmware controls a portable thermoelectric cloud chamber designed to
- * visualize cosmic ray muons. The system creates a supersaturated alcohol vapor
- * layer by maintaining a high-precision temperature gradient:
- * - Cold Plate (Bottom): Cooled to -30°C using cascaded Peltier modules
- * (TEC2-19006).
- * - Hot End (Top): Heated/Cooled by a 420mm Liquid AIO cooler and auxiliary
- * heaters.
- *
- * POWER & CONTROL ARCHITECTURE (Synchronous Buck Topology):
- * The system drives TECs using a BTS7960 H-Bridge in a custom "Buck Converter"
- * configuration to provide smooth DC power rather than raw PWM (which degrades
- * TEC efficiency):
- * 1. Source: 24V DC Power Supply.
- * 2. Driver: BTS7960 H-Bridge. Both L_EN and R_EN are held HIGH to enable the
- * bridge.
- * 3. Switching:
- * - Pin RPWM receives the Control PWM signal (25kHz).
- * - Pin LPWM is directly grounded.
- * - Because both enables are HIGH, the bridge performs "Active Freewheeling"
- * (Synchronous Rectification) during the PWM off-state, minimizing losses.
- * 4. Filtering: The chopped 24V output passes through a high-current LC filter
- * (Inductor + Capacitor). This integrates the PWM into a stable DC voltage
- * (V_out ~= V_in * DutyCycle).
- * 5. Feedback Loop:
- * - ACS758 Hall-effect sensors measure the actual DC current flowing to the
- * TECs.
- * - A PI (Proportional-Integral) loop reads the current and adjusts the PWM
- * duty cycle to maintain a constant target amperage (Constant Current Mode).
- */
-
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
 #include "Logger.h"
+#include "PT100.h"
 #include "TECController.h"
 #include "config.h"
-#include <Adafruit_MAX31865.h>
 #include <Arduino.h>
-#include <SPI.h>
 #include <esp_task_wdt.h>
 
 // === GLOBAL INSTANCES ===
 Logger logger;
 TECController tec_controller(logger);
-Adafruit_MAX31865 rtd(PIN_MAX31865_CS);
-
-// MAX31865 Configuration
-#define RNOMINAL 100.0f // PT100
-#define RREF 438.0f     // Measured reference resistor
+PT100Sensor temp_sensor(logger);
 
 unsigned long last_control_update = 0;
 
@@ -117,8 +77,8 @@ void setup() {
         waitForeverOnCalibrationFailure();
     }
 
-    // Initialize MAX31865 RTD interface (3-wire PT100)
-    rtd.begin(MAX31865_3WIRE);
+    // Initialize temperature sensor
+    temp_sensor.begin();
 
     tec_controller.startPowerDetection();
     last_control_update = millis();
@@ -133,14 +93,5 @@ void loop() {
     last_control_update = current_time;
 
     tec_controller.update();
-
-    // Read and log plate temperature
-    float temp_c = rtd.temperature(RNOMINAL, RREF);
-
-    // Register temperature line if not already registered
-    if (!logger.hasLine("temp")) {
-        logger.registerLine("temp", "Temp:", "C", temp_c);
-    } else {
-        logger.updateLine("temp", temp_c);
-    }
+    temp_sensor.update();
 }
