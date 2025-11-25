@@ -30,18 +30,18 @@ void CurrentSensing::begin() {
         _logger.updateLineText("sensor1", "CAL FAIL");
         _logger.updateLineText("sensor2", "CAL FAIL");
         _logger.updateLineText("total", "CAL FAIL");
-        Serial.println("FATAL: Sensor calibration failed!");
+        _logger.log("FATAL: Cal failed");
     }
 }
 
 bool CurrentSensing::calibrateSensors() {
-    Serial.println("Calibrating current sensors...");
+    _logger.log("Calibrating...");
 
     bool cal1_success = calibrateSensor(PIN_ACS1, _sensor1_offset_voltage);
     bool cal2_success = calibrateSensor(PIN_ACS2, _sensor2_offset_voltage);
 
     if (!cal1_success || !cal2_success) {
-        Serial.println("ERROR: Sensor calibration failed!");
+        _logger.log("Cal failed!");
         return false;
     }
 
@@ -49,12 +49,11 @@ bool CurrentSensing::calibrateSensors() {
     _sensor2_filtered_current = 0.0f;
     _sensors_calibrated = true;
 
-    Serial.print("ACS1 zero offset: ");
-    Serial.print(_sensor1_offset_voltage, 4);
-    Serial.println(" V");
-    Serial.print("ACS2 zero offset: ");
-    Serial.print(_sensor2_offset_voltage, 4);
-    Serial.println(" V");
+    char buf[64];
+    snprintf(buf, sizeof(buf), "ACS1: %.4fV", _sensor1_offset_voltage);
+    _logger.log(buf);
+    snprintf(buf, sizeof(buf), "ACS2: %.4fV", _sensor2_offset_voltage);
+    _logger.log(buf);
 
     return true;
 }
@@ -78,19 +77,16 @@ void CurrentSensing::update() {
     _logger.updateLine("sensor2", sensor2_current);
     _logger.updateLine("total", total_current);
 
-    // Serial logging (only when values change significantly)
+    // Log only significant changes
     bool should_log = (abs(sensor1_current - prev_sensor1) > 0.01f ||
                        abs(sensor2_current - prev_sensor2) > 0.01f ||
                        abs(total_current - prev_total) > 0.01f);
 
     if (should_log) {
-        Serial.print("Sensor1: ");
-        Serial.print(sensor1_current, 2);
-        Serial.print("A | Sensor2: ");
-        Serial.print(sensor2_current, 2);
-        Serial.print("A | Total: ");
-        Serial.print(total_current, 2);
-        Serial.println("A");
+        char buf[64];
+        snprintf(buf, sizeof(buf), "S1:%.1fA S2:%.1fA T:%.1fA", sensor1_current,
+                 sensor2_current, total_current);
+        _logger.log(buf);
 
         prev_sensor1 = sensor1_current;
         prev_sensor2 = sensor2_current;
@@ -99,9 +95,9 @@ void CurrentSensing::update() {
 
     float current_imbalance = abs(sensor1_current - sensor2_current);
     if (current_imbalance > 1.0f && total_current > 1.0f) {
-        Serial.print("WARNING: Branch current imbalance detected: ");
-        Serial.print(current_imbalance, 2);
-        Serial.println("A");
+        char buf[64];
+        snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA", current_imbalance);
+        _logger.log(buf);
     }
 }
 

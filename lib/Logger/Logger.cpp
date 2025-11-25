@@ -3,9 +3,15 @@
 
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), display_initialized(false),
-      last_display_update(0), _layout{0} {}
+      last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0) {}
 
 void Logger::initializeDisplay() {
+    // Initialize Serial
+    Serial.begin(115200);
+    while (!Serial && millis() < 1000) {
+        ; // Wait up to 1 second for serial
+    }
+
     _backlight = LCD_BL;
     _layout = {LINE_HEIGHT, VALUE_X, VALUE_WIDTH, 0};
     _screen = new DFRobot_ST7735_128x160_HW_SPI(TFT_DC, TFT_CS, TFT_RST);
@@ -19,6 +25,13 @@ void Logger::initializeDisplay() {
     _screen->setTextSize(1);
     _screen->setTextWrap(false); // Disable automatic text wrapping
     _screen->setCursor(0, 0);
+
+    // Calculate log area position (160px height - (LOG_AREA_LINES *
+    // LINE_HEIGHT) - 1px separator)
+    _log_area_y_start = 160 - (LOG_AREA_LINES * LINE_HEIGHT);
+
+    // Draw separator line
+    drawSeparatorLine();
 
     display_initialized = true;
 }
@@ -286,4 +299,53 @@ void Logger::updateLineText(const String &name, const String &text) {
 
 bool Logger::hasLine(const String &name) const {
     return _lines.find(name) != _lines.end();
+}
+
+void Logger::drawSeparatorLine() {
+    if (!_screen)
+        return;
+    // Draw 1px white line above log area
+    _screen->drawFastHLine(0, _log_area_y_start - 1, 128, COLOR_RGB565_WHITE);
+}
+
+void Logger::drawLogArea() {
+    if (!_screen)
+        return;
+
+    // Clear log area (below separator line)
+    fillBox(0, _log_area_y_start, 128, LOG_AREA_LINES * LINE_HEIGHT,
+            COLOR_RGB565_BLACK);
+
+    // Draw each log line (with 1px margin from separator)
+    for (int i = 0; i < _log_count && i < LOG_AREA_LINES; i++) {
+        int y = _log_area_y_start + (i * LINE_HEIGHT) + 1; // +1 for margin
+        _screen->setTextSize(1);
+        _screen->setTextColor(COLOR_RGB565_WHITE);
+        _screen->setCursor(0, y);
+        _screen->print(_log_lines[i]);
+    }
+}
+
+void Logger::log(const String &message) {
+    // Output to Serial
+    Serial.println(message);
+
+    if (!display_initialized || !_screen)
+        return;
+
+    // Scroll logs if we're at capacity
+    if (_log_count >= LOG_AREA_LINES) {
+        // Shift all logs up
+        for (int i = 0; i < LOG_AREA_LINES - 1; i++) {
+            _log_lines[i] = _log_lines[i + 1];
+        }
+        _log_lines[LOG_AREA_LINES - 1] = message;
+    } else {
+        // Add new log
+        _log_lines[_log_count] = message;
+        _log_count++;
+    }
+
+    // Redraw entire log area
+    drawLogArea();
 }
