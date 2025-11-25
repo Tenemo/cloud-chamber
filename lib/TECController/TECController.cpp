@@ -49,16 +49,24 @@ void TECController::startPowerDetection() {
     _logger.logWaitingForPower();
 
     digitalWrite(STATUS_LED_PIN, HIGH);
-    digitalWrite(PIN_L_EN, HIGH);
-    digitalWrite(PIN_R_EN, HIGH);
-
-    setPwmDuty(DETECTION_DUTY);
-    _state = STATE_WAITING_FOR_POWER;
-
-    _logger.logControlActive();
+    if (PWM_ENABLED) {
+        digitalWrite(PIN_L_EN, HIGH);
+        digitalWrite(PIN_R_EN, HIGH);
+        setPwmDuty(DETECTION_DUTY);
+        _state = STATE_WAITING_FOR_POWER;
+        _logger.logControlActive();
+    } else {
+        // PWM disabled: keep bridge off, but still allow current
+        // measurements and status display; remain in INIT state.
+        setPwmDuty(0.0f);
+        _state = STATE_INIT;
+    }
 }
 
 void TECController::setPwmDuty(float duty) {
+    if (!PWM_ENABLED) {
+        duty = 0.0f;
+    }
     duty = constrain(duty, MIN_DUTY, MAX_DUTY);
     uint32_t maxVal = (1u << PWM_RES_BITS) - 1u;
     uint32_t val = uint32_t(duty * maxVal + 0.5f);
@@ -261,23 +269,29 @@ void TECController::update() {
     float target_total_current = TARGET_CURRENT_PER_TEC * 2.0f;
     float current_duty = _pi_last_output;
 
-    if (_state == STATE_WAITING_FOR_POWER) {
-        bool power_detected =
-            handleWaitingForPower(total_current, current_duty);
+    if (PWM_ENABLED) {
+        if (_state == STATE_WAITING_FOR_POWER) {
+            bool power_detected =
+                handleWaitingForPower(total_current, current_duty);
 
-        _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
+            _logger.updateDisplay(tec1_current, tec2_current, current_duty,
+                                  _state);
 
-        if (!power_detected) {
-            return;
+            if (!power_detected) {
+                return;
+            }
         }
-    }
 
-    if (_state == STATE_SOFT_START) {
-        handleSoftStart(current_time, target_total_current);
-    }
+        if (_state == STATE_SOFT_START) {
+            handleSoftStart(current_time, target_total_current);
+        }
 
-    computeControl(target_total_current, total_current, tec1_current,
-                   tec2_current, dt, current_duty);
+        computeControl(target_total_current, total_current, tec1_current,
+                       tec2_current, dt, current_duty);
+    } else {
+        // PWM disabled: ensure duty is always zero and skip control loop.
+        current_duty = 0.0f;
+    }
 
     _logger.updateDisplay(tec1_current, tec2_current, current_duty, _state);
 
@@ -296,7 +310,7 @@ void TECController::update() {
         _logger.logWarningImbalance(current_imbalance);
     }
 
-    if (checkOvercurrent(total_current)) {
+    if (PWM_ENABLED && checkOvercurrent(total_current)) {
         handleOvercurrentError();
     }
 }
