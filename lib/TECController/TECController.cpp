@@ -52,10 +52,9 @@ bool TECController::calibrateSensors() {
 }
 
 void TECController::startPowerDetection() {
-    Serial.println("Waiting for power supply detection (5% duty test)...");
-
     digitalWrite(STATUS_LED_PIN, HIGH);
     if (PWM_ENABLED) {
+        Serial.println("Waiting for power supply detection (5% duty test)...");
         digitalWrite(PIN_L_EN, HIGH);
         digitalWrite(PIN_R_EN, HIGH);
         setPwmDuty(DETECTION_DUTY);
@@ -63,9 +62,11 @@ void TECController::startPowerDetection() {
         Serial.println("=== TEC Controller Active ===\n");
     } else {
         // PWM disabled: keep bridge off, but still allow current
-        // measurements and status display; remain in INIT state.
+        // measurements and status display; go directly to RUNNING state.
         setPwmDuty(0.0f);
-        _state = STATE_INIT;
+        _state = STATE_RUNNING;
+        Serial.println(
+            "=== TEC Controller Active (PWM Disabled - Monitoring Only) ===\n");
     }
 }
 
@@ -346,7 +347,10 @@ void TECController::update() {
         _logger.updateLine("duty", current_duty * 100.0f);
         _logger.updateLine("target", target_total_current);
     }
-    _logger.updateLineText("status", getStateText(_state));
+    // Show appropriate status - always show RUNNING when PWM disabled
+    const char *display_status =
+        (PWM_ENABLED) ? getStateText(_state) : "RUNNING";
+    _logger.updateLineText("status", display_status);
 
     // Serial logging (only when values change significantly)
     bool should_log = (abs(tec1_current - prev_tec1) > 0.01f ||
