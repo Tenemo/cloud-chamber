@@ -114,8 +114,18 @@ void Logger::registerLine(const String &name, const String &label,
         return;
 
     if (_lines.find(name) != _lines.end()) {
-        // Line already exists, just update it
-        updateLine(name, initial_value);
+        // Line already exists, convert from text to numeric mode
+        DisplayLine &line = _lines[name];
+        line.is_text = false;
+        line.unit = unit;
+        line.num_value = initial_value;
+
+        // Force redraw by clearing the area and drawing the value
+        int y = line.slot * _layout.line_height;
+        fillBox(0, y, 128, _layout.line_height * 2,
+                0x0000); // Clear both lines in case of wrap
+        drawLineLabel(label, line.slot);
+        drawLineValue(line);
         return;
     }
 

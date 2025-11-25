@@ -51,7 +51,7 @@
 #include <map>
 
 struct DisplayLine {
-    String label;      // Display label (e.g., "Temp:", "TEC1:")
+    String label;      // Display label (e.g., "Temp:", "Sensor1:")
     String unit;       // Unit suffix (e.g., "°C", "A", "%")
     String text_value; // For text-based values
     float num_value;   // Current cached numeric value

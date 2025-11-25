@@ -8,8 +8,8 @@
 #define STATUS_LED_PIN 8
 
 // ACS758 Current Sensor Pins
-constexpr int PIN_ACS1 = A1; // GPIO5 - TEC1 current sensor
-constexpr int PIN_ACS2 = A2; // GPIO6 - TEC2 current sensor
+constexpr int PIN_ACS1 = A1; // GPIO5 - Sensor 1 current sensor
+constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
 
 // MAX31865 RTD interface (shares SPI bus with TFT)
 constexpr int PIN_MAX31865_CS = A4; // GPIO10, used as MAX31865 chip select
