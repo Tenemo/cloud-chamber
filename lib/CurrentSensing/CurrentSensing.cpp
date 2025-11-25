@@ -5,7 +5,8 @@ CurrentSensing::CurrentSensing(Logger &logger)
     : _logger(logger), _sensor1_offset_voltage(0.0f),
       _sensor2_offset_voltage(0.0f), _sensor1_filtered_current(0.0f),
       _sensor2_filtered_current(0.0f), _sensors_calibrated(false),
-      _adc_max_value((1 << 12) - 1), _last_update_time(0) {}
+      _adc_max_value((1 << 12) - 1), _last_update_time(0),
+      _last_imbalance_warning_time(0) {}
 
 void CurrentSensing::begin() {
     analogReadResolution(12);
@@ -94,11 +95,15 @@ void CurrentSensing::update() {
         prev_total = total_current;
     }
 
+    // Imbalance warning (throttled to once per second)
     float current_imbalance = abs(sensor1_current - sensor2_current);
     if (current_imbalance > 1.0f && total_current > 1.0f) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA", current_imbalance);
-        _logger.log(buf);
+        if (current_time - _last_imbalance_warning_time >= 1000) {
+            _last_imbalance_warning_time = current_time;
+            char buf[64];
+            snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA", current_imbalance);
+            _logger.log(buf);
+        }
     }
 }
 
