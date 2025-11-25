@@ -31,4 +31,8 @@ constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;
 constexpr int VALUE_WIDTH = 70;
 
+// Live Log Area (bottom of screen)
+constexpr int LOG_AREA_LINES =
+    5; // Number of lines reserved for live logs at bottom
+
 #endif
