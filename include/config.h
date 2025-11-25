@@ -13,7 +13,7 @@ constexpr int PIN_RPWM = A0; // GPIO4
 constexpr int PIN_L_EN = A4; // GPIO10
 constexpr int PIN_R_EN = D9; // GPIO0
 
-constexpr float TARGET_CURRENT_PER_TEC = 3.50f;
+constexpr float TARGET_CURRENT_PER_TEC = 4.00f;
 constexpr float MAX_DUTY = 0.60f;
 constexpr float MIN_DUTY = 0.0f;
 
