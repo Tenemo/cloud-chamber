@@ -12,6 +12,7 @@ void PT100Sensor::begin() {
 
     // Register display line immediately
     _logger.registerLine("temp", "Temp:", "C", 0.0f);
+    _logger.log("PT100 initialized.");
 }
 
 void PT100Sensor::update() {
