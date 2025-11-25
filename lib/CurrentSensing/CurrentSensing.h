@@ -1,21 +1,20 @@
 /**
  * @file CurrentSensing.h
- * @brief Dual ACS758 current sensor interface for monitoring TEC current draw
+ * @brief Dual ACS758 current sensor interface for monitoring current draw
  *
  * USAGE:
  * ------
  * 1. Create instance:
  *    CurrentSensing current_sensors(logger);
  *
- * 2. Initialize and calibrate:
+ * 2. Initialize (calibration happens automatically):
  *    current_sensors.begin();
- *    bool success = current_sensors.calibrateSensors();
  *
  * 3. Update current readings in main loop:
  *    current_sensors.update();
  *
- * The sensor automatically registers itself with the Logger and updates
- * current displays when values change.
+ * The sensor automatically registers display lines, performs background
+ * calibration, and updates current displays when values change.
  */
 
 #ifndef CURRENT_SENSING_H
@@ -30,32 +29,33 @@ class CurrentSensing {
     CurrentSensing(Logger &logger);
 
     void begin();
-    bool calibrateSensors();
     void update();
+    bool isReady() const { return _sensors_calibrated; }
 
-    void getCalibrationOffsets(float &offset1, float &offset2) const;
-    float getTEC1Current() const { return _tec1_filtered_current; }
-    float getTEC2Current() const { return _tec2_filtered_current; }
+    float getSensor1Current() const { return _sensor1_filtered_current; }
+    float getSensor2Current() const { return _sensor2_filtered_current; }
     float getTotalCurrent() const {
-        return _tec1_filtered_current + _tec2_filtered_current;
+        return _sensor1_filtered_current + _sensor2_filtered_current;
     }
 
   private:
+    bool calibrateSensors();
     bool calibrateSensor(int pin, float &offset_voltage);
     float readSensorCurrent(int pin, float offset_voltage,
                             float &filtered_current);
     float readAverageVoltage(int pin, int num_samples);
-    void readCurrents(float &tec1, float &tec2, float &total);
+    void readCurrents(float &sensor1, float &sensor2, float &total);
     static float clampSmallCurrent(float current, float threshold = 0.1f);
 
     Logger &_logger;
 
-    float _tec1_offset_voltage;
-    float _tec2_offset_voltage;
-    float _tec1_filtered_current;
-    float _tec2_filtered_current;
+    float _sensor1_offset_voltage;
+    float _sensor2_offset_voltage;
+    float _sensor1_filtered_current;
+    float _sensor2_filtered_current;
     bool _sensors_calibrated;
     int _adc_max_value;
+    unsigned long _last_update_time;
 };
 
 #endif // CURRENT_SENSING_H
