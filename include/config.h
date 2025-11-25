@@ -2,13 +2,46 @@
 #define CONFIG_H
 
 // ============================================================================
+// FireBeetle 2 ESP32-S3 Pin Definitions (Board Labels → GPIO)
+// ============================================================================
+// Digital Pins
+#define D2 3   // GPIO3  - LCD_DC (used by display)
+#define D3 38  // GPIO38 - LCD_RST (used by display)
+#define D5 7   // GPIO7  - FCS (font chip select)
+#define D6 18  // GPIO18 - LCD_CS (used by display)
+#define D7 9   // GPIO9  - SD_CS (SD card)
+#define D9 0   // GPIO0  - Boot key (avoid)
+#define D10 14 // GPIO14 - BUSY (tear sync)
+#define D11 13 // GPIO13 - INT (touch interrupt)
+#define D12 12 // GPIO12 - TCS (touch chip select)
+#define D13 21 // GPIO21 - LCD_BL (backlight)
+#define D14 47 // GPIO47 - User key
+
+// Analog Pins
+#define A0 4  // GPIO4
+#define A1 5  // GPIO5 - Sensor 1 current sensor
+#define A2 6  // GPIO6 - Sensor 2 current sensor
+#define A3 8  // GPIO8
+#define A4 10 // GPIO10 - MAX31865 (PT100) chip select
+#define A5 11 // GPIO11
+
+// Communication Pins
+#define SCK 17  // GPIO17 - SPI clock
+#define MOSI 15 // GPIO15 - SPI MOSI
+#define MISO 16 // GPIO16 - SPI MISO
+#define SCL 2   // GPIO2  - I2C clock
+#define SDA 1   // GPIO1  - I2C data
+#define TX 43   // GPIO43 - UART TX
+#define RX 44   // GPIO44 - UART RX
+
+// ============================================================================
 // Display Pins (GDI FPC connector - occupied by TFT display)
 // ============================================================================
-#define TFT_DC 3   // GPIO3 - Data/Command selection
-#define TFT_CS 18  // GPIO18 - Display chip select
-#define TFT_RST 38 // GPIO38 - Display reset
-#define LCD_BL 21  // GPIO21 - Backlight control
-// SPI Bus (shared): GPIO15 (MOSI), GPIO16 (MISO), GPIO17 (SCLK)
+#define TFT_DC D2  // GPIO3 - Data/Command selection
+#define TFT_CS D6  // GPIO18 - Display chip select
+#define TFT_RST D3 // GPIO38 - Display reset
+#define LCD_BL D13 // GPIO21 - Backlight control
+// SPI Bus (shared): MOSI (GPIO15), MISO (GPIO16), SCK (GPIO17)
 
 // ============================================================================
 // Sensor Pins
@@ -19,14 +52,14 @@ constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
 
 // MAX31865 RTD interface (shares SPI bus with TFT)
 constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
-// MAX31865 Wiring: SDI→GPIO15, SDO→GPIO16, CLK→GPIO17 (shared SPI bus)
+// MAX31865 Wiring: SDI→MOSI, SDO→MISO, CLK→SCK (shared SPI bus)
 
 // ============================================================================
 // Available GPIO Pins (unused, available for future expansion)
 // ============================================================================
-// GPIO4  (A0)  - ADC capable, general purpose
-// GPIO8  (A3)  - ADC capable, general purpose
-// GPIO11 (A5)  - ADC capable, general purpose
+// A0 (GPIO4)   - ADC capable, general purpose
+// A3 (GPIO8)   - ADC capable, general purpose
+// A5 (GPIO11)  - ADC capable, general purpose
 // GPIO35       - ADC capable, general purpose
 // GPIO36       - ADC capable, general purpose
 // GPIO37       - ADC capable, general purpose
@@ -36,8 +69,13 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // GPIO42       - ADC capable, general purpose
 // GPIO45       - General purpose (no ADC)
 // GPIO48       - General purpose (no ADC)
+// D5 (GPIO7)   - FCS font chip (if not using font library)
+// D7 (GPIO9)   - SD_CS (if not using SD card)
+// D10 (GPIO14) - BUSY (if not using tear sync)
+// D11 (GPIO13) - INT (if not using touch)
+// D12 (GPIO12) - TCS (if not using touch)
 //
-// Note: GPIO0, GPIO19/20 (USB), GPIO43/44 (UART), GPIO46, GPIO47
+// Note: D9 (GPIO0), GPIO19/20 (USB), TX/RX (GPIO43/44), GPIO46, D14 (GPIO47)
 //       should be avoided due to boot/USB/special functions
 
 // ACS758 Current Sensor Configuration
