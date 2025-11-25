@@ -35,9 +35,6 @@ static void initLogging() {
 void setup() {
     initLogging();
 
-    pinMode(STATUS_LED_PIN, OUTPUT);
-    digitalWrite(STATUS_LED_PIN, HIGH);
-
     logger.initializeDisplay();
     current_sensors.begin();
     temp_sensor.begin();

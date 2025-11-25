@@ -10,8 +10,6 @@
 #define LCD_BL 21  // GPIO21 - Backlight control
 // SPI Bus (shared): GPIO15 (MOSI), GPIO16 (MISO), GPIO17 (SCLK)
 
-#define STATUS_LED_PIN 8 // GPIO8 - Onboard status LED
-
 // ============================================================================
 // Sensor Pins
 // ============================================================================
@@ -27,7 +25,7 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // Available GPIO Pins (unused, available for future expansion)
 // ============================================================================
 // GPIO4  (A0)  - ADC capable, general purpose
-// GPIO8  (A3)  - ADC capable, general purpose (currently used for STATUS_LED)
+// GPIO8  (A3)  - ADC capable, general purpose
 // GPIO11 (A5)  - ADC capable, general purpose
 // GPIO35       - ADC capable, general purpose
 // GPIO36       - ADC capable, general purpose
