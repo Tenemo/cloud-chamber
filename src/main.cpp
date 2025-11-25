@@ -39,12 +39,19 @@
 #include "Logger.h"
 #include "TECController.h"
 #include "config.h"
+#include <Adafruit_MAX31865.h>
 #include <Arduino.h>
+#include <SPI.h>
 #include <esp_task_wdt.h>
 
 // === GLOBAL INSTANCES ===
 Logger logger;
 TECController tec_controller(logger);
+Adafruit_MAX31865 rtd(PIN_MAX31865_CS);
+
+// MAX31865 Configuration
+#define RNOMINAL 100.0f // PT100
+#define RREF 438.0f     // Measured reference resistor
 
 unsigned long last_control_update = 0;
 
@@ -58,10 +65,42 @@ static bool initHardwareAndCalibrate() {
     logger.initializeDisplay();
     tec_controller.begin();
 
+    // Show initialization message
+    logger.registerTextLine("init", "Status:", "Initializing...");
+    delay(1000);
+
     bool cal_success = tec_controller.calibrateSensors();
     float offset1, offset2;
     tec_controller.getCalibrationOffsets(offset1, offset2);
-    logger.showStartupSequence(cal_success, offset1, offset2);
+
+    // Show calibration results
+    logger.clearDisplay();
+    if (cal_success) {
+        logger.registerTextLine("cal_status", "Calibration:", "OK");
+
+        char buf1[32], buf2[32];
+        snprintf(buf1, sizeof(buf1), "%.4fV", offset1);
+        snprintf(buf2, sizeof(buf2), "%.4fV", offset2);
+        logger.registerTextLine("acs1_offset", "ACS1:", buf1);
+        logger.registerTextLine("acs2_offset", "ACS2:", buf2);
+    } else {
+        logger.registerTextLine("cal_status", "Calibration:", "FAIL");
+    }
+    delay(2000);
+
+    // Clear and set up main display
+    logger.clearDisplay();
+    logger.registerTextLine("status", "Status:", "INIT");
+    logger.registerLine("tec1", "TEC1:", "A", 0.0f);
+    logger.registerLine("tec2", "TEC2:", "A", 0.0f);
+    logger.registerLine("total", "Total:", "A", 0.0f);
+
+    if (PWM_ENABLED) {
+        logger.registerLine("duty", "Duty:", "%", 0.0f);
+        logger.registerLine("target", "Target:", "A",
+                            TARGET_CURRENT_PER_TEC * 2.0f);
+    }
+
     return cal_success;
 }
 
@@ -78,6 +117,9 @@ void setup() {
         waitForeverOnCalibrationFailure();
     }
 
+    // Initialize MAX31865 RTD interface (3-wire PT100)
+    rtd.begin(MAX31865_3WIRE);
+
     tec_controller.startPowerDetection();
     last_control_update = millis();
 }
@@ -91,4 +133,14 @@ void loop() {
     last_control_update = current_time;
 
     tec_controller.update();
+
+    // Read and log plate temperature
+    float temp_c = rtd.temperature(RNOMINAL, RREF);
+
+    // Register temperature line if not already registered
+    if (!logger.hasLine("temp")) {
+        logger.registerLine("temp", "Temp:", "C", temp_c);
+    } else {
+        logger.updateLine("temp", temp_c);
+    }
 }
