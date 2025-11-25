@@ -101,7 +101,8 @@ void CurrentSensing::update() {
         if (current_time - _last_imbalance_warning_time >= 1000) {
             _last_imbalance_warning_time = current_time;
             char buf[64];
-            snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA", current_imbalance);
+            snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA",
+                     current_imbalance);
             _logger.log(buf);
         }
     }
