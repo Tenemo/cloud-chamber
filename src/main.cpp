@@ -1,19 +1,19 @@
 #define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
 
+#include "CurrentSensing.h"
 #include "Logger.h"
 #include "PT100.h"
-#include "TECController.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
 // === GLOBAL INSTANCES ===
 Logger logger;
-TECController tec_controller(logger);
+CurrentSensing current_sensors(logger);
 PT100Sensor temp_sensor(logger);
 
-unsigned long last_control_update = 0;
+unsigned long last_sensor_update = 0;
 
 static void initLogging() {
     esp_log_level_set("*", ESP_LOG_ERROR);
@@ -23,15 +23,15 @@ static void initLogging() {
 
 static bool initHardwareAndCalibrate() {
     logger.initializeDisplay();
-    tec_controller.begin();
+    current_sensors.begin();
 
     // Show initialization message
     logger.registerTextLine("init", "Status:", "Initializing...");
     delay(1000);
 
-    bool cal_success = tec_controller.calibrateSensors();
+    bool cal_success = current_sensors.calibrateSensors();
     float offset1, offset2;
-    tec_controller.getCalibrationOffsets(offset1, offset2);
+    current_sensors.getCalibrationOffsets(offset1, offset2);
 
     // Show calibration results
     logger.clearDisplay();
@@ -50,16 +50,10 @@ static bool initHardwareAndCalibrate() {
 
     // Clear and set up main display
     logger.clearDisplay();
-    logger.registerTextLine("status", "Status:", "INIT");
+    logger.registerTextLine("status", "Status:", "RUNNING");
     logger.registerLine("tec1", "TEC1:", "A", 0.0f);
     logger.registerLine("tec2", "TEC2:", "A", 0.0f);
     logger.registerLine("total", "Total:", "A", 0.0f);
-
-    if (PWM_ENABLED) {
-        logger.registerLine("duty", "Duty:", "%", 0.0f);
-        logger.registerLine("target", "Target:", "A",
-                            TARGET_CURRENT_PER_TEC * 2.0f);
-    }
 
     return cal_success;
 }
@@ -80,18 +74,18 @@ void setup() {
     // Initialize temperature sensor
     temp_sensor.begin();
 
-    tec_controller.startPowerDetection();
-    last_control_update = millis();
+    Serial.println("=== Cloud Chamber Monitoring System Active ===\n");
+    last_sensor_update = millis();
 }
 
 void loop() {
     unsigned long current_time = millis();
 
-    if (current_time - last_control_update < CONTROL_INTERVAL_MS) {
+    if (current_time - last_sensor_update < SENSOR_UPDATE_INTERVAL_MS) {
         return;
     }
-    last_control_update = current_time;
+    last_sensor_update = current_time;
 
-    tec_controller.update();
+    current_sensors.update();
     temp_sensor.update();
 }
