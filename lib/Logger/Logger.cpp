@@ -93,11 +93,11 @@ void Logger::drawLineValue(const DisplayLine &line) {
 
     if (should_wrap) {
         // Wrap to next line below label
-        clearValueArea(y); // Clear the original value area
+        // Don't clear the label line at all - only clear the wrapped line
         fillBox(0, y + _layout.line_height, 128, _layout.line_height, 0x0000);
         printLine(buf, 0, y + _layout.line_height, 1);
     } else {
-        // Normal display on same line
+        // Normal display on same line - only clear the value area
         clearValueArea(y);
         if (line.uses_wrap) {
             // Clear wrapped line if we previously used it
