@@ -124,8 +124,10 @@ void Logger::initializeDisplayLayout() {
     printLine("TEC1:", 0, _layout.y_tec1, 1);
     printLine("TEC2:", 0, _layout.y_tec2, 1);
     printLine("Total:", 0, _layout.y_total, 1);
-    printLine("Duty:", 0, _layout.y_duty, 1);
-    printLine("Target:", 0, _layout.y_target, 1);
+    if (PWM_ENABLED) {
+        printLine("Duty:", 0, _layout.y_duty, 1);
+        printLine("Target:", 0, _layout.y_target, 1);
+    }
     display_initialized = true;
 
     prev_display_I1 = -999.0f;
@@ -183,23 +185,21 @@ void Logger::updateDisplay(float I1, float I2, float duty, SystemState state) {
         prev_display_total = total;
     }
 
-    if (abs(duty - prev_display_duty) > 0.001f) {
-        clearValueArea(_layout.y_duty);
-        snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
-        printLine(buf, _layout.value_x, _layout.y_duty, 1);
-        prev_display_duty = duty;
-    }
+    if (PWM_ENABLED) {
+        if (abs(duty - prev_display_duty) > 0.001f) {
+            clearValueArea(_layout.y_duty);
+            snprintf(buf, sizeof(buf), "%.1f%%", duty * 100.0f);
+            printLine(buf, _layout.value_x, _layout.y_duty, 1);
+            prev_display_duty = duty;
+        }
 
-    if (abs(target - prev_display_target) > 0.01f) {
-        clearValueArea(_layout.y_target);
-        snprintf(buf, sizeof(buf), "%.2f A", target);
-        printLine(buf, _layout.value_x, _layout.y_target, 1);
-        prev_display_target = target;
+        if (abs(target - prev_display_target) > 0.01f) {
+            clearValueArea(_layout.y_target);
+            snprintf(buf, sizeof(buf), "%.2f A", target);
+            printLine(buf, _layout.value_x, _layout.y_target, 1);
+            prev_display_target = target;
+        }
     }
-}
-
-void Logger::logInitialization() {
-    Serial.println("\n=== TEC Controller Initializing ===");
 }
 
 void Logger::logCalibrationStart() {

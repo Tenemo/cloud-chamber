@@ -39,7 +39,6 @@ class Logger {
   public:
     Logger();
 
-    void logInitialization();
     void logCalibrationStart();
     void logCalibrationResults(float acs1_offset_V, float acs2_offset_V);
     void logWaitingForPower();

@@ -17,6 +17,11 @@ constexpr float TARGET_CURRENT_PER_TEC = 4.00f;
 constexpr float MAX_DUTY = 0.60f;
 constexpr float MIN_DUTY = 0.0f;
 
+// Global flag: when false, PWM H-bridge output is disabled.
+// Currents are still measured and displayed, but Duty/Target
+// are hidden from the screen and control logic is bypassed.
+constexpr bool PWM_ENABLED = false;
+
 // Retuned PI for faster 50ms loop
 constexpr float KP = 0.08f;          // Increased proportional gain
 constexpr float KI = 0.004f;         // Increased integral gain

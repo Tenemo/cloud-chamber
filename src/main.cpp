@@ -52,7 +52,6 @@ static void initLogging() {
     esp_log_level_set("*", ESP_LOG_ERROR);
     esp_task_wdt_init(60, true);
     Serial.begin(115200);
-    logger.logInitialization();
 }
 
 static bool initHardwareAndCalibrate() {
