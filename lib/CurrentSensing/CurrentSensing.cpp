@@ -77,7 +77,7 @@ void CurrentSensing::update() {
     _logger.updateLine("sensor2", sensor2_current);
     _logger.updateLine("total", total_current);
 
-    // Log only significant changes
+    // Log only significant changes (Serial only, not display)
     bool should_log = (abs(sensor1_current - prev_sensor1) > 0.01f ||
                        abs(sensor2_current - prev_sensor2) > 0.01f ||
                        abs(total_current - prev_total) > 0.01f);
@@ -86,7 +86,7 @@ void CurrentSensing::update() {
         char buf[64];
         snprintf(buf, sizeof(buf), "S1:%.1fA S2:%.1fA T:%.1fA", sensor1_current,
                  sensor2_current, total_current);
-        _logger.log(buf);
+        Serial.println(buf);
 
         prev_sensor1 = sensor1_current;
         prev_sensor2 = sensor2_current;
