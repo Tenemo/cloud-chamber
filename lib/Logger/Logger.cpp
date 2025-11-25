@@ -333,17 +333,39 @@ void Logger::log(const String &message) {
     if (!display_initialized || !_screen)
         return;
 
-    // Scroll logs if we're at capacity
-    if (_log_count >= LOG_AREA_LINES) {
-        // Shift all logs up
-        for (int i = 0; i < LOG_AREA_LINES - 1; i++) {
-            _log_lines[i] = _log_lines[i + 1];
+    // Word wrap: split message into chunks that fit on screen (21 chars @
+    // 6px/char)
+    const int MAX_CHARS_PER_LINE = 21;
+    String remaining = message;
+
+    while (remaining.length() > 0) {
+        String line;
+        if (remaining.length() <= MAX_CHARS_PER_LINE) {
+            line = remaining;
+            remaining = "";
+        } else {
+            // Find last space within limit
+            int split_pos = remaining.lastIndexOf(' ', MAX_CHARS_PER_LINE);
+            if (split_pos == -1 || split_pos == 0) {
+                // No space found, hard break
+                split_pos = MAX_CHARS_PER_LINE;
+            }
+            line = remaining.substring(0, split_pos);
+            remaining = remaining.substring(split_pos);
+            remaining.trim(); // Remove leading space
         }
-        _log_lines[LOG_AREA_LINES - 1] = message;
-    } else {
-        // Add new log
-        _log_lines[_log_count] = message;
-        _log_count++;
+
+        // Add line to log buffer (with scrolling)
+        if (_log_count >= LOG_AREA_LINES) {
+            // Shift all logs up
+            for (int i = 0; i < LOG_AREA_LINES - 1; i++) {
+                _log_lines[i] = _log_lines[i + 1];
+            }
+            _log_lines[LOG_AREA_LINES - 1] = line;
+        } else {
+            _log_lines[_log_count] = line;
+            _log_count++;
+        }
     }
 
     // Redraw entire log area
