@@ -6,13 +6,13 @@
  * USAGE:
  * ------
  * 1. Create instance:
- *    PT100Sensor temp_sensor;
+ *    PT100Sensor pt100_sensor;
  *
  * 2. Initialize:
- *    temp_sensor.begin();
+ *    pt100_sensor.begin();
  *
  * 3. Update temperature in main loop:
- *    temp_sensor.update();
+ *    pt100_sensor.update();
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
@@ -27,7 +27,7 @@
 
 class PT100Sensor {
   public:
-    PT100Sensor(Logger &logger);
+    PT100Sensor(Logger &logger, const char *label);
 
     void begin();
     void update();
@@ -36,14 +36,15 @@ class PT100Sensor {
   private:
     Logger &_logger;
     Adafruit_MAX31865 *_rtd;
+    const char *_label;
+    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
     unsigned long _last_update_time;
-    unsigned long _last_error_log_time;
 
     static constexpr float RNOMINAL = 100.0f; // PT100 nominal resistance
-    static constexpr float RREF = 434.0f;     // Reference resistor value
+    static constexpr float RREF = 438.0f;     // Reference resistor value
 };
 
 #endif // PT100_H
