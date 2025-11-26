@@ -59,19 +59,18 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // ============================================================================
 // A0 (GPIO4)   - ADC capable, general purpose
 // A3 (GPIO8)   - ADC capable, general purpose
-// A5 (GPIO11)  - ADC capable, general purpose
-// GPIO39       - Digital only, general purpose
-// GPIO40       - Digital only, general purpose
-// GPIO41       - Digital only, general purpose
-// GPIO42       - Digital only, general purpose
-// GPIO48       - Digital only, general purpose
+// A5 (GPIO11)  - (ADC2) ADC capable, general purpose, reads may fail if Wi‑Fi
+// is active GPIO39       - Digital only, general purpose GPIO40       - Digital
+// only, general purpose GPIO41       - Digital only, general purpose GPIO42 -
+// Digital only, general purpose GPIO48       - Digital only, general purpose
 // GPIO43       - TX, digital only, general purpose, available for use
 // GPIO44       - RX, digital only, general purpose, available for use
 // D5 (GPIO7)   - FCS font chip (if not using font library)
-// D7 (GPIO9)   - SD_CS (occupied by the screen)
-// D10 (GPIO14) - BUSY (occupied by the screen)
-// D11 (GPIO13) - INT (occupied by the screen)
-// D12 (GPIO12) - TCS (occupied by the screen)
+// D7 (GPIO9)   - SD_CS (physically connected to the screen with the GDI cable,
+// avoid) D10 (GPIO14) - BUSY (physically connected to the screen with the GDI
+// cable, avoid) D11 (GPIO13) - INT (physically connected to the screen with the
+// GDI cable, avoid) D12 (GPIO12) - TCS (physically connected to the screen with
+// the GDI cable, avoid)
 //
 // Note: D9 (GPIO0), GPIO19/20 (USB), GPIO46, D14 (GPIO47)
 //       should be avoided due to boot/USB/special functions
