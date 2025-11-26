@@ -72,11 +72,15 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - A0 (GPIO4)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
  * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
+ */
+
+/** ============================================================================
+ * Available GPIO pins underside the board, require soldering
+ * ============================================================================
  * - GPIO39       - Digital only, directly usable
  * - GPIO40       - Digital only, directly usable
  * - GPIO41       - Digital only, directly usable
  * - GPIO42       - Digital only, directly usable
- * - GPIO48       - Digital only, directly usable
  */
 
 /** ============================================================================
