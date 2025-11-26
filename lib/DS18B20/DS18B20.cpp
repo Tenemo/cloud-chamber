@@ -48,25 +48,39 @@ void DS18B20Sensor::update() {
 
     unsigned long current_time = millis();
 
-    // Check if this sensor needs an update
-    if (current_time - _last_update_time < DS18B20_UPDATE_INTERVAL_MS) {
-        return;
-    }
-
-    // If no conversion is pending, start one for ALL sensors on the bus
+    // If no conversion is pending or enough time has passed, start a new
+    // conversion
     if (!_shared_conversion_pending) {
-        _sensors.requestTemperatures(); // Request all sensors at once
-        _shared_conversion_start_time = current_time;
-        _shared_conversion_pending = true;
-        return;
+        // Check if enough time has passed since last conversion
+        if (current_time - _shared_conversion_start_time <
+            DS18B20_UPDATE_INTERVAL_MS) {
+            // Not time for a new conversion yet, but we can still read
+            // (conversion data is still valid)
+        } else {
+            // Time for a new conversion - request all sensors at once
+            _sensors.requestTemperatures();
+            _shared_conversion_start_time = current_time;
+            _shared_conversion_pending = true;
+            return;
+        }
     }
 
-    // Check if conversion is complete
-    if (current_time - _shared_conversion_start_time < CONVERSION_DELAY_MS) {
-        return;
+    // If conversion is pending, wait for it to complete
+    if (_shared_conversion_pending) {
+        if (current_time - _shared_conversion_start_time <
+            CONVERSION_DELAY_MS) {
+            return; // Still converting
+        }
+        // Conversion complete - clear the flag
+        _shared_conversion_pending = false;
     }
 
-    // Conversion complete - read this sensor's temperature
+    // Check if this sensor has already read in this cycle
+    if (_last_update_time >= _shared_conversion_start_time) {
+        return; // Already read this conversion cycle
+    }
+
+    // Read this sensor's temperature
     _last_update_time = current_time;
 
     float temp_c = _sensors.getTempC(_address);
@@ -95,7 +109,4 @@ void DS18B20Sensor::update() {
 
     _logger.updateLine(_id, temp_c);
     _last_temperature = temp_c;
-
-    // Clear shared pending flag so next update cycle can request new conversion
-    _shared_conversion_pending = false;
 }
