@@ -7,6 +7,9 @@ Logger::Logger()
       _spinner_index(0), _last_spinner_update(0) {}
 
 void Logger::initializeDisplay() {
+    if (_display_initialized)
+        return; // Prevent re-initialization
+
     // Initialize Serial
     Serial.begin(115200);
     while (!Serial && millis() < SERIAL_TIMEOUT_MS) {
@@ -259,10 +262,6 @@ void Logger::updateLineText(const String &name, const String &text) {
 
 void Logger::update() { updateSpinner(); }
 
-bool Logger::hasLine(const String &name) const {
-    return _lines.find(name) != _lines.end();
-}
-
 void Logger::drawSeparatorLine() {
     if (!_screen)
         return;
@@ -318,11 +317,11 @@ void Logger::drawLogArea() {
     }
 }
 
-void Logger::log(const String &message) {
+void Logger::log(const String &message, bool serialOnly) {
     // Output to Serial
     Serial.println(message);
 
-    if (!_display_initialized || !_screen)
+    if (serialOnly || !_display_initialized || !_screen)
         return;
 
     // Word wrap: split message into chunks that fit on screen
