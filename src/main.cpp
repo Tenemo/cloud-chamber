@@ -50,8 +50,7 @@ static void configureSystemLogging() {
 static void initializeHardware() {
     logger.initializeDisplay();
     dallasSensors.begin();
-    dallasSensors.setWaitForConversion(
-        false); // Make requestTemperatures() non-blocking
+    dallasSensors.setWaitForConversion(false);
     ds18b20_sensor_1.begin();
     ds18b20_sensor_2.begin();
     ds18b20_sensor_3.begin();
