@@ -52,12 +52,14 @@ class DS18B20Sensor {
     bool _initialized;
     bool _in_error_state;
     unsigned long _last_update_time;
-    unsigned long _conversion_start_time;
-    bool _conversion_pending;
 
     static constexpr float TEMP_ERROR_VALUE = -127.0f;
     static constexpr unsigned long CONVERSION_DELAY_MS =
         750; // 12-bit resolution
+
+    // Shared state for coordinating bus-wide conversions
+    static unsigned long _shared_conversion_start_time;
+    static bool _shared_conversion_pending;
 };
 
 #endif // DS18B20_H
