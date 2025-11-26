@@ -64,6 +64,7 @@
 #define LOGGER_H
 
 #include "DFRobot_GDL.h"
+#include "config.h"
 #include <Arduino.h>
 #include <map>
 
@@ -102,11 +103,8 @@ class Logger {
     void updateLine(const String &name, float value);
     void updateLineText(const String &name, const String &text);
 
-    // Check if a line exists
-    bool hasLine(const String &name) const;
-
-    // Live log output (to screen and serial)
-    void log(const String &message);
+    // Live log output (to screen and serial, or serial only)
+    void log(const String &message, bool serialOnly = false);
 
   private:
     void clearValueArea(int y);
@@ -130,8 +128,7 @@ class Logger {
     unsigned long _last_spinner_update;
 
     // Live log area
-    String _log_lines[10]; // Support up to 10 log lines (configurable via
-                           // LOG_AREA_LINES)
+    String _log_lines[LOG_AREA_LINES];
     int _log_count;
     int _log_area_y_start;
 

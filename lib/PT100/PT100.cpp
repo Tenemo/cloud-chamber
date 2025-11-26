@@ -3,10 +3,12 @@
 
 PT100Sensor::PT100Sensor(Logger &logger)
     : _logger(logger), _rtd(nullptr), _last_temperature(0.0f),
-      _initialized(false), _in_error_state(false), _last_update_time(0),
-      _last_error_log_time(0) {}
+      _initialized(false), _in_error_state(false), _last_update_time(0) {}
 
 void PT100Sensor::begin() {
+    if (_initialized)
+        return; // Prevent re-initialization
+
     _rtd = new Adafruit_MAX31865(PIN_MAX31865_CS);
     _rtd->begin(MAX31865_3WIRE);
     _initialized = true;
