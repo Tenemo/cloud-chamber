@@ -122,8 +122,11 @@ void Logger::registerLineInternal(const String &name, const String &label,
         line.unit = unit;
 
         // Force redraw by clearing the area and drawing the value
+        // Only clear 2 lines if this line uses wrapping, otherwise just clear 1
         int y = line.slot * _layout.line_height;
-        fillBox(0, y, SCREEN_WIDTH, _layout.line_height * 2, 0x0000);
+        int clear_height =
+            line.uses_wrap ? _layout.line_height * 2 : _layout.line_height;
+        fillBox(0, y, SCREEN_WIDTH, clear_height, 0x0000);
         drawLineLabel(label, line.slot);
         drawLineValue(line);
         return;
