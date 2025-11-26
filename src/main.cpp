@@ -25,8 +25,9 @@
 #include <esp_task_wdt.h>
 
 Logger logger;
-CurrentSensing current_sensors(logger);
-PT100Sensor temp_sensor(logger);
+// Left to be enabled later
+// CurrentSensing current_sensors(logger, "I1", "I2", "I_Total");
+PT100Sensor temp_sensor(logger, "PT100");
 DS18B20Sensor ds18b20_sensor(logger, DS18B20_1_ADDRESS, "TEMP_1");
 
 static void configureSystemLogging() {
@@ -38,7 +39,7 @@ static void initializeHardware() {
     logger.initializeDisplay();
     ds18b20_sensor.begin();
     temp_sensor.begin();
-    current_sensors.begin();
+    // current_sensors.begin();
 }
 
 void setup() {
@@ -48,7 +49,7 @@ void setup() {
 
 void loop() {
     logger.update();
-    current_sensors.update();
+    // current_sensors.update();
     temp_sensor.update();
     ds18b20_sensor.update();
 }

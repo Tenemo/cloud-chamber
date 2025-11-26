@@ -27,7 +27,7 @@
 
 class PT100Sensor {
   public:
-    PT100Sensor(Logger &logger);
+    PT100Sensor(Logger &logger, const char *label);
 
     void begin();
     void update();
@@ -36,6 +36,8 @@ class PT100Sensor {
   private:
     Logger &_logger;
     Adafruit_MAX31865 *_rtd;
+    const char *_label;
+    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
