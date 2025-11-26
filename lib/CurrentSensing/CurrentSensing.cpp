@@ -96,14 +96,16 @@ void CurrentSensing::update() {
     }
 
     // Imbalance warning (throttled to once per second)
-    float current_imbalance = abs(sensor1_current - sensor2_current);
-    if (current_imbalance > 1.0f && total_current > 1.0f) {
-        if (current_time - _last_imbalance_warning_time >= 1000) {
-            _last_imbalance_warning_time = current_time;
-            char buf[64];
-            snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA",
-                     current_imbalance);
-            _logger.log(buf);
+    if (ENABLE_IMBALANCE_WARNINGS) {
+        float current_imbalance = abs(sensor1_current - sensor2_current);
+        if (current_imbalance > 1.0f && total_current > 1.0f) {
+            if (current_time - _last_imbalance_warning_time >= 1000) {
+                _last_imbalance_warning_time = current_time;
+                char buf[64];
+                snprintf(buf, sizeof(buf), "WARN: Imbalance %.1fA",
+                         current_imbalance);
+                _logger.log(buf);
+            }
         }
     }
 }
@@ -117,13 +119,13 @@ void CurrentSensing::readCurrents(float &sensor1, float &sensor2,
         return;
     }
 
-    float I1_raw = readSensorCurrent(PIN_ACS1, _sensor1_offset_voltage,
-                                     _sensor1_filtered_current);
-    float I2_raw = readSensorCurrent(PIN_ACS2, _sensor2_offset_voltage,
-                                     _sensor2_filtered_current);
+    readSensorCurrent(PIN_ACS1, _sensor1_offset_voltage,
+                      _sensor1_filtered_current);
+    readSensorCurrent(PIN_ACS2, _sensor2_offset_voltage,
+                      _sensor2_filtered_current);
 
-    sensor1 = clampSmallCurrent(I1_raw);
-    sensor2 = clampSmallCurrent(I2_raw);
+    sensor1 = clampSmallCurrent(_sensor1_filtered_current);
+    sensor2 = clampSmallCurrent(_sensor2_filtered_current);
     total = sensor1 + sensor2;
 }
 
@@ -140,16 +142,14 @@ bool CurrentSensing::calibrateSensor(int pin, float &offset_voltage) {
     return true;
 }
 
-float CurrentSensing::readSensorCurrent(int pin, float offset_voltage,
-                                        float &filtered_current) {
+void CurrentSensing::readSensorCurrent(int pin, float offset_voltage,
+                                       float &filtered_current) {
     float voltage = readAverageVoltage(pin, ADC_SAMPLES);
     float delta_voltage = voltage - offset_voltage;
     float raw_current = delta_voltage / ACS_SENS;
 
     filtered_current =
         FILTER_ALPHA * raw_current + (1.0f - FILTER_ALPHA) * filtered_current;
-
-    return filtered_current;
 }
 
 float CurrentSensing::readAverageVoltage(int pin, int num_samples) {

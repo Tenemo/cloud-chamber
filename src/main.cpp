@@ -27,17 +27,20 @@ Logger logger;
 CurrentSensing current_sensors(logger);
 PT100Sensor temp_sensor(logger);
 
-static void initLogging() {
+static void configureSystemLogging() {
     esp_log_level_set("*", ESP_LOG_ERROR);
     esp_task_wdt_init(60, true);
 }
 
-void setup() {
-    initLogging();
-
+static void initializeHardware() {
     logger.initializeDisplay();
     current_sensors.begin();
     temp_sensor.begin();
+}
+
+void setup() {
+    configureSystemLogging();
+    initializeHardware();
 }
 
 void loop() {

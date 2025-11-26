@@ -60,22 +60,20 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // A0 (GPIO4)   - ADC capable, general purpose
 // A3 (GPIO8)   - ADC capable, general purpose
 // A5 (GPIO11)  - ADC capable, general purpose
-// GPIO35       - ADC capable, general purpose
-// GPIO36       - ADC capable, general purpose
-// GPIO37       - ADC capable, general purpose
-// GPIO39       - ADC capable, general purpose
-// GPIO40       - ADC capable, general purpose
-// GPIO41       - ADC capable, general purpose
-// GPIO42       - ADC capable, general purpose
-// GPIO45       - General purpose (no ADC)
-// GPIO48       - General purpose (no ADC)
+// GPIO39       - Digital only, general purpose
+// GPIO40       - Digital only, general purpose
+// GPIO41       - Digital only, general purpose
+// GPIO42       - Digital only, general purpose
+// GPIO48       - Digital only, general purpose
+// GPIO43       - TX, digital only, general purpose, available for use
+// GPIO44       - RX, digital only, general purpose, available for use
 // D5 (GPIO7)   - FCS font chip (if not using font library)
-// D7 (GPIO9)   - SD_CS (if not using SD card)
-// D10 (GPIO14) - BUSY (if not using tear sync)
-// D11 (GPIO13) - INT (if not using touch)
-// D12 (GPIO12) - TCS (if not using touch)
+// D7 (GPIO9)   - SD_CS (occupied by the screen)
+// D10 (GPIO14) - BUSY (occupied by the screen)
+// D11 (GPIO13) - INT (occupied by the screen)
+// D12 (GPIO12) - TCS (occupied by the screen)
 //
-// Note: D9 (GPIO0), GPIO19/20 (USB), TX/RX (GPIO43/44), GPIO46, D14 (GPIO47)
+// Note: D9 (GPIO0), GPIO19/20 (USB), GPIO46, D14 (GPIO47)
 //       should be avoided due to boot/USB/special functions
 
 // ACS758 Current Sensor Configuration
@@ -86,6 +84,10 @@ constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 constexpr float FILTER_ALPHA = 0.15f; // Low-pass filter coefficient
 constexpr int ADC_SAMPLES = 300;      // Number of samples to average
 
+// Current Sensor Warning Settings
+constexpr bool ENABLE_IMBALANCE_WARNINGS =
+    false; // Enable current imbalance warnings
+
 // Update Intervals
 constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 200;
 constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
@@ -95,8 +97,18 @@ constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;
 constexpr int VALUE_WIDTH = 70;
 
+// Display Physical Properties
+constexpr int SCREEN_WIDTH = 128;
+constexpr int SCREEN_HEIGHT = 160;
+constexpr int CHAR_WIDTH = 6; // Pixels per character
+constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
+
+// Display Update Timing
+constexpr unsigned long SPINNER_UPDATE_MS = 250;
+constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
+
 // Live Log Area (bottom of screen)
 constexpr int LOG_AREA_LINES =
-    2; // Number of lines reserved for live logs at bottom
+    4; // Number of lines reserved for live logs at bottom
 
 #endif
