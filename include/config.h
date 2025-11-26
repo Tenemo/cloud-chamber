@@ -126,9 +126,9 @@ constexpr bool ENABLE_IMBALANCE_WARNINGS =
     false; // enable current imbalance warnings
 
 // Update intervals
-constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 2000;
-constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;
-constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS = 2000;
+constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 200;
+constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 250;
+constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
 
 // Display layout

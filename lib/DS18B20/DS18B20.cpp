@@ -1,11 +1,11 @@
 #include "DS18B20.h"
 #include "config.h"
 
-DS18B20Sensor::DS18B20Sensor(Logger &logger, const uint8_t *address,
-                             const char *label)
-    : _logger(logger), _oneWire(nullptr), _sensors(nullptr), _label(label),
-      _id(label), _last_temperature(0.0f), _initialized(false),
-      _in_error_state(false), _last_update_time(0), _conversion_start_time(0),
+DS18B20Sensor::DS18B20Sensor(Logger &logger, DallasTemperature &sensors,
+                             const uint8_t *address, const char *label)
+    : _logger(logger), _sensors(sensors), _label(label), _id(label),
+      _last_temperature(0.0f), _initialized(false), _in_error_state(false),
+      _last_update_time(0), _conversion_start_time(0),
       _conversion_pending(false) {
     memcpy(_address, address, 8);
 }
@@ -14,17 +14,13 @@ void DS18B20Sensor::begin() {
     if (_initialized)
         return; // prevent re-initialization
 
-    _oneWire = new OneWire(PIN_DS18B20);
-    _sensors = new DallasTemperature(_oneWire);
-    _sensors->begin();
-
     // Set resolution to 12-bit for maximum precision
-    _sensors->setResolution(_address, 12);
+    _sensors.setResolution(_address, 12);
 
     // Request initial temperature using specific address
-    _sensors->requestTemperaturesByAddress(_address);
+    _sensors.requestTemperaturesByAddress(_address);
     delay(750); // wait for 12-bit conversion
-    float temp_c = _sensors->getTempC(_address);
+    float temp_c = _sensors.getTempC(_address);
 
     if (temp_c == DEVICE_DISCONNECTED_C || temp_c == TEMP_ERROR_VALUE) {
         _in_error_state = true;
@@ -44,7 +40,7 @@ void DS18B20Sensor::begin() {
 }
 
 void DS18B20Sensor::update() {
-    if (!_initialized || !_sensors)
+    if (!_initialized)
         return;
 
     unsigned long current_time = millis();
@@ -55,7 +51,7 @@ void DS18B20Sensor::update() {
             return;
         }
         // Start async temperature conversion for specific address
-        _sensors->requestTemperaturesByAddress(_address);
+        _sensors.requestTemperaturesByAddress(_address);
         _conversion_start_time = current_time;
         _conversion_pending = true;
         return;
@@ -69,7 +65,7 @@ void DS18B20Sensor::update() {
     _conversion_pending = false;
     _last_update_time = current_time;
 
-    float temp_c = _sensors->getTempC(_address);
+    float temp_c = _sensors.getTempC(_address);
 
     // Check for error conditions
     bool has_error =

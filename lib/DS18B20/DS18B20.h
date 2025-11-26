@@ -4,14 +4,22 @@
  *
  * USAGE:
  * ------
- * 1. Create instance:
- *    DS18B20Sensor ds_sensor(logger);
+ * 1. Create shared bus (in main.cpp):
+ *    OneWire oneWire(PIN_DS18B20);
+ *    DallasTemperature dallasSensors(&oneWire);
  *
- * 2. Initialize:
- *    ds_sensor.begin();
+ * 2. Create sensor instances:
+ *    DS18B20Sensor ds_sensor1(logger, dallasSensors, address1, "TEMP_1");
+ *    DS18B20Sensor ds_sensor2(logger, dallasSensors, address2, "TEMP_2");
  *
- * 3. Update temperature in main loop:
- *    ds_sensor.update();
+ * 3. Initialize shared bus once, then each sensor:
+ *    dallasSensors.begin();
+ *    ds_sensor1.begin();
+ *    ds_sensor2.begin();
+ *
+ * 4. Update temperature in main loop:
+ *    ds_sensor1.update();
+ *    ds_sensor2.update();
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
@@ -27,7 +35,8 @@
 
 class DS18B20Sensor {
   public:
-    DS18B20Sensor(Logger &logger, const uint8_t *address, const char *label);
+    DS18B20Sensor(Logger &logger, DallasTemperature &sensors,
+                  const uint8_t *address, const char *label);
 
     void begin();
     void update();
@@ -35,8 +44,7 @@ class DS18B20Sensor {
 
   private:
     Logger &_logger;
-    OneWire *_oneWire;
-    DallasTemperature *_sensors;
+    DallasTemperature &_sensors;
     uint8_t _address[8];
     const char *_label;
     const char *_id;
