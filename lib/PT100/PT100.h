@@ -6,13 +6,13 @@
  * USAGE:
  * ------
  * 1. Create instance:
- *    PT100Sensor temp_sensor;
+ *    PT100Sensor pt100_sensor;
  *
  * 2. Initialize:
- *    temp_sensor.begin();
+ *    pt100_sensor.begin();
  *
  * 3. Update temperature in main loop:
- *    temp_sensor.update();
+ *    pt100_sensor.update();
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
