@@ -58,9 +58,13 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 constexpr int PIN_DS18B20 =
     A3; // GPIO8 - DS18B20 data pin (3.3k pull-up to 3.3V)
 
-// DS18B20_1 sensor address (28FF641F75B85FD0)
+// DS18B20 sensor addresses
 constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
+                                          0x75, 0xA8, 0xDD, 0x0C};
+constexpr uint8_t DS18B20_2_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
                                           0x75, 0xB8, 0x5F, 0xD0};
+constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
+                                          0x75, 0xB7, 0x33, 0x0E};
 
 /** ============================================================================
  * Available, unused GPIO pins
