@@ -7,10 +7,13 @@ Logger::Logger()
       _spinner_index(0), _last_spinner_update(0) {}
 
 void Logger::initializeDisplay() {
+    if (_display_initialized)
+        return; // Prevent re-initialization
+
     // Initialize Serial
     Serial.begin(115200);
     while (!Serial && millis() < SERIAL_TIMEOUT_MS) {
-        ; // Wait for serial connection
+        ; // wait for serial connection
     }
 
     _backlight = LCD_BL;
@@ -24,7 +27,7 @@ void Logger::initializeDisplay() {
     _screen->fillScreen(COLOR_RGB565_BLACK);
     _screen->setTextColor(COLOR_RGB565_WHITE);
     _screen->setTextSize(1);
-    _screen->setTextWrap(false); // Disable automatic text wrapping
+    _screen->setTextWrap(false); // disable automatic text wrapping
     _screen->setCursor(0, 0);
 
     // Calculate log area position
@@ -79,7 +82,36 @@ void Logger::drawLineLabel(const String &label, int slot) {
     _screen->print(label);
 }
 
-void Logger::drawLineValue(const DisplayLine &line) {
+void Logger::drawChangedCharacters(const String &old_val, const String &new_val,
+                                   int x, int y) {
+    if (!_screen)
+        return;
+
+    _screen->setTextSize(1);
+
+    int max_len = max(old_val.length(), new_val.length());
+
+    for (int i = 0; i < max_len; i++) {
+        int char_x = x + (i * CHAR_WIDTH);
+        char old_char = (i < (int)old_val.length()) ? old_val[i] : '\0';
+        char new_char = (i < (int)new_val.length()) ? new_val[i] : '\0';
+
+        // Only redraw if character changed
+        if (old_char != new_char) {
+            // Clear the character position
+            fillBox(char_x, y, CHAR_WIDTH, _layout.line_height, 0x0000);
+
+            // Draw new character if not null
+            if (new_char != '\0') {
+                _screen->setTextColor(COLOR_RGB565_WHITE);
+                _screen->setCursor(char_x, y);
+                _screen->print(new_char);
+            }
+        }
+    }
+}
+
+void Logger::drawLineValue(DisplayLine &line, bool force_full_redraw) {
     if (!_screen)
         return;
 
@@ -92,22 +124,41 @@ void Logger::drawLineValue(const DisplayLine &line) {
     bool should_wrap =
         (label_width > _layout.value_x) || (text_width > available_width);
 
+    // Determine if we need a full redraw (wrap state changed, or forced)
+    bool wrap_changed = (should_wrap != line.uses_wrap);
+    bool need_full_redraw =
+        force_full_redraw || wrap_changed || line.prev_value.length() == 0;
+
     if (should_wrap) {
-        // Wrap to next line below label
-        // Don't clear the label line at all - only clear the wrapped line
-        fillBox(0, y + _layout.line_height, SCREEN_WIDTH, _layout.line_height,
-                0x0000);
-        printLine(line.value.c_str(), 0, y + _layout.line_height, 1);
-    } else {
-        // Normal display on same line - only clear the value area
-        clearValueArea(y);
-        if (line.uses_wrap) {
-            // Clear wrapped line if we previously used it
-            fillBox(0, y + _layout.line_height, SCREEN_WIDTH,
-                    _layout.line_height, 0x0000);
+        int value_y = y + _layout.line_height;
+        if (need_full_redraw) {
+            // Full redraw for wrapped line
+            fillBox(0, value_y, SCREEN_WIDTH, _layout.line_height, 0x0000);
+            printLine(line.value.c_str(), 0, value_y, 1);
+        } else {
+            // Smart character-by-character update for wrapped line
+            drawChangedCharacters(line.prev_value, line.value, 0, value_y);
         }
-        printLine(line.value.c_str(), _layout.value_x, y, 1);
+    } else {
+        if (need_full_redraw) {
+            // Full redraw for normal line
+            clearValueArea(y);
+            if (line.uses_wrap) {
+                // Clear wrapped line if we previously used it
+                fillBox(0, y + _layout.line_height, SCREEN_WIDTH,
+                        _layout.line_height, 0x0000);
+            }
+            printLine(line.value.c_str(), _layout.value_x, y, 1);
+        } else {
+            // Smart character-by-character update
+            drawChangedCharacters(line.prev_value, line.value, _layout.value_x,
+                                  y);
+        }
     }
+
+    // Update previous value and wrap state
+    line.prev_value = line.value;
+    line.uses_wrap = should_wrap;
 }
 
 void Logger::registerLineInternal(const String &name, const String &label,
@@ -119,10 +170,14 @@ void Logger::registerLineInternal(const String &name, const String &label,
         line.unit = unit;
 
         // Force redraw by clearing the area and drawing the value
+        // Only clear 2 lines if this line uses wrapping, otherwise just clear 1
         int y = line.slot * _layout.line_height;
-        fillBox(0, y, SCREEN_WIDTH, _layout.line_height * 2, 0x0000);
+        int clear_height =
+            line.uses_wrap ? _layout.line_height * 2 : _layout.line_height;
+        fillBox(0, y, SCREEN_WIDTH, clear_height, 0x0000);
         drawLineLabel(label, line.slot);
-        drawLineValue(line);
+        line.prev_value = ""; // Force full redraw
+        drawLineValue(line, true);
         return;
     }
 
@@ -136,10 +191,12 @@ void Logger::registerLineInternal(const String &name, const String &label,
     DisplayLine line;
     line.label = label;
     line.value = value;
+    line.prev_value = ""; // Empty to force full initial draw
     line.unit = unit;
     line.slot = _layout.next_slot++;
     line.initialized = false;
     line.uses_wrap = will_wrap;
+    line.needs_redraw = false; // Initial draw happens immediately below
 
     // Only reserve extra slot if text actually wraps
     if (will_wrap) {
@@ -149,9 +206,9 @@ void Logger::registerLineInternal(const String &name, const String &label,
     _lines[name] = line;
 
     // Draw label immediately
-    drawLineLabel(label, line.slot);
-    // Draw initial value
-    drawLineValue(line);
+    drawLineLabel(label, _lines[name].slot);
+    // Draw initial value (force full redraw)
+    drawLineValue(_lines[name], true);
     _lines[name].initialized = true;
 }
 
@@ -208,19 +265,13 @@ void Logger::updateLine(const String &name, float value) {
 
     line.value = new_value;
 
-    // Throttle display updates
-    unsigned long current_time = millis();
-    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
-        return;
-    }
-    _last_display_update = current_time;
-
     // Check if text will overflow
     int text_width = new_value.length() * CHAR_WIDTH;
     int available_width = SCREEN_WIDTH - _layout.value_x;
     line.uses_wrap = (text_width > available_width);
 
-    drawLineValue(line);
+    // Mark for redraw in next update() cycle
+    line.needs_redraw = true;
 }
 
 void Logger::updateLineText(const String &name, const String &text) {
@@ -242,25 +293,37 @@ void Logger::updateLineText(const String &name, const String &text) {
 
     line.value = text;
 
-    // Throttle display updates
-    unsigned long current_time = millis();
-    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
-        return;
-    }
-    _last_display_update = current_time;
-
     // Check if text will overflow
     int text_width = text.length() * CHAR_WIDTH;
     int available_width = SCREEN_WIDTH - _layout.value_x;
     line.uses_wrap = (text_width > available_width);
 
-    drawLineValue(line);
+    // Mark for redraw in next update() cycle
+    line.needs_redraw = true;
 }
 
-void Logger::update() { updateSpinner(); }
+void Logger::update() {
+    updateSpinner();
 
-bool Logger::hasLine(const String &name) const {
-    return _lines.find(name) != _lines.end();
+    // Throttle batch redraws
+    unsigned long current_time = millis();
+    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
+        return;
+    }
+
+    // Redraw all dirty lines
+    bool any_redrawn = false;
+    for (auto &pair : _lines) {
+        if (pair.second.needs_redraw) {
+            drawLineValue(pair.second);
+            pair.second.needs_redraw = false;
+            any_redrawn = true;
+        }
+    }
+
+    if (any_redrawn) {
+        _last_display_update = current_time;
+    }
 }
 
 void Logger::drawSeparatorLine() {
@@ -318,11 +381,11 @@ void Logger::drawLogArea() {
     }
 }
 
-void Logger::log(const String &message) {
+void Logger::log(const String &message, bool serialOnly) {
     // Output to Serial
     Serial.println(message);
 
-    if (!_display_initialized || !_screen)
+    if (serialOnly || !_display_initialized || !_screen)
         return;
 
     // Word wrap: split message into chunks that fit on screen

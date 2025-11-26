@@ -64,17 +64,20 @@
 #define LOGGER_H
 
 #include "DFRobot_GDL.h"
+#include "config.h"
 #include <Arduino.h>
 #include <map>
 
 struct DisplayLine {
-    String label; // Display label (e.g., "Temp:", "Sensor1:")
-    String value; // Current display value (formatted string)
+    String label;      // display label (e.g., "Temp:", "Sensor1:")
+    String value;      // current display value (formatted string)
+    String prev_value; // previous value for character-by-character comparison
     String
-        unit; // Unit suffix (e.g., "A", "C", "%") - stored for numeric updates
+        unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
-    bool initialized; // Whether this line has been drawn on screen
-    bool uses_wrap;   // True if value wraps to next line due to overflow
+    bool initialized;  // whether this line has been drawn on screen
+    bool uses_wrap;    // true if value wraps to next line due to overflow
+    bool needs_redraw; // true if value changed and needs to be redrawn
 };
 
 struct DisplayLayout {
@@ -91,7 +94,7 @@ class Logger {
     // Core display management
     void initializeDisplay();
     void clearDisplay();
-    void update(); // Update spinner and other periodic display elements
+    void update(); // update spinner and other periodic display elements
 
     // Generic KV store interface for display lines
     void registerLine(const String &name, const String &label,
@@ -102,16 +105,15 @@ class Logger {
     void updateLine(const String &name, float value);
     void updateLineText(const String &name, const String &text);
 
-    // Check if a line exists
-    bool hasLine(const String &name) const;
-
-    // Live log output (to screen and serial)
-    void log(const String &message);
+    // Live log output (to screen and serial, or serial only)
+    void log(const String &message, bool serialOnly = false);
 
   private:
     void clearValueArea(int y);
     void drawLineLabel(const String &label, int slot);
-    void drawLineValue(const DisplayLine &line);
+    void drawLineValue(DisplayLine &line, bool force_full_redraw = false);
+    void drawChangedCharacters(const String &old_val, const String &new_val,
+                               int x, int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
     void registerLineInternal(const String &name, const String &label,
@@ -130,8 +132,7 @@ class Logger {
     unsigned long _last_spinner_update;
 
     // Live log area
-    String _log_lines[10]; // Support up to 10 log lines (configurable via
-                           // LOG_AREA_LINES)
+    String _log_lines[LOG_AREA_LINES];
     int _log_count;
     int _log_area_y_start;
 

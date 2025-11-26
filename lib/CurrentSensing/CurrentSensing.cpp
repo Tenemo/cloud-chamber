@@ -1,20 +1,30 @@
 #include "CurrentSensing.h"
 #include "config.h"
 
-CurrentSensing::CurrentSensing(Logger &logger)
-    : _logger(logger), _sensor1_offset_voltage(0.0f),
-      _sensor2_offset_voltage(0.0f), _sensor1_filtered_current(0.0f),
-      _sensor2_filtered_current(0.0f), _sensors_calibrated(false),
+CurrentSensing::CurrentSensing(Logger &logger, const char *label1,
+                               const char *label2, const char *labelTotal)
+    : _logger(logger), _label1(label1), _label2(label2),
+      _labelTotal(labelTotal), _id1(label1), _id2(label2), _idTotal(labelTotal),
+      _sensor1_offset_voltage(0.0f), _sensor2_offset_voltage(0.0f),
+      _sensor1_filtered_current(0.0f), _sensor2_filtered_current(0.0f),
+      _initialized(false), _in_error_state(false),
       _adc_max_value((1 << 12) - 1), _last_update_time(0),
       _last_imbalance_warning_time(0) {}
 
 void CurrentSensing::begin() {
+    if (_initialized)
+        return; // prevent re-initialization
+
     analogReadResolution(12);
 
-    // Register display lines immediately with "calibration" status
-    _logger.registerTextLine("sensor1", "Sensor1:", "calibration");
-    _logger.registerTextLine("sensor2", "Sensor2:", "calibration");
-    _logger.registerTextLine("total", "Total:", "calibration");
+    // Register display lines immediately with "calibrating" status
+    char labelBuf[16];
+    snprintf(labelBuf, sizeof(labelBuf), "%s:", _label1);
+    _logger.registerTextLine(_id1, labelBuf, "calibrating");
+    snprintf(labelBuf, sizeof(labelBuf), "%s:", _label2);
+    _logger.registerTextLine(_id2, labelBuf, "calibrating");
+    snprintf(labelBuf, sizeof(labelBuf), "%s:", _labelTotal);
+    _logger.registerTextLine(_idTotal, labelBuf, "calibrating");
 
     delay(500);
 
@@ -23,17 +33,22 @@ void CurrentSensing::begin() {
 
     if (cal_success) {
         // Switch to numeric display mode
-        _logger.registerLine("sensor1", "Sensor1:", "A", 0.0f);
-        _logger.registerLine("sensor2", "Sensor2:", "A", 0.0f);
-        _logger.registerLine("total", "Total:", "A", 0.0f);
-        _logger.log("Sensors initialized.");
+        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label1);
+        _logger.registerLine(_id1, labelBuf, "A", 0.0f);
+        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label2);
+        _logger.registerLine(_id2, labelBuf, "A", 0.0f);
+        snprintf(labelBuf, sizeof(labelBuf), "%s:", _labelTotal);
+        _logger.registerLine(_idTotal, labelBuf, "A", 0.0f);
+        _logger.log("ACS758s initialized.");
     } else {
-        // Show calibration failure
-        _logger.updateLineText("sensor1", "CAL FAIL");
-        _logger.updateLineText("sensor2", "CAL FAIL");
-        _logger.updateLineText("total", "CAL FAIL");
-        _logger.log("FATAL: Cal failed");
+        _in_error_state = true;
+        _logger.updateLineText(_id1, "ERROR");
+        _logger.updateLineText(_id2, "ERROR");
+        _logger.updateLineText(_idTotal, "ERROR");
+        _logger.log("ACS758 calibration failed");
     }
+
+    _initialized = true;
 }
 
 bool CurrentSensing::calibrateSensors() {
@@ -43,13 +58,12 @@ bool CurrentSensing::calibrateSensors() {
     bool cal2_success = calibrateSensor(PIN_ACS2, _sensor2_offset_voltage);
 
     if (!cal1_success || !cal2_success) {
-        _logger.log("Cal failed!");
+        _logger.log("Calibration failed!");
         return false;
     }
 
     _sensor1_filtered_current = 0.0f;
     _sensor2_filtered_current = 0.0f;
-    _sensors_calibrated = true;
 
     char buf[64];
     snprintf(buf, sizeof(buf), "ACS1: %.4fV", _sensor1_offset_voltage);
@@ -61,8 +75,11 @@ bool CurrentSensing::calibrateSensors() {
 }
 
 void CurrentSensing::update() {
+    if (!_initialized || _in_error_state)
+        return;
+
     unsigned long current_time = millis();
-    if (current_time - _last_update_time < SENSOR_UPDATE_INTERVAL_MS) {
+    if (current_time - _last_update_time < CURRENT_SENSORS_UPDATE_INTERVAL_MS) {
         return;
     }
     _last_update_time = current_time;
@@ -75,11 +92,11 @@ void CurrentSensing::update() {
     readCurrents(sensor1_current, sensor2_current, total_current);
 
     // Update display lines
-    _logger.updateLine("sensor1", sensor1_current);
-    _logger.updateLine("sensor2", sensor2_current);
-    _logger.updateLine("total", total_current);
+    _logger.updateLine(_id1, sensor1_current);
+    _logger.updateLine(_id2, sensor2_current);
+    _logger.updateLine(_idTotal, total_current);
 
-    // Log only significant changes (Serial only, not display)
+    // Log only significant changes (serial only, not display)
     bool should_log = (abs(sensor1_current - prev_sensor1) > 0.01f ||
                        abs(sensor2_current - prev_sensor2) > 0.01f ||
                        abs(total_current - prev_total) > 0.01f);
@@ -88,7 +105,7 @@ void CurrentSensing::update() {
         char buf[64];
         snprintf(buf, sizeof(buf), "S1:%.1fA S2:%.1fA T:%.1fA", sensor1_current,
                  sensor2_current, total_current);
-        Serial.println(buf);
+        _logger.log(buf, true); // serial only, no display
 
         prev_sensor1 = sensor1_current;
         prev_sensor2 = sensor2_current;
@@ -112,7 +129,7 @@ void CurrentSensing::update() {
 
 void CurrentSensing::readCurrents(float &sensor1, float &sensor2,
                                   float &total) {
-    if (!_sensors_calibrated) {
+    if (!_initialized || _in_error_state) {
         sensor1 = 0.0f;
         sensor2 = 0.0f;
         total = 0.0f;
