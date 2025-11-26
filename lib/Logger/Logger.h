@@ -75,8 +75,9 @@ struct DisplayLine {
     String
         unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
-    bool initialized; // whether this line has been drawn on screen
-    bool uses_wrap;   // true if value wraps to next line due to overflow
+    bool initialized;  // whether this line has been drawn on screen
+    bool uses_wrap;    // true if value wraps to next line due to overflow
+    bool needs_redraw; // true if value changed and needs to be redrawn
 };
 
 struct DisplayLayout {

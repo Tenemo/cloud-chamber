@@ -196,6 +196,7 @@ void Logger::registerLineInternal(const String &name, const String &label,
     line.slot = _layout.next_slot++;
     line.initialized = false;
     line.uses_wrap = will_wrap;
+    line.needs_redraw = false; // Initial draw happens immediately below
 
     // Only reserve extra slot if text actually wraps
     if (will_wrap) {
@@ -269,7 +270,8 @@ void Logger::updateLine(const String &name, float value) {
     int available_width = SCREEN_WIDTH - _layout.value_x;
     line.uses_wrap = (text_width > available_width);
 
-    drawLineValue(line);
+    // Mark for redraw in next update() cycle
+    line.needs_redraw = true;
 }
 
 void Logger::updateLineText(const String &name, const String &text) {
@@ -296,10 +298,33 @@ void Logger::updateLineText(const String &name, const String &text) {
     int available_width = SCREEN_WIDTH - _layout.value_x;
     line.uses_wrap = (text_width > available_width);
 
-    drawLineValue(line);
+    // Mark for redraw in next update() cycle
+    line.needs_redraw = true;
 }
 
-void Logger::update() { updateSpinner(); }
+void Logger::update() {
+    updateSpinner();
+
+    // Throttle batch redraws
+    unsigned long current_time = millis();
+    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
+        return;
+    }
+
+    // Redraw all dirty lines
+    bool any_redrawn = false;
+    for (auto &pair : _lines) {
+        if (pair.second.needs_redraw) {
+            drawLineValue(pair.second);
+            pair.second.needs_redraw = false;
+            any_redrawn = true;
+        }
+    }
+
+    if (any_redrawn) {
+        _last_display_update = current_time;
+    }
+}
 
 void Logger::drawSeparatorLine() {
     if (!_screen)
