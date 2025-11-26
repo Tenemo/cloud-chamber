@@ -262,14 +262,7 @@ void Logger::updateLine(const String &name, float value) {
         return;
     }
 
-    // Throttle display updates
-    unsigned long current_time = millis();
-    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
-        return;
-    }
-
     line.value = new_value;
-    _last_display_update = current_time;
 
     // Check if text will overflow
     int text_width = new_value.length() * CHAR_WIDTH;
@@ -296,14 +289,7 @@ void Logger::updateLineText(const String &name, const String &text) {
         return;
     }
 
-    // Throttle display updates
-    unsigned long current_time = millis();
-    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
-        return;
-    }
-
     line.value = text;
-    _last_display_update = current_time;
 
     // Check if text will overflow
     int text_width = text.length() * CHAR_WIDTH;
