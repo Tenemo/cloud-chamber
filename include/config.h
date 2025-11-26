@@ -127,9 +127,10 @@ constexpr bool ENABLE_IMBALANCE_WARNINGS =
 
 // Update intervals
 constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 200;
-constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 250;
-constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS = 500;
-constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
+constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
+constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
+    800; // 12-bit resolution needs 750ms conversion
+constexpr unsigned long DISPLAY_INTERVAL_MS = 200;
 
 // Display layout
 constexpr int LINE_HEIGHT = 12;
