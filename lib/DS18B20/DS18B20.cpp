@@ -51,7 +51,7 @@ void DS18B20Sensor::update() {
 
     // Non-blocking temperature reading using async conversion
     if (!_conversion_pending) {
-        if (current_time - _last_update_time < SENSOR_UPDATE_INTERVAL_MS) {
+        if (current_time - _last_update_time < DS18B20_UPDATE_INTERVAL_MS) {
             return;
         }
         // Start async temperature conversion for specific address
