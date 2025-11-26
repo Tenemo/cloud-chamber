@@ -132,7 +132,7 @@ class Logger {
     unsigned long _last_spinner_update;
 
     // Live log area
-    String _log_lines[LOG_AREA_LINES];
+    char _log_lines[LOG_AREA_LINES][MAX_CHARS_PER_LINE + 1];
     int _log_count;
     int _log_area_y_start;
 

@@ -2,7 +2,7 @@
 #include "config.h"
 
 PT100Sensor::PT100Sensor(Logger &logger, const char *label)
-    : _logger(logger), _rtd(nullptr), _label(label), _id(label),
+    : _logger(logger), _rtd(PIN_MAX31865_CS), _label(label), _id(label),
       _last_temperature(0.0f), _initialized(false), _in_error_state(false),
       _last_update_time(0) {}
 
@@ -10,12 +10,11 @@ void PT100Sensor::begin() {
     if (_initialized)
         return; // prevent re-initialization
 
-    _rtd = new Adafruit_MAX31865(PIN_MAX31865_CS);
-    _rtd->begin(MAX31865_3WIRE);
+    _rtd.begin(MAX31865_3WIRE);
 
     // Check initial reading to see if sensor is connected
     delay(100); // allow sensor to stabilize
-    float temp_c = _rtd->temperature(RNOMINAL, RREF);
+    float temp_c = _rtd.temperature(RNOMINAL, RREF);
     bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
 
     char labelBuf[16];
@@ -35,7 +34,7 @@ void PT100Sensor::begin() {
 }
 
 void PT100Sensor::update() {
-    if (!_initialized || !_rtd)
+    if (!_initialized)
         return;
 
     unsigned long current_time = millis();
@@ -44,7 +43,7 @@ void PT100Sensor::update() {
     }
     _last_update_time = current_time;
 
-    float temp_c = _rtd->temperature(RNOMINAL, RREF);
+    float temp_c = _rtd.temperature(RNOMINAL, RREF);
 
     // Check for error conditions (invalid reading or sensor fault)
     bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
@@ -58,9 +57,9 @@ void PT100Sensor::update() {
         }
 
         // Clear any faults to prevent accumulation
-        uint8_t fault = _rtd->readFault();
+        uint8_t fault = _rtd.readFault();
         if (fault) {
-            _rtd->clearFault();
+            _rtd.clearFault();
         }
         return;
     }
