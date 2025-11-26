@@ -43,7 +43,7 @@ class PT100Sensor {
     unsigned long _last_error_log_time;
 
     static constexpr float RNOMINAL = 100.0f; // PT100 nominal resistance
-    static constexpr float RREF = 434.0f;     // Reference resistor value
+    static constexpr float RREF = 438.0f;     // Reference resistor value
 };
 
 #endif // PT100_H
