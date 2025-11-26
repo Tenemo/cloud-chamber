@@ -18,7 +18,7 @@
 #define D14 47 // GPIO47 - User key
 
 // Analog Pins
-#define A0 4  // GPIO4
+#define A0 4  // GPIO4 - DS18B20 OneWire data
 #define A1 5  // GPIO5 - Sensor 1 current sensor
 #define A2 6  // GPIO6 - Sensor 2 current sensor
 #define A3 8  // GPIO8
@@ -54,27 +54,55 @@ constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
 constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // MAX31865 Wiring: SDI→MOSI, SDO→MISO, CLK→SCK (shared SPI bus)
 
+// DS18B20 Digital Temperature Sensor (OneWire)
+constexpr int PIN_DS18B20 =
+    A0; // GPIO4 - DS18B20 data pin (3.3k pull-up to 3.3V)
+
 /** ============================================================================
- * Available GPIO Pins (unused, available for future expansion)
+ * Available, Unused GPIO Pins
  * ============================================================================
- * A0 (GPIO4)   - ADC capable, general purpose
- * A3 (GPIO8)   - ADC capable, general purpose
- * A5 (GPIO11)  - ADC capable, general purpose
- * GPIO39       - Digital only, general purpose
- * GPIO40       - Digital only, general purpose
- * GPIO41       - Digital only, general purpose
- * GPIO42       - Digital only, general purpose
- * GPIO48       - Digital only, general purpose
- * GPIO43       - TX, digital only, general purpose, available for use
- * GPIO44       - RX, digital only, general purpose, available for use
- * D5 (GPIO7)   - FCS font chip (if not using font library)
- * D7 (GPIO9)   - SD_CS (physically connected to the screen, avoid)
- * D10 (GPIO14) - BUSY (physically connected to the screen, avoid)
- * D11 (GPIO13) - INT (physically connected to the screen, avoid)
- * D12 (GPIO12) - TCS (physically connected to the screen, avoid)
+ * - A3 (GPIO8)   - ADC capable, general purpose
+ * - A5 (GPIO11)  - ADC capable, general purpose
+ * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
+ * - GPIO39       - Digital only, directly usable
+ * - GPIO40       - Digital only, directly usable
+ * - GPIO41       - Digital only, directly usable
+ * - GPIO42       - Digital only, directly usable
+ * - GPIO48       - Digital only, directly usable
+ */
+
+/** ============================================================================
+ * Unavailable/Used GPIO Pins
+ * ============================================================================
+ * In Use:
+ * - A0 (GPIO4)   - DS18B20 OneWire data
+ * - A1 (GPIO5)   - ACS758 current sensor 1
+ * - A2 (GPIO6)   - ACS758 current sensor 2
+ * - A4 (GPIO10)  - MAX31865 chip select (PT100)
+ * - SCK (GPIO17) - SPI clock (shared bus between PT100 and the display)
+ * - MOSI (GPIO15)- SPI MOSI (shared bus between PT100 and the display)
+ * - MISO (GPIO16)- SPI MISO (shared bus between PT100 and the display)
  *
- * Note: D9 (GPIO0), GPIO19/20 (USB), GPIO46, D14 (GPIO47)
- * should be avoided due to boot/USB/special functions
+ * Display (directly connected via GDI FPC):
+ * - D2 (GPIO3)   - LCD_DC
+ * - D3 (GPIO38)  - LCD_RST
+ * - D6 (GPIO18)  - LCD_CS
+ * - D13 (GPIO21) - LCD_BL (backlight)
+ * - D7 (GPIO9)   - SD_CS (directly connected to screen)
+ * - D10 (GPIO14) - BUSY (directly connected to screen)
+ * - D11 (GPIO13) - INT (directly connected to screen)
+ * - D12 (GPIO12) - TCS (directly connected to screen)
+ *
+ * System/Special (avoid):
+ * - D9 (GPIO0)   - Boot button, strapping pin
+ * - D14 (GPIO47) - User key
+ * - GPIO19       - USB D-
+ * - GPIO20       - USB D+
+ * - GPIO46       - Strapping pin
+ * - TX (GPIO43)  - UART TX (usable if Serial not needed)
+ * - RX (GPIO44)  - UART RX (usable if Serial not needed)
+ * - SCL (GPIO2)  - I2C clock (usable if I2C not needed)
+ * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
  */
 
 // ACS758 Current Sensor Configuration
