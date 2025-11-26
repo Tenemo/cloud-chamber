@@ -20,10 +20,10 @@ void PT100Sensor::begin() {
 
     if (has_error) {
         _in_error_state = true;
-        _logger.registerTextLine("temp", "Temp:", "ERROR");
+        _logger.registerTextLine("temp", "PT100:", "ERROR");
         _logger.log("PT100 sensor error");
     } else {
-        _logger.registerLine("temp", "Temp:", "C", temp_c);
+        _logger.registerLine("temp", "PT100:", "C", temp_c);
         _logger.log("PT100 initialized.");
     }
 }
@@ -64,7 +64,7 @@ void PT100Sensor::update() {
         _in_error_state = false;
         _logger.log("PT100 sensor recovered");
         // Re-register as numeric line
-        _logger.registerLine("temp", "Temp:", "C", temp_c);
+        _logger.registerLine("temp", "PT100:", "C", temp_c);
     }
 
     _logger.updateLine("temp", temp_c);
