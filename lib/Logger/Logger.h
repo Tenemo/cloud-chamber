@@ -114,11 +114,13 @@ class Logger {
     void drawLineValue(const DisplayLine &line);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
+    void registerLineInternal(const String &name, const String &label,
+                              const String &value, const String &unit);
 
     DFRobot_ST7735_128x160_HW_SPI *_screen;
     int8_t _backlight;
-    bool display_initialized;
-    unsigned long last_display_update;
+    bool _display_initialized;
+    unsigned long _last_display_update;
 
     DisplayLayout _layout;
     std::map<String, DisplayLine> _lines;

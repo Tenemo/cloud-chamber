@@ -41,8 +41,8 @@ class CurrentSensing {
   private:
     bool calibrateSensors();
     bool calibrateSensor(int pin, float &offset_voltage);
-    float readSensorCurrent(int pin, float offset_voltage,
-                            float &filtered_current);
+    void readSensorCurrent(int pin, float offset_voltage,
+                           float &filtered_current);
     float readAverageVoltage(int pin, int num_samples);
     void readCurrents(float &sensor1, float &sensor2, float &total);
     static float clampSmallCurrent(float current, float threshold = 0.1f);
