@@ -2,9 +2,9 @@
 #define CONFIG_H
 
 // ============================================================================
-// FireBeetle 2 ESP32-S3 Pin Definitions (Board Labels → GPIO)
+// FireBeetle 2 ESP32-S3 pin definitions (board labels → GPIO)
 // ============================================================================
-// Digital Pins
+// Digital pins
 #define D2 3   // GPIO3  - LCD_DC (used by display)
 #define D3 38  // GPIO38 - LCD_RST (used by display)
 #define D5 7   // GPIO7  - FCS (font chip select)
@@ -17,7 +17,7 @@
 #define D13 21 // GPIO21 - LCD_BL (backlight)
 #define D14 47 // GPIO47 - User key
 
-// Analog Pins
+// Analog pins
 #define A0 4  // GPIO4 - DS18B20 OneWire data
 #define A1 5  // GPIO5 - Sensor 1 current sensor
 #define A2 6  // GPIO6 - Sensor 2 current sensor
@@ -25,7 +25,7 @@
 #define A4 10 // GPIO10 - MAX31865 (PT100) chip select
 #define A5 11 // GPIO11
 
-// Communication Pins
+// Communication pins
 #define SCK 17  // GPIO17 - SPI clock
 #define MOSI 15 // GPIO15 - SPI MOSI
 #define MISO 16 // GPIO16 - SPI MISO
@@ -35,7 +35,7 @@
 #define RX 44   // GPIO44 - UART RX
 
 // ============================================================================
-// Display Pins (GDI FPC connector - occupied by TFT display)
+// Display pins (GDI FPC connector - occupied by TFT display)
 // ============================================================================
 #define TFT_DC D2  // GPIO3 - Data/Command selection
 #define TFT_CS D6  // GPIO18 - Display chip select
@@ -44,9 +44,9 @@
 // SPI Bus (shared): MOSI (GPIO15), MISO (GPIO16), SCK (GPIO17)
 
 // ============================================================================
-// Sensor Pins
+// Sensor pins
 // ============================================================================
-// ACS758 Current Sensor Pins
+// ACS758 current sensor pins
 constexpr int PIN_ACS1 = A1; // GPIO5 - Sensor 1 current sensor
 constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
 
@@ -54,12 +54,12 @@ constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
 constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // MAX31865 Wiring: SDI→MOSI, SDO→MISO, CLK→SCK (shared SPI bus)
 
-// DS18B20 Digital Temperature Sensor (OneWire)
+// DS18B20 digital temperature sensor (OneWire)
 constexpr int PIN_DS18B20 =
     A0; // GPIO4 - DS18B20 data pin (3.3k pull-up to 3.3V)
 
 /** ============================================================================
- * Available, Unused GPIO Pins
+ * Available, unused GPIO pins
  * ============================================================================
  * - A3 (GPIO8)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
@@ -72,9 +72,9 @@ constexpr int PIN_DS18B20 =
  */
 
 /** ============================================================================
- * Unavailable/Used GPIO Pins
+ * Unavailable/used GPIO pins
  * ============================================================================
- * In Use:
+ * In use:
  * - A0 (GPIO4)   - DS18B20 OneWire data
  * - A1 (GPIO5)   - ACS758 current sensor 1
  * - A2 (GPIO6)   - ACS758 current sensor 2
@@ -105,39 +105,39 @@ constexpr int PIN_DS18B20 =
  * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
  */
 
-// ACS758 Current Sensor Configuration
+// ACS758 current sensor configuration
 constexpr float ADC_REF_V = 3.3f;
 constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
 
-// Current Sensor Filter Settings
-constexpr float FILTER_ALPHA = 0.15f; // Low-pass filter coefficient
+// Current sensor filter settings
+constexpr float FILTER_ALPHA = 0.15f; // low-pass filter coefficient
 constexpr int ADC_SAMPLES = 300;      // Number of samples to average
 
-// Current Sensor Warning Settings
+// Current sensor warning settings
 constexpr bool ENABLE_IMBALANCE_WARNINGS =
-    false; // Enable current imbalance warnings
+    false; // enable current imbalance warnings
 
-// Update Intervals
+// Update intervals
 constexpr unsigned long SENSOR_UPDATE_INTERVAL_MS = 200;
 constexpr unsigned long DISPLAY_INTERVAL_MS = 500;
 
-// Display Layout
+// Display layout
 constexpr int LINE_HEIGHT = 12;
 constexpr int VALUE_X = 60;
 constexpr int VALUE_WIDTH = 70;
 
-// Display Physical Properties
+// Display physical properties
 constexpr int SCREEN_WIDTH = 128;
 constexpr int SCREEN_HEIGHT = 160;
-constexpr int CHAR_WIDTH = 6; // Pixels per character
+constexpr int CHAR_WIDTH = 6; // pixels per character
 constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
 
-// Display Update Timing
+// Display update timing
 constexpr unsigned long SPINNER_UPDATE_MS = 250;
 constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
-// Live Log Area (bottom of screen)
+// Live log area (bottom of screen)
 constexpr int LOG_AREA_LINES =
-    4; // Number of lines reserved for live logs at bottom
+    4; // number of lines reserved for live logs at bottom
 
 #endif

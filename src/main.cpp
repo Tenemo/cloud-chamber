@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief Cloud Chamber Monitoring System - Current and Temperature Sensing
+ * @brief Cloud chamber monitoring system - current and temperature sensing
  *
  * IMPORTANT: NEVER use Serial.print/println directly in this application.
  * Always use logger.log() for all output - it handles both display and Serial.
