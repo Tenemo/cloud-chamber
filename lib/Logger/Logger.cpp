@@ -13,7 +13,7 @@ void Logger::initializeDisplay() {
     // Initialize Serial
     Serial.begin(115200);
     while (!Serial && millis() < SERIAL_TIMEOUT_MS) {
-        ; // Wait for serial connection
+        ; // wait for serial connection
     }
 
     _backlight = LCD_BL;
@@ -27,7 +27,7 @@ void Logger::initializeDisplay() {
     _screen->fillScreen(COLOR_RGB565_BLACK);
     _screen->setTextColor(COLOR_RGB565_WHITE);
     _screen->setTextSize(1);
-    _screen->setTextWrap(false); // Disable automatic text wrapping
+    _screen->setTextWrap(false); // disable automatic text wrapping
     _screen->setCursor(0, 0);
 
     // Calculate log area position

@@ -69,13 +69,13 @@
 #include <map>
 
 struct DisplayLine {
-    String label; // Display label (e.g., "Temp:", "Sensor1:")
-    String value; // Current display value (formatted string)
+    String label; // display label (e.g., "Temp:", "Sensor1:")
+    String value; // current display value (formatted string)
     String
-        unit; // Unit suffix (e.g., "A", "C", "%") - stored for numeric updates
+        unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
-    bool initialized; // Whether this line has been drawn on screen
-    bool uses_wrap;   // True if value wraps to next line due to overflow
+    bool initialized; // whether this line has been drawn on screen
+    bool uses_wrap;   // true if value wraps to next line due to overflow
 };
 
 struct DisplayLayout {
@@ -92,7 +92,7 @@ class Logger {
     // Core display management
     void initializeDisplay();
     void clearDisplay();
-    void update(); // Update spinner and other periodic display elements
+    void update(); // update spinner and other periodic display elements
 
     // Generic KV store interface for display lines
     void registerLine(const String &name, const String &label,
