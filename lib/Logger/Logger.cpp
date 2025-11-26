@@ -206,13 +206,13 @@ void Logger::updateLine(const String &name, float value) {
         return;
     }
 
-    line.value = new_value;
-
     // Throttle display updates
     unsigned long current_time = millis();
     if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
         return;
     }
+
+    line.value = new_value;
     _last_display_update = current_time;
 
     // Check if text will overflow
@@ -240,13 +240,13 @@ void Logger::updateLineText(const String &name, const String &text) {
         return;
     }
 
-    line.value = text;
-
     // Throttle display updates
     unsigned long current_time = millis();
     if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
         return;
     }
+
+    line.value = text;
     _last_display_update = current_time;
 
     // Check if text will overflow
