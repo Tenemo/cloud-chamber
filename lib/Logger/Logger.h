@@ -69,8 +69,9 @@
 #include <map>
 
 struct DisplayLine {
-    String label; // display label (e.g., "Temp:", "Sensor1:")
-    String value; // current display value (formatted string)
+    String label;       // display label (e.g., "Temp:", "Sensor1:")
+    String value;       // current display value (formatted string)
+    String prev_value;  // previous value for character-by-character comparison
     String
         unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
@@ -109,7 +110,9 @@ class Logger {
   private:
     void clearValueArea(int y);
     void drawLineLabel(const String &label, int slot);
-    void drawLineValue(const DisplayLine &line);
+    void drawLineValue(DisplayLine &line, bool force_full_redraw = false);
+    void drawChangedCharacters(const String &old_val, const String &new_val,
+                               int x, int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
     void registerLineInternal(const String &name, const String &label,
