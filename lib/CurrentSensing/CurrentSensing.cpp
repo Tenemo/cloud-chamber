@@ -88,7 +88,7 @@ void CurrentSensing::update() {
         char buf[64];
         snprintf(buf, sizeof(buf), "S1:%.1fA S2:%.1fA T:%.1fA", sensor1_current,
                  sensor2_current, total_current);
-        _logger.log(buf, true); // Serial only, no display
+        _logger.log(buf, true); // serial only, no display
 
         prev_sensor1 = sensor1_current;
         prev_sensor2 = sensor2_current;

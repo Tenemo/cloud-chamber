@@ -27,7 +27,7 @@
 
 class DS18B20Sensor {
   public:
-    DS18B20Sensor(Logger &logger);
+    DS18B20Sensor(Logger &logger, const uint8_t *address, const char *label);
 
     void begin();
     void update();
@@ -37,6 +37,9 @@ class DS18B20Sensor {
     Logger &_logger;
     OneWire *_oneWire;
     DallasTemperature *_sensors;
+    uint8_t _address[8];
+    const char *_label;
+    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
