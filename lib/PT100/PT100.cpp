@@ -39,7 +39,7 @@ void PT100Sensor::update() {
         return;
 
     unsigned long current_time = millis();
-    if (current_time - _last_update_time < SENSOR_UPDATE_INTERVAL_MS) {
+    if (current_time - _last_update_time < PT100_UPDATE_INTERVAL_MS) {
         return;
     }
     _last_update_time = current_time;
