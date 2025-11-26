@@ -374,10 +374,7 @@ void Logger::drawLogArea() {
     // Draw each log line (with 1px margin from separator)
     for (int i = 0; i < _log_count && i < LOG_AREA_LINES; i++) {
         int y = _log_area_y_start + (i * LINE_HEIGHT) + 1; // +1 for margin
-        _screen->setTextSize(1);
-        _screen->setTextColor(COLOR_RGB565_WHITE);
-        _screen->setCursor(0, y);
-        _screen->print(_log_lines[i]);
+        printLine(_log_lines[i], 0, y, 1);
     }
 }
 
@@ -412,11 +409,15 @@ void Logger::log(const String &message, bool serialOnly) {
         if (_log_count >= LOG_AREA_LINES) {
             // Shift all logs up
             for (int i = 0; i < LOG_AREA_LINES - 1; i++) {
-                _log_lines[i] = _log_lines[i + 1];
+                strncpy(_log_lines[i], _log_lines[i + 1], MAX_CHARS_PER_LINE);
+                _log_lines[i][MAX_CHARS_PER_LINE] = '\0';
             }
-            _log_lines[LOG_AREA_LINES - 1] = line;
+            strncpy(_log_lines[LOG_AREA_LINES - 1], line.c_str(),
+                    MAX_CHARS_PER_LINE);
+            _log_lines[LOG_AREA_LINES - 1][MAX_CHARS_PER_LINE] = '\0';
         } else {
-            _log_lines[_log_count] = line;
+            strncpy(_log_lines[_log_count], line.c_str(), MAX_CHARS_PER_LINE);
+            _log_lines[_log_count][MAX_CHARS_PER_LINE] = '\0';
             _log_count++;
         }
     }

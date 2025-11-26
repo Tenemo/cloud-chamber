@@ -117,20 +117,17 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
  */
 
+// ============================================================================
 // ACS758 current sensor configuration
+// ============================================================================
 constexpr float ADC_REF_V = 3.3f;
-constexpr float ACS_SENS = 0.026f; // 26 mV/A at 3.3V supply
-
-// Current sensor filter settings
+constexpr float ACS_SENS = 0.026f;    // 26 mV/A at 3.3V supply
 constexpr float FILTER_ALPHA = 0.15f; // low-pass filter coefficient
 constexpr int ADC_SAMPLES = 300;      // Number of samples to average
-
-// Current sensor warning settings
-constexpr bool ENABLE_IMBALANCE_WARNINGS =
-    false; // enable current imbalance warnings
+constexpr bool ENABLE_IMBALANCE_WARNINGS = false;
+constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 200;
 
 // Update intervals
-constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 200;
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     800; // 12-bit resolution needs 750ms conversion
@@ -149,7 +146,7 @@ constexpr int CHAR_WIDTH = 6; // pixels per character
 constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
 
 // Display update timing
-constexpr unsigned long SPINNER_UPDATE_MS = 250;
+constexpr unsigned long SPINNER_UPDATE_MS = 100;
 constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
 // Live log area (bottom of screen)

@@ -23,6 +23,15 @@
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
+ *
+ * BUS COORDINATION:
+ * -----------------
+ * Multiple DS18B20Sensor instances share static state to coordinate
+ * bus-wide temperature conversions. The first sensor to call update()
+ * triggers requestTemperatures() for all sensors on the bus. Other
+ * sensors wait for the conversion to complete before reading their
+ * individual values. This minimizes bus traffic and ensures all
+ * sensors read from the same conversion cycle.
  */
 
 #ifndef DS18B20_H

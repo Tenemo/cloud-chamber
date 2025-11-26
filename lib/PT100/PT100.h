@@ -22,6 +22,7 @@
 #define PT100_H
 
 #include "Logger.h"
+#include "config.h"
 #include <Adafruit_MAX31865.h>
 #include <Arduino.h>
 
@@ -35,7 +36,7 @@ class PT100Sensor {
 
   private:
     Logger &_logger;
-    Adafruit_MAX31865 *_rtd;
+    Adafruit_MAX31865 _rtd;
     const char *_label;
     const char *_id;
     float _last_temperature;
