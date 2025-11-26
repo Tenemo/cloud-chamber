@@ -82,8 +82,8 @@ void Logger::drawLineLabel(const String &label, int slot) {
     _screen->print(label);
 }
 
-void Logger::drawChangedCharacters(const String &old_val,
-                                    const String &new_val, int x, int y) {
+void Logger::drawChangedCharacters(const String &old_val, const String &new_val,
+                                   int x, int y) {
     if (!_screen)
         return;
 
@@ -126,8 +126,8 @@ void Logger::drawLineValue(DisplayLine &line, bool force_full_redraw) {
 
     // Determine if we need a full redraw (wrap state changed, or forced)
     bool wrap_changed = (should_wrap != line.uses_wrap);
-    bool need_full_redraw = force_full_redraw || wrap_changed ||
-                            line.prev_value.length() == 0;
+    bool need_full_redraw =
+        force_full_redraw || wrap_changed || line.prev_value.length() == 0;
 
     if (should_wrap) {
         int value_y = y + _layout.line_height;

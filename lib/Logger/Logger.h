@@ -69,9 +69,9 @@
 #include <map>
 
 struct DisplayLine {
-    String label;       // display label (e.g., "Temp:", "Sensor1:")
-    String value;       // current display value (formatted string)
-    String prev_value;  // previous value for character-by-character comparison
+    String label;      // display label (e.g., "Temp:", "Sensor1:")
+    String value;      // current display value (formatted string)
+    String prev_value; // previous value for character-by-character comparison
     String
         unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
