@@ -18,10 +18,10 @@
 #define D14 47 // GPIO47 - User key
 
 // Analog pins
-#define A0 4  // GPIO4 - DS18B20 OneWire data
+#define A0 4  // GPIO4
 #define A1 5  // GPIO5 - Sensor 1 current sensor
 #define A2 6  // GPIO6 - Sensor 2 current sensor
-#define A3 8  // GPIO8
+#define A3 8  // GPIO8 - DS18B20 OneWire data
 #define A4 10 // GPIO10 - MAX31865 (PT100) chip select
 #define A5 11 // GPIO11
 
@@ -56,12 +56,16 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 
 // DS18B20 digital temperature sensor (OneWire)
 constexpr int PIN_DS18B20 =
-    A0; // GPIO4 - DS18B20 data pin (3.3k pull-up to 3.3V)
+    A3; // GPIO8 - DS18B20 data pin (3.3k pull-up to 3.3V)
+
+// DS18B20_1 sensor address (28FF641F75B85FD0)
+constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
+                                          0x75, 0xB8, 0x5F, 0xD0};
 
 /** ============================================================================
  * Available, unused GPIO pins
  * ============================================================================
- * - A3 (GPIO8)   - ADC capable, general purpose
+ * - A0 (GPIO4)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
  * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
  * - GPIO39       - Digital only, directly usable
@@ -75,9 +79,9 @@ constexpr int PIN_DS18B20 =
  * Unavailable/used GPIO pins
  * ============================================================================
  * In use:
- * - A0 (GPIO4)   - DS18B20 OneWire data
  * - A1 (GPIO5)   - ACS758 current sensor 1
  * - A2 (GPIO6)   - ACS758 current sensor 2
+ * - A3 (GPIO8)   - DS18B20 OneWire data
  * - A4 (GPIO10)  - MAX31865 chip select (PT100)
  * - SCK (GPIO17) - SPI clock (shared bus between PT100 and the display)
  * - MOSI (GPIO15)- SPI MOSI (shared bus between PT100 and the display)

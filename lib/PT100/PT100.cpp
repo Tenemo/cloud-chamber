@@ -7,14 +7,14 @@ PT100Sensor::PT100Sensor(Logger &logger)
 
 void PT100Sensor::begin() {
     if (_initialized)
-        return; // Prevent re-initialization
+        return; // prevent re-initialization
 
     _rtd = new Adafruit_MAX31865(PIN_MAX31865_CS);
     _rtd->begin(MAX31865_3WIRE);
     _initialized = true;
 
     // Check initial reading to see if sensor is connected
-    delay(100); // Allow sensor to stabilize
+    delay(100); // allow sensor to stabilize
     float temp_c = _rtd->temperature(RNOMINAL, RREF);
     bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
 
