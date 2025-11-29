@@ -76,4 +76,15 @@ void PT100Sensor::update() {
 
     _logger.updateLine(_id, temp_c);
     _last_temperature = temp_c;
+
+    // Periodic serial logging (serial only, not display)
+    if (PT100_SERIAL_LOGGING_ENABLED) {
+        static unsigned long last_serial_log = 0;
+        if (current_time - last_serial_log >= PT100_SERIAL_LOG_INTERVAL_MS) {
+            last_serial_log = current_time;
+            char buf[32];
+            snprintf(buf, sizeof(buf), "PT100: %.2f C", temp_c);
+            _logger.log(buf, true);
+        }
+    }
 }
