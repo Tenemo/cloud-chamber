@@ -132,9 +132,9 @@ constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     800; // 12-bit resolution needs 750ms conversion
 
-// PT100 serial logging (direct Serial.print, not Logger)
+// PT100 serial logging (serial only, not display)
 constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
-constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 2000;
+constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
 constexpr unsigned long DISPLAY_INTERVAL_MS =
     100; // Reduced from 200ms - char-by-char drawing minimizes pixel writes
 

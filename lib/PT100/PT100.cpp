@@ -82,8 +82,13 @@ void PT100Sensor::update() {
         static unsigned long last_serial_log = 0;
         if (current_time - last_serial_log >= PT100_SERIAL_LOG_INTERVAL_MS) {
             last_serial_log = current_time;
-            char buf[32];
-            snprintf(buf, sizeof(buf), "PT100: %.2f C", temp_c);
+            unsigned long total_secs = current_time / 1000;
+            unsigned int hours = (total_secs / 3600) % 24;
+            unsigned int mins = (total_secs / 60) % 60;
+            unsigned int secs = total_secs % 60;
+            char buf[48];
+            snprintf(buf, sizeof(buf), "[%02u:%02u:%02u] PT100: %.2f C", hours,
+                     mins, secs, temp_c);
             _logger.log(buf, true);
         }
     }
