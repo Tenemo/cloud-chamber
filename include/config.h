@@ -19,8 +19,8 @@
 
 // Analog pins
 #define A0 4  // GPIO4
-#define A1 5  // GPIO5 - Sensor 1 current sensor
-#define A2 6  // GPIO6 - Sensor 2 current sensor
+#define A1 5  // GPIO5
+#define A2 6  // GPIO6
 #define A3 8  // GPIO8 - DS18B20 OneWire data
 #define A4 10 // GPIO10 - MAX31865 (PT100) chip select
 #define A5 11 // GPIO11
@@ -46,10 +46,6 @@
 // ============================================================================
 // Sensor pins
 // ============================================================================
-// ACS758 current sensor pins
-constexpr int PIN_ACS1 = A1; // GPIO5 - Sensor 1 current sensor
-constexpr int PIN_ACS2 = A2; // GPIO6 - Sensor 2 current sensor
-
 // MAX31865 RTD interface (shares SPI bus with TFT)
 constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 // MAX31865 Wiring: SDI→MOSI, SDO→MISO, CLK→SCK (shared SPI bus)
@@ -70,6 +66,8 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * Available, unused GPIO pins
  * ============================================================================
  * - A0 (GPIO4)   - ADC capable, general purpose
+ * - A1 (GPIO5)   - ADC capable, general purpose
+ * - A2 (GPIO6)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
  * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
  */
@@ -87,8 +85,6 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * Unavailable/used GPIO pins
  * ============================================================================
  * In use:
- * - A1 (GPIO5)   - ACS758 current sensor 1
- * - A2 (GPIO6)   - ACS758 current sensor 2
  * - A3 (GPIO8)   - DS18B20 OneWire data
  * - A4 (GPIO10)  - MAX31865 chip select (PT100)
  * - SCK (GPIO17) - SPI clock (shared bus between PT100 and the display)
@@ -116,16 +112,6 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - SCL (GPIO2)  - I2C clock (usable if I2C not needed)
  * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
  */
-
-// ============================================================================
-// ACS758 current sensor configuration
-// ============================================================================
-constexpr float ADC_REF_V = 3.3f;
-constexpr float ACS_SENS = 0.026f;    // 26 mV/A at 3.3V supply
-constexpr float FILTER_ALPHA = 0.15f; // low-pass filter coefficient
-constexpr int ADC_SAMPLES = 300;      // Number of samples to average
-constexpr bool ENABLE_IMBALANCE_WARNINGS = false;
-constexpr unsigned long CURRENT_SENSORS_UPDATE_INTERVAL_MS = 200;
 
 // Update intervals
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
