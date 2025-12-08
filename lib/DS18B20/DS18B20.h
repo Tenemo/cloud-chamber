@@ -59,7 +59,10 @@ class DS18B20Sensor {
     const char *_id;
     float _last_temperature;
     bool _initialized;
+    bool _ever_connected; // True if sensor was successfully read at least once
     bool _in_error_state;
+    bool _reconnect_pending; // True if waiting for reconnection conversion
+    unsigned long _reconnect_start_time;
     unsigned long _last_update_time;
 
     static constexpr float TEMP_ERROR_VALUE = -127.0f;

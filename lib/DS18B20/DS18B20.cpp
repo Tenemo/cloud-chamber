@@ -8,8 +8,9 @@ bool DS18B20Sensor::_shared_conversion_pending = false;
 DS18B20Sensor::DS18B20Sensor(Logger &logger, DallasTemperature &sensors,
                              const uint8_t *address, const char *label)
     : _logger(logger), _sensors(sensors), _label(label), _id(label),
-      _last_temperature(0.0f), _initialized(false), _in_error_state(false),
-      _last_update_time(0) {
+      _last_temperature(0.0f), _initialized(false), _ever_connected(false),
+      _in_error_state(false), _reconnect_pending(false),
+      _reconnect_start_time(0), _last_update_time(0) {
     memcpy(_address, address, 8);
 }
 
@@ -26,12 +27,10 @@ void DS18B20Sensor::begin() {
     float temp_c = _sensors.getTempC(_address);
 
     if (temp_c == DEVICE_DISCONNECTED_C || temp_c == TEMP_ERROR_VALUE) {
-        _in_error_state = true;
-        char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-        _logger.registerTextLine(_id, labelBuf, "ERROR");
+        // Sensor not found - don't register display line, just log
         _logger.log("DS18B20 not found");
     } else {
+        _ever_connected = true;
         char labelBuf[16];
         snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
         _logger.registerLine(_id, labelBuf, "C", temp_c);
@@ -45,6 +44,43 @@ void DS18B20Sensor::begin() {
 void DS18B20Sensor::update() {
     if (!_initialized)
         return;
+
+    // Skip update if sensor was never successfully connected
+    if (!_ever_connected) {
+        unsigned long current_time = millis();
+
+        // If reconnection conversion is pending, check if it's complete
+        if (_reconnect_pending) {
+            if (current_time - _reconnect_start_time < CONVERSION_DELAY_MS) {
+                return; // Still converting, don't block
+            }
+            // Conversion complete, read result
+            _reconnect_pending = false;
+            float temp_c = _sensors.getTempC(_address);
+
+            if (temp_c != DEVICE_DISCONNECTED_C && temp_c != TEMP_ERROR_VALUE) {
+                _ever_connected = true;
+                char labelBuf[16];
+                snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
+                _logger.registerLine(_id, labelBuf, "C", temp_c);
+                _logger.log("DS18B20 connected.");
+                _last_temperature = temp_c;
+            }
+            _last_update_time = current_time;
+            return;
+        }
+
+        // Periodically try to detect the sensor (non-blocking)
+        if (current_time - _last_update_time < DS18B20_UPDATE_INTERVAL_MS) {
+            return;
+        }
+
+        // Start a reconnection conversion
+        _sensors.requestTemperaturesByAddress(_address);
+        _reconnect_start_time = current_time;
+        _reconnect_pending = true;
+        return;
+    }
 
     unsigned long current_time = millis();
 
