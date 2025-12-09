@@ -33,16 +33,17 @@ class PT100Sensor {
     void begin();
     void update();
     float getTemperature() const { return _last_temperature; }
+    bool isInError() const { return _in_error_state; }
 
   private:
     Logger &_logger;
     Adafruit_MAX31865 _rtd;
     const char *_label;
-    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
     unsigned long _last_update_time;
+    unsigned long _last_serial_log_time;
 
     static constexpr float RNOMINAL = 100.0f; // PT100 nominal resistance
     static constexpr float RREF = 438.0f;     // Reference resistor value

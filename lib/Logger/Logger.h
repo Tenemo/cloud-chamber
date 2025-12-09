@@ -68,6 +68,20 @@
 #include <Arduino.h>
 #include <map>
 
+// Display layout
+constexpr int LINE_HEIGHT = 12;
+constexpr int VALUE_X = 60;
+constexpr int VALUE_WIDTH = 70;
+
+// Display physical properties
+constexpr int SCREEN_WIDTH = 128;
+constexpr int SCREEN_HEIGHT = 160;
+constexpr int CHAR_WIDTH = 6; // pixels per character
+constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
+
+// Serial initialization timeout
+constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
+
 struct DisplayLine {
     String label;      // display label (e.g., "Temp:", "Sensor1:")
     String value;      // current display value (formatted string)
@@ -75,7 +89,6 @@ struct DisplayLine {
     String
         unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
     int slot; // Y position slot on screen
-    bool initialized;  // whether this line has been drawn on screen
     bool uses_wrap;    // true if value wraps to next line due to overflow
     bool needs_redraw; // true if value changed and needs to be redrawn
 };
@@ -93,8 +106,10 @@ class Logger {
 
     // Core display management
     void initializeDisplay();
-    void clearDisplay();
     void update(); // update spinner and other periodic display elements
+
+    // Utility for formatting display labels (adds colon suffix)
+    static void formatLabel(char *buf, size_t size, const char *label);
 
     // Generic KV store interface for display lines
     void registerLine(const String &name, const String &label,
@@ -118,6 +133,7 @@ class Logger {
     void fillBox(int x, int y, int w, int h, uint16_t color);
     void registerLineInternal(const String &name, const String &label,
                               const String &value, const String &unit);
+    bool shouldWrap(const String &label, const String &value) const;
 
     DFRobot_ST7735_128x160_HW_SPI *_screen;
     int8_t _backlight;

@@ -7,7 +7,7 @@ bool DS18B20Sensor::_shared_conversion_pending = false;
 
 DS18B20Sensor::DS18B20Sensor(Logger &logger, DallasTemperature &sensors,
                              const uint8_t *address, const char *label)
-    : _logger(logger), _sensors(sensors), _label(label), _id(label),
+    : _logger(logger), _sensors(sensors), _label(label),
       _last_temperature(0.0f), _initialized(false), _ever_connected(false),
       _in_error_state(false), _reconnect_pending(false),
       _reconnect_start_time(0), _last_update_time(0) {
@@ -32,8 +32,8 @@ void DS18B20Sensor::begin() {
     } else {
         _ever_connected = true;
         char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-        _logger.registerLine(_id, labelBuf, "C", temp_c);
+        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
+        _logger.registerLine(_label, labelBuf, "C", temp_c);
         _logger.log("DS18B20 initialized.");
         _last_temperature = temp_c;
     }
@@ -61,8 +61,8 @@ void DS18B20Sensor::update() {
             if (temp_c != DEVICE_DISCONNECTED_C && temp_c != TEMP_ERROR_VALUE) {
                 _ever_connected = true;
                 char labelBuf[16];
-                snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-                _logger.registerLine(_id, labelBuf, "C", temp_c);
+                Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
+                _logger.registerLine(_label, labelBuf, "C", temp_c);
                 _logger.log("DS18B20 connected.");
                 _last_temperature = temp_c;
             }
@@ -129,7 +129,7 @@ void DS18B20Sensor::update() {
         if (!_in_error_state) {
             _in_error_state = true;
             _logger.log("DS18B20 sensor error");
-            _logger.updateLineText(_id, "ERROR");
+            _logger.updateLineText(_label, "ERROR");
         }
         return;
     }
@@ -139,10 +139,10 @@ void DS18B20Sensor::update() {
         _in_error_state = false;
         _logger.log("DS18B20 recovered");
         char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-        _logger.registerLine(_id, labelBuf, "C", temp_c);
+        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
+        _logger.registerLine(_label, labelBuf, "C", temp_c);
     }
 
-    _logger.updateLine(_id, temp_c);
+    _logger.updateLine(_label, temp_c);
     _last_temperature = temp_c;
 }
