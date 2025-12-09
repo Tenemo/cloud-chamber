@@ -58,8 +58,14 @@ static void initializeHardware() {
     ds18b20_sensor_2.begin();
     ds18b20_sensor_3.begin();
     pt100_sensor.begin();
-    psu.begin(PIN_DPS5015_RX,
-              PIN_DPS5015_TX); // RX pin for receive, TX pin for transmit
+    psu.begin();
+
+    // Configure PSU limits
+    if (psu.isConnected()) {
+        psu.setVoltage(16.0f); // Max 16V
+        psu.setCurrent(2.0f);  // Max 2A
+        logger.log("PSU set to 16V/2A");
+    }
 }
 
 void setup() {
