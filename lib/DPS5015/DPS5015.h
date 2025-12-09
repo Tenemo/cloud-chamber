@@ -51,7 +51,7 @@ class DPS5015 {
     DPS5015(Logger &logger, const char *label, HardwareSerial &serial = Serial1,
             uint8_t slaveAddress = 1);
 
-    void begin(int rxPin = PIN_DPS5015_RX, int txPin = PIN_DPS5015_TX,
+    void begin(int rxPin = PIN_DPS5015_1_RX, int txPin = PIN_DPS5015_1_TX,
                unsigned long baud = 9600);
     void update();
 

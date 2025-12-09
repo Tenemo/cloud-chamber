@@ -42,8 +42,9 @@ DS18B20Sensor ds18b20_sensor_2(logger, dallasSensors, DS18B20_2_ADDRESS,
 DS18B20Sensor ds18b20_sensor_3(logger, dallasSensors, DS18B20_3_ADDRESS,
                                "TEMP_3");
 
-// DPS5015 power supply (uses Serial1 on TX/RX pins)
-DPS5015 psu(logger, "PSU");
+// DPS5015 power supplies (Serial1 and Serial2)
+DPS5015 psu1(logger, "PSU1", Serial1);
+DPS5015 psu2(logger, "PSU2", Serial2);
 
 static void configureSystemLogging() {
     esp_log_level_set("*", ESP_LOG_ERROR);
@@ -58,14 +59,23 @@ static void initializeHardware() {
     ds18b20_sensor_2.begin();
     ds18b20_sensor_3.begin();
     pt100_sensor.begin();
-    psu.begin();
+    psu1.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
+    psu2.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
 
-    if (psu.isConnected()) {
-        psu.unlock();
-        psu.setVoltage(12.0f);
-        psu.setCurrent(2.0f);
-        psu.setOutput(true);
-        logger.log("PSU: 12V/2A ON");
+    if (psu1.isConnected()) {
+        psu1.unlock();
+        psu1.setVoltage(12.0f);
+        psu1.setCurrent(2.0f);
+        psu1.setOutput(true);
+        logger.log("PSU1: 12V/2A ON");
+    }
+
+    if (psu2.isConnected()) {
+        psu2.unlock();
+        psu2.setVoltage(12.0f);
+        psu2.setCurrent(2.0f);
+        psu2.setOutput(true);
+        logger.log("PSU2: 12V/2A ON");
     }
 }
 
@@ -80,5 +90,6 @@ void loop() {
     ds18b20_sensor_2.update();
     ds18b20_sensor_3.update();
     pt100_sensor.update();
-    psu.update();
+    psu1.update();
+    psu2.update();
 }
