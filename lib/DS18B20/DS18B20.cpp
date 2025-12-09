@@ -14,10 +14,6 @@ DS18B20Sensor::DS18B20Sensor(Logger &logger, DallasTemperature &sensors,
     memcpy(_address, address, 8);
 }
 
-static void formatLabel(char *buf, size_t size, const char *label) {
-    snprintf(buf, size, "%s:", label);
-}
-
 void DS18B20Sensor::begin() {
     if (_initialized)
         return; // prevent re-initialization
@@ -36,7 +32,7 @@ void DS18B20Sensor::begin() {
     } else {
         _ever_connected = true;
         char labelBuf[16];
-        formatLabel(labelBuf, sizeof(labelBuf), _label);
+        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
         _logger.registerLine(_label, labelBuf, "C", temp_c);
         _logger.log("DS18B20 initialized.");
         _last_temperature = temp_c;
@@ -65,7 +61,7 @@ void DS18B20Sensor::update() {
             if (temp_c != DEVICE_DISCONNECTED_C && temp_c != TEMP_ERROR_VALUE) {
                 _ever_connected = true;
                 char labelBuf[16];
-                formatLabel(labelBuf, sizeof(labelBuf), _label);
+                Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
                 _logger.registerLine(_label, labelBuf, "C", temp_c);
                 _logger.log("DS18B20 connected.");
                 _last_temperature = temp_c;
@@ -143,7 +139,7 @@ void DS18B20Sensor::update() {
         _in_error_state = false;
         _logger.log("DS18B20 recovered");
         char labelBuf[16];
-        formatLabel(labelBuf, sizeof(labelBuf), _label);
+        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
         _logger.registerLine(_label, labelBuf, "C", temp_c);
     }
 

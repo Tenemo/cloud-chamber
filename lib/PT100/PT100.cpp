@@ -6,10 +6,6 @@ PT100Sensor::PT100Sensor(Logger &logger, const char *label)
       _last_temperature(0.0f), _initialized(false), _in_error_state(false),
       _last_update_time(0), _last_serial_log_time(0) {}
 
-static void formatLabel(char *buf, size_t size, const char *label) {
-    snprintf(buf, size, "%s:", label);
-}
-
 void PT100Sensor::begin() {
     if (_initialized)
         return; // prevent re-initialization
@@ -22,7 +18,7 @@ void PT100Sensor::begin() {
     bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
 
     char labelBuf[16];
-    formatLabel(labelBuf, sizeof(labelBuf), _label);
+    Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
 
     if (has_error) {
         _in_error_state = true;
@@ -74,7 +70,7 @@ void PT100Sensor::update() {
         _logger.log("PT100 sensor recovered");
         // Re-register as numeric line
         char labelBuf[16];
-        formatLabel(labelBuf, sizeof(labelBuf), _label);
+        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
         _logger.registerLine(_label, labelBuf, "C", temp_c);
     }
 

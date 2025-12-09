@@ -32,6 +32,8 @@ class PT100Sensor {
 
     void begin();
     void update();
+    float getTemperature() const { return _last_temperature; }
+    bool isInError() const { return _in_error_state; }
 
   private:
     Logger &_logger;

@@ -91,6 +91,10 @@ class DPS5015 {
     bool _in_error_state;
     unsigned long _last_update_time;
 
+    // Display line IDs (initialized once in registerDisplayLines)
+    char _current_line_id[16];
+    char _power_line_id[16];
+
     // Cached values
     float _set_voltage;
     float _set_current;
@@ -111,7 +115,6 @@ class DPS5015 {
     struct WriteRequest {
         uint16_t reg;
         uint16_t value;
-        bool pending;
     };
     WriteRequest _write_queue[WRITE_QUEUE_SIZE];
     size_t _write_queue_head;

@@ -21,7 +21,6 @@
 #include "PT100.h"
 #include "config.h"
 #include <Arduino.h>
-#include <esp_task_wdt.h>
 
 Logger logger;
 
@@ -39,7 +38,6 @@ DS18B20Sensor ds18b20_sensors[] = {
 DPS5015 psus[] = {{logger, "DC12", Serial1}, {logger, "DC34", Serial2}};
 
 static void initializeHardware() {
-    esp_task_wdt_init(60, true);
     logger.initializeDisplay();
 
     dallasSensors.begin();
