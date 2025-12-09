@@ -12,8 +12,8 @@
 #define D7 9   // GPIO9  - SD_CS (SD card)
 #define D9 0   // GPIO0  - Boot key (avoid)
 #define D10 14 // GPIO14 - BUSY (tear sync)
-#define D11 13 // GPIO13 - INT (touch interrupt)
-#define D12 12 // GPIO12 - TCS (touch chip select)
+#define D11 13 // GPIO13 - INT (unused - no touch on DFR0928)
+#define D12 12 // GPIO12 - TCS (unused - no touch on DFR0928)
 #define D13 21 // GPIO21 - LCD_BL (backlight)
 #define D14 47 // GPIO47 - User key
 
@@ -74,6 +74,8 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - A2 (GPIO6)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
  * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
+ * - D11 (GPIO13) - INT pin (unused, no touch on DFR0928)
+ * - D12 (GPIO12) - TCS pin (unused, no touch on DFR0928)
  */
 
 /** ============================================================================
@@ -95,15 +97,17 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - MOSI (GPIO15)- SPI MOSI (shared bus between PT100 and the display)
  * - MISO (GPIO16)- SPI MISO (shared bus between PT100 and the display)
  *
- * Display (directly connected via GDI FPC):
+ * Display (directly connected via GDI FPC - DFR0928 non-touch):
  * - D2 (GPIO3)   - LCD_DC
  * - D3 (GPIO38)  - LCD_RST
  * - D6 (GPIO18)  - LCD_CS
  * - D13 (GPIO21) - LCD_BL (backlight)
  * - D7 (GPIO9)   - SD_CS (directly connected to screen)
- * - D10 (GPIO14) - BUSY (directly connected to screen)
- * - D11 (GPIO13) - INT (directly connected to screen)
- * - D12 (GPIO12) - TCS (directly connected to screen)
+ * - D10 (GPIO14) - BUSY (tear sync, directly connected)
+ *
+ * Unused GDI pins (no touch controller on DFR0928):
+ * - D11 (GPIO13) - INT (available for other use)
+ * - D12 (GPIO12) - TCS (available for other use)
  *
  * DPS5015 Power Supply (Modbus RTU):
  * - TX (GPIO43)  - UART TX (DPS5015 Modbus)
