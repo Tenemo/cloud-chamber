@@ -11,12 +11,7 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _output_on(false), _cc_mode(false), _state(ModbusState::IDLE),
       _request_start_time(0), _expected_response_length(0),
       _write_queue_head(0), _write_queue_tail(0),
-      _pending_config{0.0f, 0.0f, false, false} {
-    // Initialize write queue
-    for (size_t i = 0; i < WRITE_QUEUE_SIZE; i++) {
-        _write_queue[i].pending = false;
-    }
-}
+      _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
@@ -28,7 +23,7 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
 
     // Register placeholder display line for initial state
     char labelBuf[16];
-    snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
+    Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
     _logger.registerTextLine(_label, labelBuf, "INIT...");
 
     _initialized = true;
@@ -36,19 +31,19 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
 }
 
 void DPS5015::registerDisplayLines() {
+    // Initialize line IDs once
+    snprintf(_current_line_id, sizeof(_current_line_id), "%s_I", _label);
+    snprintf(_power_line_id, sizeof(_power_line_id), "%s_P", _label);
+
     char labelBuf[16];
     snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
     _logger.registerLine(_label, labelBuf, "V", _output_voltage);
 
-    char currentId[16];
-    snprintf(currentId, sizeof(currentId), "%s_I", _label);
     snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
-    _logger.registerLine(currentId, labelBuf, "A", _output_current);
+    _logger.registerLine(_current_line_id, labelBuf, "A", _output_current);
 
-    char powerId[16];
-    snprintf(powerId, sizeof(powerId), "%s_P", _label);
     snprintf(labelBuf, sizeof(labelBuf), "%s P:", _label);
-    _logger.registerLine(powerId, labelBuf, "W", _output_power);
+    _logger.registerLine(_power_line_id, labelBuf, "W", _output_power);
 }
 
 void DPS5015::update() {
@@ -154,14 +149,8 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
 
     // Update display
     _logger.updateLine(_label, _output_voltage);
-
-    char currentId[16];
-    snprintf(currentId, sizeof(currentId), "%s_I", _label);
-    _logger.updateLine(currentId, _output_current);
-
-    char powerId[16];
-    snprintf(powerId, sizeof(powerId), "%s_P", _label);
-    _logger.updateLine(powerId, _output_power);
+    _logger.updateLine(_current_line_id, _output_current);
+    _logger.updateLine(_power_line_id, _output_power);
 }
 
 void DPS5015::handleCommError() {
@@ -176,14 +165,8 @@ void DPS5015::handleCommError() {
         _connected = false;
         _logger.log("DPS5015 comm error");
         _logger.updateLineText(_label, "ERROR");
-
-        char currentId[16];
-        snprintf(currentId, sizeof(currentId), "%s_I", _label);
-        _logger.updateLineText(currentId, "ERROR");
-
-        char powerId[16];
-        snprintf(powerId, sizeof(powerId), "%s_P", _label);
-        _logger.updateLineText(powerId, "ERROR");
+        _logger.updateLineText(_current_line_id, "ERROR");
+        _logger.updateLineText(_power_line_id, "ERROR");
     }
 }
 
@@ -196,7 +179,6 @@ bool DPS5015::queueWrite(uint16_t reg, uint16_t value) {
 
     _write_queue[_write_queue_head].reg = reg;
     _write_queue[_write_queue_head].value = value;
-    _write_queue[_write_queue_head].pending = true;
     _write_queue_head = next_head;
     return true;
 }
@@ -323,18 +305,20 @@ void DPS5015::sendReadRequest(uint16_t startReg, uint16_t count) {
 bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
     size_t expected_length = 5 + (count * 2);
 
-    // Read response
+    // Read exactly the expected number of bytes
     uint8_t response[64];
-    size_t bytes_read = 0;
-    while (_serial.available() && bytes_read < sizeof(response)) {
-        response[bytes_read++] = _serial.read();
+    for (size_t i = 0; i < expected_length && i < sizeof(response); i++) {
+        // Wait briefly for each byte if not immediately available
+        unsigned long start = millis();
+        while (!_serial.available()) {
+            if (millis() - start > 10) {
+                return false; // Byte timeout
+            }
+        }
+        response[i] = _serial.read();
     }
 
-    // Validate response
-    if (bytes_read < expected_length) {
-        return false;
-    }
-
+    // Validate response header
     if (response[0] != _slave_address || response[1] != 0x03) {
         char debugBuf[32];
         snprintf(debugBuf, sizeof(debugBuf), "DPS: bad hdr %02X %02X",
@@ -350,8 +334,8 @@ bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
 
     // Verify CRC
     uint16_t received_crc =
-        response[bytes_read - 2] | (response[bytes_read - 1] << 8);
-    uint16_t calculated_crc = calculateCRC(response, bytes_read - 2);
+        response[expected_length - 2] | (response[expected_length - 1] << 8);
+    uint16_t calculated_crc = calculateCRC(response, expected_length - 2);
     if (received_crc != calculated_crc) {
         _logger.log("DPS: CRC fail", true);
         return false;
@@ -387,17 +371,19 @@ void DPS5015::sendWriteRequest(uint16_t reg, uint16_t value) {
 }
 
 bool DPS5015::checkWriteResponse() {
-    // Read response
+    // Read exactly 8 bytes for write response
     uint8_t response[8];
-    size_t bytes_read = 0;
-    while (_serial.available() && bytes_read < sizeof(response)) {
-        response[bytes_read++] = _serial.read();
+    for (size_t i = 0; i < 8; i++) {
+        unsigned long start = millis();
+        while (!_serial.available()) {
+            if (millis() - start > 10) {
+                return false; // Byte timeout
+            }
+        }
+        response[i] = _serial.read();
     }
 
-    // Validate response
-    if (bytes_read < 8) {
-        return false;
-    }
+    // Validate response header
 
     if (response[0] != _slave_address || response[1] != 0x06) {
         return false;

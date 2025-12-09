@@ -49,6 +49,8 @@ class DS18B20Sensor {
 
     void begin();
     void update();
+    float getTemperature() const { return _last_temperature; }
+    bool isConnected() const { return _ever_connected && !_in_error_state; }
 
   private:
     Logger &_logger;
