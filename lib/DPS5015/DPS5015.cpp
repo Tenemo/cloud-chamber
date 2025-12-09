@@ -8,43 +8,31 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _ever_connected(false), _in_error_state(false), _last_update_time(0),
       _set_voltage(0.0f), _set_current(0.0f), _output_voltage(0.0f),
       _output_current(0.0f), _output_power(0.0f), _input_voltage(0.0f),
-      _output_on(false), _cc_mode(false) {}
+      _output_on(false), _cc_mode(false), _state(ModbusState::IDLE),
+      _request_start_time(0), _expected_response_length(0),
+      _write_queue_head(0), _write_queue_tail(0),
+      _pending_config{0.0f, 0.0f, false, false} {
+    // Initialize write queue
+    for (size_t i = 0; i < WRITE_QUEUE_SIZE; i++) {
+        _write_queue[i].pending = false;
+    }
+}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
         return; // prevent re-initialization
 
-    // Initialize Serial1 for Modbus communication
+    // Initialize Serial for Modbus communication
     _serial.begin(baud, SERIAL_8N1, rxPin, txPin);
     delay(100); // allow serial to stabilize
 
-    // Try to read initial values to check if device is connected
-    uint16_t buffer[10];
-    if (readRegisters(REG_SET_VOLTAGE, 10, buffer)) {
-        _connected = true;
-        _ever_connected = true;
-        _set_voltage = buffer[0] / 100.0f;
-        _set_current = buffer[1] / 100.0f;
-        _output_voltage = buffer[2] / 100.0f;
-        _output_current = buffer[3] / 100.0f;
-        _output_power = buffer[4] / 100.0f;
-        _input_voltage = buffer[5] / 100.0f;
-        _cc_mode = (buffer[8] == 1);
-        _output_on = (buffer[9] == 1);
-
-        registerDisplayLines();
-        _logger.log("DPS5015 initialized.");
-    } else {
-        _connected = false;
-        _in_error_state = true;
-
-        char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-        _logger.registerTextLine(_label, labelBuf, "NO CONN");
-        _logger.log("DPS5015 not found");
-    }
+    // Register placeholder display line for initial state
+    char labelBuf[16];
+    snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
+    _logger.registerTextLine(_label, labelBuf, "INIT...");
 
     _initialized = true;
+    _last_update_time = 0; // Force immediate first read attempt
 }
 
 void DPS5015::registerDisplayLines() {
@@ -56,6 +44,11 @@ void DPS5015::registerDisplayLines() {
     snprintf(currentId, sizeof(currentId), "%s_I", _label);
     snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
     _logger.registerLine(currentId, labelBuf, "A", _output_current);
+
+    char powerId[16];
+    snprintf(powerId, sizeof(powerId), "%s_P", _label);
+    snprintf(labelBuf, sizeof(labelBuf), "%s P:", _label);
+    _logger.registerLine(powerId, labelBuf, "W", _output_power);
 }
 
 void DPS5015::update() {
@@ -63,33 +56,73 @@ void DPS5015::update() {
         return;
 
     unsigned long current_time = millis();
-    if (current_time - _last_update_time < DPS5015_UPDATE_INTERVAL_MS) {
-        return;
-    }
-    _last_update_time = current_time;
 
-    // Read all relevant registers at once (0x0000 to 0x0009)
-    uint16_t buffer[10];
-    if (!readRegisters(REG_SET_VOLTAGE, 10, buffer)) {
-        // If never connected, keep trying silently
-        if (!_ever_connected) {
+    switch (_state) {
+    case ModbusState::IDLE: {
+        // Process any pending writes first
+        if (_write_queue_head != _write_queue_tail) {
+            processWriteQueue();
             return;
         }
 
-        // Only log error if we were previously connected
-        if (!_in_error_state) {
-            _in_error_state = true;
-            _connected = false;
-            _logger.log("DPS5015 comm error");
-            _logger.updateLineText(_label, "ERROR");
-
-            char currentId[16];
-            snprintf(currentId, sizeof(currentId), "%s_I", _label);
-            _logger.updateLineText(currentId, "ERROR");
+        // Check if it's time for a new read
+        if (current_time - _last_update_time < DPS5015_UPDATE_INTERVAL_MS) {
+            return;
         }
-        return;
+
+        // Start a new read request
+        sendReadRequest(REG_SET_VOLTAGE, 10);
+        _state = ModbusState::WAITING_RESPONSE;
+        _request_start_time = current_time;
+        _expected_response_length =
+            5 + (10 * 2); // addr + func + count + data + crc
+        break;
     }
 
+    case ModbusState::WAITING_RESPONSE: {
+        // Check for timeout
+        if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
+            _state = ModbusState::IDLE;
+            _last_update_time = current_time;
+            handleCommError();
+            return;
+        }
+
+        // Check if we have enough data
+        if (_serial.available() >= (int)_expected_response_length) {
+            uint16_t buffer[10];
+            if (checkReadResponse(10, buffer)) {
+                handleReadComplete(buffer);
+            } else {
+                handleCommError();
+            }
+            _state = ModbusState::IDLE;
+            _last_update_time = current_time;
+        }
+        break;
+    }
+
+    case ModbusState::WRITE_PENDING: {
+        // Check for timeout
+        if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
+            _state = ModbusState::IDLE;
+            _logger.log("DPS: write timeout", true);
+            return;
+        }
+
+        // Check if we have the response (8 bytes for write)
+        if (_serial.available() >= 8) {
+            if (!checkWriteResponse()) {
+                _logger.log("DPS: write fail", true);
+            }
+            _state = ModbusState::IDLE;
+        }
+        break;
+    }
+    }
+}
+
+void DPS5015::handleReadComplete(uint16_t *buffer) {
     // Parse register values
     _set_voltage = buffer[0] / 100.0f;
     _set_current = buffer[1] / 100.0f;
@@ -100,13 +133,14 @@ void DPS5015::update() {
     _cc_mode = (buffer[8] == 1);
     _output_on = (buffer[9] == 1);
 
-    // First successful connection after being disconnected at startup
+    // First successful connection
     if (!_ever_connected) {
         _ever_connected = true;
         _connected = true;
         _in_error_state = false;
         registerDisplayLines();
         _logger.log("DPS5015 connected.");
+        applyPendingConfig();
         return;
     }
 
@@ -124,54 +158,128 @@ void DPS5015::update() {
     char currentId[16];
     snprintf(currentId, sizeof(currentId), "%s_I", _label);
     _logger.updateLine(currentId, _output_current);
+
+    char powerId[16];
+    snprintf(powerId, sizeof(powerId), "%s_P", _label);
+    _logger.updateLine(powerId, _output_power);
+}
+
+void DPS5015::handleCommError() {
+    // If never connected, keep trying silently
+    if (!_ever_connected) {
+        return;
+    }
+
+    // Only log error if we were previously connected
+    if (!_in_error_state) {
+        _in_error_state = true;
+        _connected = false;
+        _logger.log("DPS5015 comm error");
+        _logger.updateLineText(_label, "ERROR");
+
+        char currentId[16];
+        snprintf(currentId, sizeof(currentId), "%s_I", _label);
+        _logger.updateLineText(currentId, "ERROR");
+
+        char powerId[16];
+        snprintf(powerId, sizeof(powerId), "%s_P", _label);
+        _logger.updateLineText(powerId, "ERROR");
+    }
+}
+
+bool DPS5015::queueWrite(uint16_t reg, uint16_t value) {
+    size_t next_head = (_write_queue_head + 1) % WRITE_QUEUE_SIZE;
+    if (next_head == _write_queue_tail) {
+        // Queue full
+        return false;
+    }
+
+    _write_queue[_write_queue_head].reg = reg;
+    _write_queue[_write_queue_head].value = value;
+    _write_queue[_write_queue_head].pending = true;
+    _write_queue_head = next_head;
+    return true;
+}
+
+void DPS5015::processWriteQueue() {
+    if (_write_queue_tail == _write_queue_head) {
+        return; // Queue empty
+    }
+
+    WriteRequest &req = _write_queue[_write_queue_tail];
+    _write_queue_tail = (_write_queue_tail + 1) % WRITE_QUEUE_SIZE;
+
+    sendWriteRequest(req.reg, req.value);
+    _state = ModbusState::WRITE_PENDING;
+    _request_start_time = millis();
 }
 
 bool DPS5015::setVoltage(float voltage) {
-    if (!_connected)
+    if (!_connected && _ever_connected)
         return false;
 
     uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
-    if (writeRegister(REG_SET_VOLTAGE, value)) {
+    if (queueWrite(REG_SET_VOLTAGE, value)) {
         _set_voltage = voltage;
         return true;
     }
-    _logger.log("DPS: setVoltage fail");
     return false;
 }
 
 bool DPS5015::setCurrent(float current) {
-    if (!_connected)
+    if (!_connected && _ever_connected)
         return false;
 
     uint16_t value = static_cast<uint16_t>(current * 100.0f);
-    if (writeRegister(REG_SET_CURRENT, value)) {
+    if (queueWrite(REG_SET_CURRENT, value)) {
         _set_current = current;
         return true;
     }
-    _logger.log("DPS: setCurrent fail");
     return false;
 }
 
 bool DPS5015::setOutput(bool on) {
-    if (!_connected)
+    if (!_connected && _ever_connected)
         return false;
 
-    if (writeRegister(REG_OUTPUT, on ? 1 : 0)) {
+    if (queueWrite(REG_OUTPUT, on ? 1 : 0)) {
         _output_on = on;
         return true;
     }
-    _logger.log("DPS: setOutput fail");
     return false;
 }
 
 bool DPS5015::unlock() {
-    if (!_connected)
+    if (!_connected && _ever_connected)
         return false;
-    if (writeRegister(REG_LOCK, 0)) {
-        return true;
+    return queueWrite(REG_LOCK, 0);
+}
+
+void DPS5015::configure(float voltage, float current, bool outputOn) {
+    _pending_config.voltage = voltage;
+    _pending_config.current = current;
+    _pending_config.output_on = outputOn;
+    _pending_config.has_config = true;
+
+    // If already connected, apply immediately
+    if (_connected) {
+        applyPendingConfig();
     }
-    _logger.log("DPS: unlock fail");
-    return false;
+}
+
+void DPS5015::applyPendingConfig() {
+    if (!_pending_config.has_config)
+        return;
+
+    // Queue all the configuration writes
+    queueWrite(REG_LOCK, 0); // Unlock first
+    queueWrite(REG_SET_VOLTAGE,
+               static_cast<uint16_t>(_pending_config.voltage * 100.0f));
+    queueWrite(REG_SET_CURRENT,
+               static_cast<uint16_t>(_pending_config.current * 100.0f));
+    queueWrite(REG_OUTPUT, _pending_config.output_on ? 1 : 0);
+
+    _pending_config.has_config = false; // Only apply once
 }
 
 void DPS5015::clearSerialBuffer() {
@@ -197,8 +305,7 @@ uint16_t DPS5015::calculateCRC(uint8_t *buffer, size_t length) {
     return crc;
 }
 
-bool DPS5015::readRegisters(uint16_t startReg, uint16_t count,
-                            uint16_t *buffer) {
+void DPS5015::sendReadRequest(uint16_t startReg, uint16_t count) {
     clearSerialBuffer();
 
     // Build Modbus RTU request (Function 0x03 - Read Holding Registers)
@@ -217,19 +324,10 @@ bool DPS5015::readRegisters(uint16_t startReg, uint16_t count,
     // Send request
     _serial.write(request, 8);
     _serial.flush();
+}
 
-    // Wait for response
-    unsigned long start_time = millis();
-    size_t expected_length =
-        5 + (count * 2); // addr + func + byte_count + data + crc
-
-    while (_serial.available() < (int)expected_length) {
-        if (millis() - start_time > RESPONSE_TIMEOUT_MS) {
-            _logger.log("DPS: timeout", true);
-            return false; // Timeout
-        }
-        delay(1);
-    }
+bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
+    size_t expected_length = 5 + (count * 2);
 
     // Read response
     uint8_t response[64];
@@ -273,7 +371,7 @@ bool DPS5015::readRegisters(uint16_t startReg, uint16_t count,
     return true;
 }
 
-bool DPS5015::writeRegister(uint16_t reg, uint16_t value) {
+void DPS5015::sendWriteRequest(uint16_t reg, uint16_t value) {
     clearSerialBuffer();
 
     // Build Modbus RTU request (Function 0x06 - Write Single Register)
@@ -292,18 +390,9 @@ bool DPS5015::writeRegister(uint16_t reg, uint16_t value) {
     // Send request
     _serial.write(request, 8);
     _serial.flush();
+}
 
-    // Wait for response (echo of request)
-    unsigned long start_time = millis();
-    size_t expected_length = 8;
-
-    while (_serial.available() < (int)expected_length) {
-        if (millis() - start_time > RESPONSE_TIMEOUT_MS) {
-            return false; // Timeout
-        }
-        delay(1);
-    }
-
+bool DPS5015::checkWriteResponse() {
     // Read response
     uint8_t response[8];
     size_t bytes_read = 0;
@@ -311,16 +400,13 @@ bool DPS5015::writeRegister(uint16_t reg, uint16_t value) {
         response[bytes_read++] = _serial.read();
     }
 
-    // Validate response (should be echo of request)
-    if (bytes_read < expected_length) {
+    // Validate response
+    if (bytes_read < 8) {
         return false;
     }
 
-    // Check that response matches request
-    for (size_t i = 0; i < 6; i++) {
-        if (response[i] != request[i]) {
-            return false;
-        }
+    if (response[0] != _slave_address || response[1] != 0x06) {
+        return false;
     }
 
     // Verify CRC

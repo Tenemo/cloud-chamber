@@ -109,7 +109,7 @@ constexpr int CHAR_WIDTH = 6; // pixels per character
 constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
 
 // Display update timing
-constexpr unsigned long SPINNER_UPDATE_MS = 250;
+constexpr unsigned long SPINNER_UPDATE_MS = 100;
 constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
 // Live log area (bottom of screen)

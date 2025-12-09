@@ -39,15 +39,6 @@ DS18B20Sensor ds18b20_sensors[] = {
 DPS5015 dc12(logger, "DC12", Serial1);
 DPS5015 dc34(logger, "DC34", Serial2);
 
-static void configurePSU(DPS5015 &psu, float voltage, float current) {
-    if (!psu.isConnected())
-        return;
-    psu.unlock();
-    psu.setVoltage(voltage);
-    psu.setCurrent(current);
-    psu.setOutput(true);
-}
-
 static void initializeHardware() {
     esp_task_wdt_init(60, true);
     logger.initializeDisplay();
@@ -61,8 +52,10 @@ static void initializeHardware() {
 
     dc12.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
     dc34.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
-    configurePSU(dc12, 12.0f, 2.0f);
-    configurePSU(dc34, 12.0f, 2.0f);
+
+    // Configure PSUs - settings are applied automatically when they connect
+    dc12.configure(12.0f, 2.0f, true);
+    dc34.configure(12.0f, 2.0f, true);
 }
 
 void setup() { initializeHardware(); }

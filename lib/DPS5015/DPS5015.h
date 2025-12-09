@@ -46,6 +46,13 @@
 #include "config.h"
 #include <Arduino.h>
 
+// State machine states for non-blocking Modbus communication
+enum class ModbusState {
+    IDLE,             // Ready to start a new transaction
+    WAITING_RESPONSE, // Request sent, waiting for response
+    WRITE_PENDING,    // Write operation waiting for response
+};
+
 class DPS5015 {
   public:
     DPS5015(Logger &logger, const char *label, HardwareSerial &serial = Serial1,
@@ -55,7 +62,10 @@ class DPS5015 {
                unsigned long baud = 9600);
     void update();
 
-    // Setters - return true on success
+    // Configure desired settings (applied automatically when connected)
+    void configure(float voltage, float current, bool outputOn = true);
+
+    // Setters - these queue write operations (non-blocking)
     bool setVoltage(float voltage);
     bool setCurrent(float current);
     bool setOutput(bool on);
@@ -92,6 +102,31 @@ class DPS5015 {
     bool _output_on;
     bool _cc_mode;
 
+    // Non-blocking state machine
+    ModbusState _state;
+    unsigned long _request_start_time;
+    size_t _expected_response_length;
+
+    // Write queue for non-blocking writes
+    static constexpr size_t WRITE_QUEUE_SIZE = 8;
+    struct WriteRequest {
+        uint16_t reg;
+        uint16_t value;
+        bool pending;
+    };
+    WriteRequest _write_queue[WRITE_QUEUE_SIZE];
+    size_t _write_queue_head;
+    size_t _write_queue_tail;
+
+    // Pending configuration (applied on first connection)
+    struct PendingConfig {
+        float voltage;
+        float current;
+        bool output_on;
+        bool has_config;
+    };
+    PendingConfig _pending_config;
+
     // Modbus register addresses
     static constexpr uint16_t REG_SET_VOLTAGE = 0x0000;
     static constexpr uint16_t REG_SET_CURRENT = 0x0001;
@@ -109,8 +144,15 @@ class DPS5015 {
 
     // Modbus functions
     void registerDisplayLines();
-    bool readRegisters(uint16_t startReg, uint16_t count, uint16_t *buffer);
-    bool writeRegister(uint16_t reg, uint16_t value);
+    void sendReadRequest(uint16_t startReg, uint16_t count);
+    bool checkReadResponse(uint16_t count, uint16_t *buffer);
+    void sendWriteRequest(uint16_t reg, uint16_t value);
+    bool checkWriteResponse();
+    bool queueWrite(uint16_t reg, uint16_t value);
+    void processWriteQueue();
+    void handleReadComplete(uint16_t *buffer);
+    void handleCommError();
+    void applyPendingConfig();
     uint16_t calculateCRC(uint8_t *buffer, size_t length);
     void clearSerialBuffer();
 };
