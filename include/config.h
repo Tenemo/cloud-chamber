@@ -54,9 +54,13 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 constexpr int PIN_DS18B20 =
     A3; // GPIO8 - DS18B20 data pin (3.3k pull-up to 3.3V)
 
-// DPS5015 power supply (Modbus RTU over UART)
-constexpr int PIN_DPS5015_RX = RX; // GPIO44 - UART RX (connect to DPS TX)
-constexpr int PIN_DPS5015_TX = TX; // GPIO43 - UART TX (connect to DPS RX)
+// DPS5015 power supply 1 (Modbus RTU over UART - Serial1)
+constexpr int PIN_DPS5015_1_RX = RX; // GPIO44 - UART RX (connect to DPS TX)
+constexpr int PIN_DPS5015_1_TX = TX; // GPIO43 - UART TX (connect to DPS RX)
+
+// DPS5015 power supply 2 (Modbus RTU over UART - Serial2)
+constexpr int PIN_DPS5015_2_RX = A1; // GPIO5 - UART RX (connect to DPS TX)
+constexpr int PIN_DPS5015_2_TX = A0; // GPIO4 - UART TX (connect to DPS RX)
 
 // DS18B20 sensor addresses
 constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
@@ -69,8 +73,6 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
 /** ============================================================================
  * Available, unused GPIO pins
  * ============================================================================
- * - A0 (GPIO4)   - ADC capable, general purpose
- * - A1 (GPIO5)   - ADC capable, general purpose
  * - A2 (GPIO6)   - ADC capable, general purpose
  * - A5 (GPIO11)  - ADC capable, general purpose
  * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
@@ -109,9 +111,11 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - D11 (GPIO13) - INT (available for other use)
  * - D12 (GPIO12) - TCS (available for other use)
  *
- * DPS5015 Power Supply (Modbus RTU):
- * - TX (GPIO43)  - UART TX (DPS5015 Modbus)
- * - RX (GPIO44)  - UART RX (DPS5015 Modbus)
+ * DPS5015 Power Supplies (Modbus RTU):
+ * - TX (GPIO43)  - UART TX (DPS5015 #1 Modbus - Serial1)
+ * - RX (GPIO44)  - UART RX (DPS5015 #1 Modbus - Serial1)
+ * - A0 (GPIO4)   - UART RX (DPS5015 #2 Modbus - Serial2)
+ * - A1 (GPIO5)   - UART TX (DPS5015 #2 Modbus - Serial2)
  *
  * System/Special (avoid):
  * - D9 (GPIO0)   - Boot button, strapping pin
