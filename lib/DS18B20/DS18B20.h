@@ -49,7 +49,6 @@ class DS18B20Sensor {
 
     void begin();
     void update();
-    float getTemperature() const { return _last_temperature; }
 
   private:
     Logger &_logger;

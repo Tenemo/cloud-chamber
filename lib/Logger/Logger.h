@@ -93,7 +93,6 @@ class Logger {
 
     // Core display management
     void initializeDisplay();
-    void clearDisplay();
     void update(); // update spinner and other periodic display elements
 
     // Generic KV store interface for display lines

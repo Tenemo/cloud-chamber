@@ -60,7 +60,6 @@ class DPS5015 {
     bool setCurrent(float current);
     bool setOutput(bool on);
     bool unlock();
-    bool lock();
 
     // Getters - return last read values
     float getSetVoltage() const { return _set_voltage; }
@@ -70,9 +69,7 @@ class DPS5015 {
     float getOutputPower() const { return _output_power; }
     float getInputVoltage() const { return _input_voltage; }
     bool isOutputOn() const { return _output_on; }
-    bool isConstantCurrent() const { return _cc_mode; }
     bool isConnected() const { return _connected; }
-    bool isLocked();
 
   private:
     Logger &_logger;
@@ -111,6 +108,7 @@ class DPS5015 {
     static constexpr unsigned long RESPONSE_TIMEOUT_MS = 500;
 
     // Modbus functions
+    void registerDisplayLines();
     bool readRegisters(uint16_t startReg, uint16_t count, uint16_t *buffer);
     bool writeRegister(uint16_t reg, uint16_t value);
     uint16_t calculateCRC(uint8_t *buffer, size_t length);

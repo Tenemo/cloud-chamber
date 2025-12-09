@@ -32,16 +32,7 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
         _cc_mode = (buffer[8] == 1);
         _output_on = (buffer[9] == 1);
 
-        // Register display lines
-        char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
-        _logger.registerLine(_label, labelBuf, "V", _output_voltage);
-
-        char currentId[16];
-        snprintf(currentId, sizeof(currentId), "%s_I", _label);
-        snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
-        _logger.registerLine(currentId, labelBuf, "A", _output_current);
-
+        registerDisplayLines();
         _logger.log("DPS5015 initialized.");
     } else {
         _connected = false;
@@ -54,6 +45,17 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     }
 
     _initialized = true;
+}
+
+void DPS5015::registerDisplayLines() {
+    char labelBuf[16];
+    snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
+    _logger.registerLine(_label, labelBuf, "V", _output_voltage);
+
+    char currentId[16];
+    snprintf(currentId, sizeof(currentId), "%s_I", _label);
+    snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
+    _logger.registerLine(currentId, labelBuf, "A", _output_current);
 }
 
 void DPS5015::update() {
@@ -103,17 +105,7 @@ void DPS5015::update() {
         _ever_connected = true;
         _connected = true;
         _in_error_state = false;
-
-        // Re-register display lines (replace "NO CONN" with actual values)
-        char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
-        _logger.registerLine(_label, labelBuf, "V", _output_voltage);
-
-        char currentId[16];
-        snprintf(currentId, sizeof(currentId), "%s_I", _label);
-        snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
-        _logger.registerLine(currentId, labelBuf, "A", _output_current);
-
+        registerDisplayLines();
         _logger.log("DPS5015 connected.");
         return;
     }
@@ -122,17 +114,8 @@ void DPS5015::update() {
     if (_in_error_state) {
         _in_error_state = false;
         _connected = true;
+        registerDisplayLines();
         _logger.log("DPS5015 recovered");
-
-        // Re-register display lines
-        char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
-        _logger.registerLine(_label, labelBuf, "V", _output_voltage);
-
-        char currentId[16];
-        snprintf(currentId, sizeof(currentId), "%s_I", _label);
-        snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
-        _logger.registerLine(currentId, labelBuf, "A", _output_current);
     }
 
     // Update display
@@ -189,24 +172,6 @@ bool DPS5015::unlock() {
     }
     _logger.log("DPS: unlock fail");
     return false;
-}
-
-bool DPS5015::lock() {
-    if (!_connected)
-        return false;
-    if (writeRegister(REG_LOCK, 1)) {
-        return true;
-    }
-    _logger.log("DPS: lock fail");
-    return false;
-}
-
-bool DPS5015::isLocked() {
-    uint16_t buffer[1];
-    if (readRegisters(REG_LOCK, 1, buffer)) {
-        return buffer[0] == 1;
-    }
-    return true; // Assume locked if we can't read
 }
 
 void DPS5015::clearSerialBuffer() {
