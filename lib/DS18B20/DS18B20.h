@@ -50,13 +50,13 @@ class DS18B20Sensor {
     void begin();
     void update();
     float getTemperature() const { return _last_temperature; }
+    bool isConnected() const { return _ever_connected && !_in_error_state; }
 
   private:
     Logger &_logger;
     DallasTemperature &_sensors;
     uint8_t _address[8];
     const char *_label;
-    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _ever_connected; // True if sensor was successfully read at least once

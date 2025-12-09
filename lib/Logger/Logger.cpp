@@ -6,6 +6,17 @@ Logger::Logger()
       _last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0),
       _spinner_index(0), _last_spinner_update(0) {}
 
+void Logger::formatLabel(char *buf, size_t size, const char *label) {
+    snprintf(buf, size, "%s:", label);
+}
+
+bool Logger::shouldWrap(const String &label, const String &value) const {
+    int label_width = label.length() * CHAR_WIDTH;
+    int text_width = value.length() * CHAR_WIDTH;
+    int available_width = SCREEN_WIDTH - _layout.value_x;
+    return (label_width > _layout.value_x) || (text_width > available_width);
+}
+
 void Logger::initializeDisplay() {
     if (_display_initialized)
         return; // Prevent re-initialization
@@ -37,14 +48,6 @@ void Logger::initializeDisplay() {
     drawSeparatorLine();
 
     _display_initialized = true;
-}
-
-void Logger::clearDisplay() {
-    if (!_screen)
-        return;
-    _screen->fillScreen(COLOR_RGB565_BLACK);
-    _lines.clear();
-    _layout.next_slot = 0;
 }
 
 void Logger::printLine(const char *text, int x, int y, uint8_t textSize) {
@@ -118,11 +121,7 @@ void Logger::drawLineValue(DisplayLine &line, bool force_full_redraw) {
     int y = line.slot * _layout.line_height;
 
     // Check if we need to wrap (either label too long or value too long)
-    int label_width = line.label.length() * CHAR_WIDTH;
-    int text_width = line.value.length() * CHAR_WIDTH;
-    int available_width = SCREEN_WIDTH - _layout.value_x;
-    bool should_wrap =
-        (label_width > _layout.value_x) || (text_width > available_width);
+    bool should_wrap = shouldWrap(line.label, line.value);
 
     // Determine if we need a full redraw (wrap state changed, or forced)
     bool wrap_changed = (should_wrap != line.uses_wrap);
@@ -182,11 +181,7 @@ void Logger::registerLineInternal(const String &name, const String &label,
     }
 
     // Check if label is too long or if value will overflow
-    int label_width = label.length() * CHAR_WIDTH;
-    int text_width = value.length() * CHAR_WIDTH;
-    int available_width = SCREEN_WIDTH - _layout.value_x;
-    bool will_wrap =
-        (label_width > _layout.value_x) || (text_width > available_width);
+    bool will_wrap = shouldWrap(label, value);
 
     DisplayLine line;
     line.label = label;
@@ -194,7 +189,6 @@ void Logger::registerLineInternal(const String &name, const String &label,
     line.prev_value = ""; // Empty to force full initial draw
     line.unit = unit;
     line.slot = _layout.next_slot++;
-    line.initialized = false;
     line.uses_wrap = will_wrap;
     line.needs_redraw = false; // Initial draw happens immediately below
 
@@ -209,7 +203,6 @@ void Logger::registerLineInternal(const String &name, const String &label,
     drawLineLabel(label, _lines[name].slot);
     // Draw initial value (force full redraw)
     drawLineValue(_lines[name], true);
-    _lines[name].initialized = true;
 }
 
 void Logger::registerLine(const String &name, const String &label,
@@ -266,9 +259,7 @@ void Logger::updateLine(const String &name, float value) {
     line.value = new_value;
 
     // Check if text will overflow
-    int text_width = new_value.length() * CHAR_WIDTH;
-    int available_width = SCREEN_WIDTH - _layout.value_x;
-    line.uses_wrap = (text_width > available_width);
+    line.uses_wrap = shouldWrap(line.label, new_value);
 
     // Mark for redraw in next update() cycle
     line.needs_redraw = true;
@@ -294,9 +285,7 @@ void Logger::updateLineText(const String &name, const String &text) {
     line.value = text;
 
     // Check if text will overflow
-    int text_width = text.length() * CHAR_WIDTH;
-    int available_width = SCREEN_WIDTH - _layout.value_x;
-    line.uses_wrap = (text_width > available_width);
+    line.uses_wrap = shouldWrap(line.label, text);
 
     // Mark for redraw in next update() cycle
     line.needs_redraw = true;
