@@ -39,14 +39,6 @@ void Logger::initializeDisplay() {
     _display_initialized = true;
 }
 
-void Logger::clearDisplay() {
-    if (!_screen)
-        return;
-    _screen->fillScreen(COLOR_RGB565_BLACK);
-    _lines.clear();
-    _layout.next_slot = 0;
-}
-
 void Logger::printLine(const char *text, int x, int y, uint8_t textSize) {
     if (!_screen)
         return;

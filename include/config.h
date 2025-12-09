@@ -1,66 +1,24 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// Display pins (directly mapped to GPIO)
 // ============================================================================
-// FireBeetle 2 ESP32-S3 pin definitions (board labels → GPIO)
-// ============================================================================
-// Digital pins
-#define D2 3   // GPIO3  - LCD_DC (used by display)
-#define D3 38  // GPIO38 - LCD_RST (used by display)
-#define D5 7   // GPIO7  - FCS (font chip select)
-#define D6 18  // GPIO18 - LCD_CS (used by display)
-#define D7 9   // GPIO9  - SD_CS (SD card)
-#define D9 0   // GPIO0  - Boot key (avoid)
-#define D10 14 // GPIO14 - BUSY (tear sync)
-#define D11 13 // GPIO13 - INT (unused - no touch on DFR0928)
-#define D12 12 // GPIO12 - TCS (unused - no touch on DFR0928)
-#define D13 21 // GPIO21 - LCD_BL (backlight)
-#define D14 47 // GPIO47 - User key
-
-// Analog pins
-#define A0 4  // GPIO4
-#define A1 5  // GPIO5
-#define A2 6  // GPIO6
-#define A3 8  // GPIO8 - DS18B20 OneWire data
-#define A4 10 // GPIO10 - MAX31865 (PT100) chip select
-#define A5 11 // GPIO11
-
-// Communication pins
-#define SCK 17  // GPIO17 - SPI clock
-#define MOSI 15 // GPIO15 - SPI MOSI
-#define MISO 16 // GPIO16 - SPI MISO
-#define SCL 2   // GPIO2  - I2C clock
-#define SDA 1   // GPIO1  - I2C data
-#define TX 43   // GPIO43 - UART TX
-#define RX 44   // GPIO44 - UART RX
-
-// ============================================================================
-// Display pins (GDI FPC connector - occupied by TFT display)
-// ============================================================================
-#define TFT_DC D2  // GPIO3 - Data/Command selection
-#define TFT_CS D6  // GPIO18 - Display chip select
-#define TFT_RST D3 // GPIO38 - Display reset
-#define LCD_BL D13 // GPIO21 - Backlight control
-// SPI Bus (shared): MOSI (GPIO15), MISO (GPIO16), SCK (GPIO17)
+#define TFT_DC 3   // GPIO3 - Data/Command selection
+#define TFT_CS 18  // GPIO18 - Display chip select
+#define TFT_RST 38 // GPIO38 - Display reset
+#define LCD_BL 21  // GPIO21 - Backlight control
 
 // ============================================================================
 // Sensor pins
 // ============================================================================
-// MAX31865 RTD interface (shares SPI bus with TFT)
-constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
-// MAX31865 Wiring: SDI→MOSI, SDO→MISO, CLK→SCK (shared SPI bus)
+constexpr int PIN_MAX31865_CS = 10; // GPIO10 - MAX31865 chip select
+constexpr int PIN_DS18B20 = 8;      // GPIO8 - DS18B20 OneWire data
 
-// DS18B20 digital temperature sensor (OneWire)
-constexpr int PIN_DS18B20 =
-    A3; // GPIO8 - DS18B20 data pin (3.3k pull-up to 3.3V)
-
-// DPS5015 power supply 1 (Modbus RTU over UART - Serial1)
-constexpr int PIN_DPS5015_1_RX = RX; // GPIO44 - UART RX (connect to DPS TX)
-constexpr int PIN_DPS5015_1_TX = TX; // GPIO43 - UART TX (connect to DPS RX)
-
-// DPS5015 power supply 2 (Modbus RTU over UART - Serial2)
-constexpr int PIN_DPS5015_2_RX = A1; // GPIO5 - UART RX (connect to DPS TX)
-constexpr int PIN_DPS5015_2_TX = A0; // GPIO4 - UART TX (connect to DPS RX)
+// DPS5015 power supplies (Modbus RTU over UART)
+constexpr int PIN_DPS5015_1_RX = 44; // GPIO44 - Serial1 RX
+constexpr int PIN_DPS5015_1_TX = 43; // GPIO43 - Serial1 TX
+constexpr int PIN_DPS5015_2_RX = 5;  // GPIO5 - Serial2 RX
+constexpr int PIN_DPS5015_2_TX = 4;  // GPIO4 - Serial2 TX
 
 // DS18B20 sensor addresses
 constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,

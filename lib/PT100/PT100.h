@@ -32,7 +32,6 @@ class PT100Sensor {
 
     void begin();
     void update();
-    float getTemperature() const { return _last_temperature; }
 
   private:
     Logger &_logger;
@@ -43,6 +42,7 @@ class PT100Sensor {
     bool _initialized;
     bool _in_error_state;
     unsigned long _last_update_time;
+    unsigned long _last_serial_log_time;
 
     static constexpr float RNOMINAL = 100.0f; // PT100 nominal resistance
     static constexpr float RREF = 438.0f;     // Reference resistor value
