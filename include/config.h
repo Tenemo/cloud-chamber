@@ -54,6 +54,10 @@ constexpr int PIN_MAX31865_CS = A4; // GPIO10 - MAX31865 chip select
 constexpr int PIN_DS18B20 =
     A3; // GPIO8 - DS18B20 data pin (3.3k pull-up to 3.3V)
 
+// DPS5015 power supply (Modbus RTU over UART)
+constexpr int PIN_DPS5015_RX = RX; // GPIO44 - UART RX (connect to DPS TX)
+constexpr int PIN_DPS5015_TX = TX; // GPIO43 - UART TX (connect to DPS RX)
+
 // DS18B20 sensor addresses
 constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
                                           0x75, 0xA8, 0xDD, 0x0C};
@@ -101,14 +105,16 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
  * - D11 (GPIO13) - INT (directly connected to screen)
  * - D12 (GPIO12) - TCS (directly connected to screen)
  *
+ * DPS5015 Power Supply (Modbus RTU):
+ * - TX (GPIO43)  - UART TX (DPS5015 Modbus)
+ * - RX (GPIO44)  - UART RX (DPS5015 Modbus)
+ *
  * System/Special (avoid):
  * - D9 (GPIO0)   - Boot button, strapping pin
  * - D14 (GPIO47) - User key
  * - GPIO19       - USB D-
  * - GPIO20       - USB D+
  * - GPIO46       - Strapping pin
- * - TX (GPIO43)  - UART TX (usable if Serial not needed)
- * - RX (GPIO44)  - UART RX (usable if Serial not needed)
  * - SCL (GPIO2)  - I2C clock (usable if I2C not needed)
  * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
  */
@@ -117,6 +123,7 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     800; // 12-bit resolution needs 750ms conversion
+constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
 
 // PT100 serial logging (serial only, not display)
 constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
@@ -141,6 +148,6 @@ constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
 // Live log area (bottom of screen)
 constexpr int LOG_AREA_LINES =
-    4; // number of lines reserved for live logs at bottom
+    2; // number of lines reserved for live logs at bottom
 
 #endif
