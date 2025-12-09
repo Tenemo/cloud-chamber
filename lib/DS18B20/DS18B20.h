@@ -55,7 +55,6 @@ class DS18B20Sensor {
     DallasTemperature &_sensors;
     uint8_t _address[8];
     const char *_label;
-    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _ever_connected; // True if sensor was successfully read at least once

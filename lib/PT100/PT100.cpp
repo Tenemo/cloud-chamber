@@ -2,9 +2,13 @@
 #include "config.h"
 
 PT100Sensor::PT100Sensor(Logger &logger, const char *label)
-    : _logger(logger), _rtd(PIN_MAX31865_CS), _label(label), _id(label),
+    : _logger(logger), _rtd(PIN_MAX31865_CS), _label(label),
       _last_temperature(0.0f), _initialized(false), _in_error_state(false),
       _last_update_time(0), _last_serial_log_time(0) {}
+
+static void formatLabel(char *buf, size_t size, const char *label) {
+    snprintf(buf, size, "%s:", label);
+}
 
 void PT100Sensor::begin() {
     if (_initialized)
@@ -18,14 +22,14 @@ void PT100Sensor::begin() {
     bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
 
     char labelBuf[16];
-    snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
+    formatLabel(labelBuf, sizeof(labelBuf), _label);
 
     if (has_error) {
         _in_error_state = true;
-        _logger.registerTextLine(_id, labelBuf, "ERROR");
+        _logger.registerTextLine(_label, labelBuf, "ERROR");
         _logger.log("PT100 sensor error");
     } else {
-        _logger.registerLine(_id, labelBuf, "C", temp_c);
+        _logger.registerLine(_label, labelBuf, "C", temp_c);
         _logger.log("PT100 initialized.");
         _last_temperature = temp_c;
     }
@@ -53,7 +57,7 @@ void PT100Sensor::update() {
             // Entering error state - log once and update display
             _in_error_state = true;
             _logger.log("PT100 sensor error");
-            _logger.updateLineText(_id, "ERROR");
+            _logger.updateLineText(_label, "ERROR");
         }
 
         // Clear any faults to prevent accumulation
@@ -70,11 +74,11 @@ void PT100Sensor::update() {
         _logger.log("PT100 sensor recovered");
         // Re-register as numeric line
         char labelBuf[16];
-        snprintf(labelBuf, sizeof(labelBuf), "%s:", _label);
-        _logger.registerLine(_id, labelBuf, "C", temp_c);
+        formatLabel(labelBuf, sizeof(labelBuf), _label);
+        _logger.registerLine(_label, labelBuf, "C", temp_c);
     }
 
-    _logger.updateLine(_id, temp_c);
+    _logger.updateLine(_label, temp_c);
     _last_temperature = temp_c;
 
     // Periodic serial logging (serial only, not display)

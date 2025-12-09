@@ -69,7 +69,6 @@ class DPS5015 {
     bool setVoltage(float voltage);
     bool setCurrent(float current);
     bool setOutput(bool on);
-    bool unlock();
 
     // Getters - return last read values
     float getSetVoltage() const { return _set_voltage; }
