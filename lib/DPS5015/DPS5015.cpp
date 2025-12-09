@@ -249,12 +249,6 @@ bool DPS5015::setOutput(bool on) {
     return false;
 }
 
-bool DPS5015::unlock() {
-    if (!_connected && _ever_connected)
-        return false;
-    return queueWrite(REG_LOCK, 0);
-}
-
 void DPS5015::configure(float voltage, float current, bool outputOn) {
     _pending_config.voltage = voltage;
     _pending_config.current = current;

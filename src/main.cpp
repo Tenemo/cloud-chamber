@@ -36,8 +36,7 @@ DS18B20Sensor ds18b20_sensors[] = {
     {logger, dallasSensors, DS18B20_3_ADDRESS, "TEMP_3"}};
 
 // DPS5015 power supplies (Serial1 and Serial2)
-DPS5015 dc12(logger, "DC12", Serial1);
-DPS5015 dc34(logger, "DC34", Serial2);
+DPS5015 psus[] = {{logger, "DC12", Serial1}, {logger, "DC34", Serial2}};
 
 static void initializeHardware() {
     esp_task_wdt_init(60, true);
@@ -50,21 +49,21 @@ static void initializeHardware() {
 
     pt100_sensor.begin();
 
-    dc12.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
-    dc34.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
+    psus[0].begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
+    psus[1].begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
 
     // Configure PSUs - settings are applied automatically when they connect
-    dc12.configure(12.0f, 2.0f, true);
-    dc34.configure(12.0f, 2.0f, true);
+    for (auto &psu : psus)
+        psu.configure(12.0f, 2.0f, true);
 }
 
 void setup() { initializeHardware(); }
 
 void loop() {
     logger.update();
+    pt100_sensor.update();
     for (auto &sensor : ds18b20_sensors)
         sensor.update();
-    pt100_sensor.update();
-    dc12.update();
-    dc34.update();
+    for (auto &psu : psus)
+        psu.update();
 }

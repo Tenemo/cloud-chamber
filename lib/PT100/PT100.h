@@ -37,7 +37,6 @@ class PT100Sensor {
     Logger &_logger;
     Adafruit_MAX31865 _rtd;
     const char *_label;
-    const char *_id;
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
