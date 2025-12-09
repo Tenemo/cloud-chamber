@@ -94,23 +94,10 @@ constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
 // PT100 serial logging (serial only, not display)
 constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
 constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
-constexpr unsigned long DISPLAY_INTERVAL_MS =
-    100; // Reduced from 200ms - char-by-char drawing minimizes pixel writes
-
-// Display layout
-constexpr int LINE_HEIGHT = 12;
-constexpr int VALUE_X = 60;
-constexpr int VALUE_WIDTH = 70;
-
-// Display physical properties
-constexpr int SCREEN_WIDTH = 128;
-constexpr int SCREEN_HEIGHT = 160;
-constexpr int CHAR_WIDTH = 6; // pixels per character
-constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
+constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
 
 // Display update timing
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
-constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
 // Live log area (bottom of screen)
 constexpr int LOG_AREA_LINES =

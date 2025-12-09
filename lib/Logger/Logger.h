@@ -68,6 +68,20 @@
 #include <Arduino.h>
 #include <map>
 
+// Display layout
+constexpr int LINE_HEIGHT = 12;
+constexpr int VALUE_X = 60;
+constexpr int VALUE_WIDTH = 70;
+
+// Display physical properties
+constexpr int SCREEN_WIDTH = 128;
+constexpr int SCREEN_HEIGHT = 160;
+constexpr int CHAR_WIDTH = 6; // pixels per character
+constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
+
+// Serial initialization timeout
+constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
+
 struct DisplayLine {
     String label;      // display label (e.g., "Temp:", "Sensor1:")
     String value;      // current display value (formatted string)
