@@ -60,26 +60,12 @@ static void initializeHardware() {
     pt100_sensor.begin();
     psu.begin();
 
-    // Configure PSU limits
     if (psu.isConnected()) {
-        delay(50); // Small delay after begin()
-
-        if (!psu.unlock()) {
-            logger.log("PSU unlock failed!");
-        }
-        delay(10);
-
-        bool v_ok = psu.setVoltage(16.0f);
-        delay(10);
-        bool i_ok = psu.setCurrent(2.0f);
-
-        if (v_ok && i_ok) {
-            logger.log("PSU set to 16V/2A");
-        } else {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "PSU set fail V:%d I:%d", v_ok, i_ok);
-            logger.log(buf);
-        }
+        psu.unlock();
+        psu.setVoltage(12.0f);
+        psu.setCurrent(2.0f);
+        psu.setOutput(true);
+        logger.log("PSU: 12V/2A ON");
     }
 }
 

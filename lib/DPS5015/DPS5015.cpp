@@ -24,9 +24,9 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
         _connected = true;
         _ever_connected = true;
         _set_voltage = buffer[0] / 100.0f;
-        _set_current = buffer[1] / 1000.0f;
+        _set_current = buffer[1] / 100.0f;
         _output_voltage = buffer[2] / 100.0f;
-        _output_current = buffer[3] / 1000.0f;
+        _output_current = buffer[3] / 100.0f;
         _output_power = buffer[4] / 100.0f;
         _input_voltage = buffer[5] / 100.0f;
         _cc_mode = (buffer[8] == 1);
@@ -90,9 +90,9 @@ void DPS5015::update() {
 
     // Parse register values
     _set_voltage = buffer[0] / 100.0f;
-    _set_current = buffer[1] / 1000.0f;
+    _set_current = buffer[1] / 100.0f;
     _output_voltage = buffer[2] / 100.0f;
-    _output_current = buffer[3] / 1000.0f;
+    _output_current = buffer[3] / 100.0f;
     _output_power = buffer[4] / 100.0f;
     _input_voltage = buffer[5] / 100.0f;
     _cc_mode = (buffer[8] == 1);
@@ -152,6 +152,7 @@ bool DPS5015::setVoltage(float voltage) {
         _set_voltage = voltage;
         return true;
     }
+    _logger.log("DPS: setVoltage fail");
     return false;
 }
 
@@ -159,11 +160,12 @@ bool DPS5015::setCurrent(float current) {
     if (!_connected)
         return false;
 
-    uint16_t value = static_cast<uint16_t>(current * 1000.0f);
+    uint16_t value = static_cast<uint16_t>(current * 100.0f);
     if (writeRegister(REG_SET_CURRENT, value)) {
         _set_current = current;
         return true;
     }
+    _logger.log("DPS: setCurrent fail");
     return false;
 }
 
@@ -175,19 +177,28 @@ bool DPS5015::setOutput(bool on) {
         _output_on = on;
         return true;
     }
+    _logger.log("DPS: setOutput fail");
     return false;
 }
 
 bool DPS5015::unlock() {
     if (!_connected)
         return false;
-    return writeRegister(REG_LOCK, 0); // 0 = unlocked
+    if (writeRegister(REG_LOCK, 0)) {
+        return true;
+    }
+    _logger.log("DPS: unlock fail");
+    return false;
 }
 
 bool DPS5015::lock() {
     if (!_connected)
         return false;
-    return writeRegister(REG_LOCK, 1); // 1 = locked
+    if (writeRegister(REG_LOCK, 1)) {
+        return true;
+    }
+    _logger.log("DPS: lock fail");
+    return false;
 }
 
 bool DPS5015::isLocked() {
