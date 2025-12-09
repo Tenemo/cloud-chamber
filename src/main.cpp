@@ -62,9 +62,24 @@ static void initializeHardware() {
 
     // Configure PSU limits
     if (psu.isConnected()) {
-        psu.setVoltage(16.0f); // Max 16V
-        psu.setCurrent(2.0f);  // Max 2A
-        logger.log("PSU set to 16V/2A");
+        delay(50); // Small delay after begin()
+
+        if (!psu.unlock()) {
+            logger.log("PSU unlock failed!");
+        }
+        delay(10);
+
+        bool v_ok = psu.setVoltage(16.0f);
+        delay(10);
+        bool i_ok = psu.setCurrent(2.0f);
+
+        if (v_ok && i_ok) {
+            logger.log("PSU set to 16V/2A");
+        } else {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "PSU set fail V:%d I:%d", v_ok, i_ok);
+            logger.log(buf);
+        }
     }
 }
 

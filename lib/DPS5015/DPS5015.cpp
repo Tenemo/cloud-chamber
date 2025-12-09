@@ -178,6 +178,26 @@ bool DPS5015::setOutput(bool on) {
     return false;
 }
 
+bool DPS5015::unlock() {
+    if (!_connected)
+        return false;
+    return writeRegister(REG_LOCK, 0); // 0 = unlocked
+}
+
+bool DPS5015::lock() {
+    if (!_connected)
+        return false;
+    return writeRegister(REG_LOCK, 1); // 1 = locked
+}
+
+bool DPS5015::isLocked() {
+    uint16_t buffer[1];
+    if (readRegisters(REG_LOCK, 1, buffer)) {
+        return buffer[0] == 1;
+    }
+    return true; // Assume locked if we can't read
+}
+
 void DPS5015::clearSerialBuffer() {
     while (_serial.available()) {
         _serial.read();
