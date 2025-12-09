@@ -103,4 +103,58 @@ constexpr unsigned long SPINNER_UPDATE_MS = 100;
 constexpr int LOG_AREA_LINES =
     2; // number of lines reserved for live logs at bottom
 
+// ============================================================================
+// Thermal Controller Configuration
+// ============================================================================
+
+// Voltage and current limits
+constexpr float TEC_VOLTAGE_SETPOINT = 16.0f; // Fixed voltage for cascade TECs
+constexpr float MAX_CURRENT_PER_CHANNEL = 10.6f; // Maximum current per DPS
+constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
+constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
+constexpr float DEGRADED_MODE_CURRENT =
+    5.0f; // Max current when one DPS disconnects
+
+// Timing intervals (milliseconds)
+constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000; // 60s startup hold
+constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS =
+    20000; // 20s between ramp steps
+constexpr unsigned long CURRENT_EVALUATION_DELAY_MS =
+    60000; // 60s to evaluate current change
+constexpr unsigned long OPTIMIZATION_EVALUATION_WINDOW_MS =
+    90000; // 90s evaluation window
+constexpr unsigned long OPTIMIZATION_REFINEMENT_INTERVAL_MS =
+    60000; // 60s refinement steps
+constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
+    900000; // 15min recheck
+constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
+    60000;                                       // 60s sensor recovery
+constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
+
+// Temperature thresholds (Celsius)
+constexpr float HOT_SIDE_WARNING_C = 55.0f; // Reduce ramp aggressiveness
+constexpr float HOT_SIDE_ALARM_C = 65.0f;   // Stop increasing current
+constexpr float HOT_SIDE_FAULT_C = 70.0f;   // Emergency shutdown
+constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
+    5.0f; // Thermal runaway detection
+constexpr float COOLING_STALL_THRESHOLD_C =
+    0.5f; // Consider stalled if less than this
+constexpr float OVERCURRENT_WARMING_THRESHOLD_C =
+    0.3f; // Back off if cold plate warms this much
+
+// Control parameters
+constexpr float RAMP_CURRENT_STEP_A = 0.5f; // Current step during ramp
+constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
+    0.15f; // Tolerance for override detection
+constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
+    0.15f; // Tolerance for override detection
+constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC =
+    2.0f; // Emergency shutdown ramp
+
+// History buffer
+constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz
+constexpr unsigned long HISTORY_SAMPLE_INTERVAL_MS = 1000; // 1 second samples
+constexpr size_t COOLING_RATE_WINDOW_SAMPLES =
+    30; // 30s window for rate calculation
+
 #endif

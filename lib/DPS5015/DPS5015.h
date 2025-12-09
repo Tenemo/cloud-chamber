@@ -70,7 +70,15 @@ class DPS5015 {
     bool setCurrent(float current);
     bool setOutput(bool on);
 
-    // Getters - return last read values
+    // Emergency methods - bypass queue for time-critical operations
+    bool setCurrentImmediate(float current);
+    bool disableOutput();
+
+    // Getters - return last commanded values (what we asked the DPS to do)
+    float getCommandedVoltage() const { return _commanded_voltage; }
+    float getCommandedCurrent() const { return _commanded_current; }
+
+    // Getters - return last read values (what the DPS reports)
     float getSetVoltage() const { return _set_voltage; }
     float getSetCurrent() const { return _set_current; }
     float getOutputVoltage() const { return _output_voltage; }
@@ -95,7 +103,7 @@ class DPS5015 {
     char _current_line_id[16];
     char _power_line_id[16];
 
-    // Cached values
+    // Cached values (read from DPS)
     float _set_voltage;
     float _set_current;
     float _output_voltage;
@@ -104,6 +112,11 @@ class DPS5015 {
     float _input_voltage;
     bool _output_on;
     bool _cc_mode;
+
+    // Commanded values (what we sent to DPS)
+    float _commanded_voltage;
+    float _commanded_current;
+    bool _commanded_output;
 
     // Non-blocking state machine
     ModbusState _state;
