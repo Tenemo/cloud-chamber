@@ -43,6 +43,7 @@
 #define DPS5015_H
 
 #include "Logger.h"
+#include "config.h"
 #include <Arduino.h>
 
 class DPS5015 {
@@ -50,7 +51,8 @@ class DPS5015 {
     DPS5015(Logger &logger, const char *label, HardwareSerial &serial = Serial1,
             uint8_t slaveAddress = 1);
 
-    void begin(int rxPin = 44, int txPin = 43, unsigned long baud = 9600);
+    void begin(int rxPin = PIN_DPS5015_RX, int txPin = PIN_DPS5015_TX,
+               unsigned long baud = 9600);
     void update();
 
     // Setters - return true on success
