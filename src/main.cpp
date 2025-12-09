@@ -8,9 +8,10 @@
  *
  * Architecture:
  * - Logger: Manages TFT display (KV store + live log area) and Serial output
- * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface
- * - DS18B20Sensor: Digital temperature sensors via OneWire
+ * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface (cold plate)
+ * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
  * - DPS5015: Programmable power supply control via Modbus RTU
+ * - ThermalController: Smart control system coordinating all components
  *
  * All modules self-manage their update timing and display registration.
  */
@@ -19,6 +20,7 @@
 #include "DS18B20.h"
 #include "Logger.h"
 #include "PT100.h"
+#include "ThermalController.h"
 #include "config.h"
 #include <Arduino.h>
 
@@ -28,40 +30,60 @@ Logger logger;
 OneWire oneWire(PIN_DS18B20);
 DallasTemperature dallasSensors(&oneWire);
 
+// Cold plate sensor (PT100 via MAX31865)
 PT100Sensor pt100_sensor(logger, "PT100");
+
+// Hot plate and ambient sensors (DS18B20)
+// TEMP_1 = hot plate, TEMP_2/TEMP_3 = ambient
 DS18B20Sensor ds18b20_sensors[] = {
-    {logger, dallasSensors, DS18B20_1_ADDRESS, "TEMP_1"},
-    {logger, dallasSensors, DS18B20_2_ADDRESS, "TEMP_2"},
-    {logger, dallasSensors, DS18B20_3_ADDRESS, "TEMP_3"}};
+    {logger, dallasSensors, DS18B20_1_ADDRESS, "HOT"},
+    {logger, dallasSensors, DS18B20_2_ADDRESS, "AMB_1"},
+    {logger, dallasSensors, DS18B20_3_ADDRESS, "AMB_2"}};
 
 // DPS5015 power supplies (Serial1 and Serial2)
 DPS5015 psus[] = {{logger, "DC12", Serial1}, {logger, "DC34", Serial2}};
 
+// Thermal controller - coordinates sensors and PSUs
+ThermalController
+    thermalController(logger,
+                      pt100_sensor,       // Cold plate (PT100)
+                      ds18b20_sensors[0], // Hot plate (first DS18B20)
+                      &ds18b20_sensors[1],
+                      2,   // Ambient sensors (remaining DS18B20s)
+                      psus // PSU array
+    );
+
 static void initializeHardware() {
     logger.initializeDisplay();
 
+    // Initialize DS18B20 bus and sensors
     dallasSensors.begin();
     dallasSensors.setWaitForConversion(false);
     for (auto &sensor : ds18b20_sensors)
         sensor.begin();
 
+    // Initialize PT100
     pt100_sensor.begin();
 
+    // Initialize PSUs (ThermalController will configure them)
     psus[0].begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
     psus[1].begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
 
-    // Configure PSUs - settings are applied automatically when they connect
-    for (auto &psu : psus)
-        psu.configure(12.0f, 2.0f, true);
+    // Initialize thermal controller
+    thermalController.begin();
 }
 
 void setup() { initializeHardware(); }
 
 void loop() {
+    // Update all hardware drivers
     logger.update();
     pt100_sensor.update();
     for (auto &sensor : ds18b20_sensors)
         sensor.update();
     for (auto &psu : psus)
         psu.update();
+
+    // Run thermal control logic
+    thermalController.update();
 }

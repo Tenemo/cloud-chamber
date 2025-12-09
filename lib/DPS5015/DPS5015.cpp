@@ -8,9 +8,10 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _ever_connected(false), _in_error_state(false), _last_update_time(0),
       _set_voltage(0.0f), _set_current(0.0f), _output_voltage(0.0f),
       _output_current(0.0f), _output_power(0.0f), _input_voltage(0.0f),
-      _output_on(false), _cc_mode(false), _state(ModbusState::IDLE),
-      _request_start_time(0), _expected_response_length(0),
-      _write_queue_head(0), _write_queue_tail(0),
+      _output_on(false), _cc_mode(false), _commanded_voltage(0.0f),
+      _commanded_current(0.0f), _commanded_output(false),
+      _state(ModbusState::IDLE), _request_start_time(0),
+      _expected_response_length(0), _write_queue_head(0), _write_queue_tail(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
@@ -202,7 +203,7 @@ bool DPS5015::setVoltage(float voltage) {
 
     uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
     if (queueWrite(REG_SET_VOLTAGE, value)) {
-        _set_voltage = voltage;
+        _commanded_voltage = voltage;
         return true;
     }
     return false;
@@ -214,7 +215,7 @@ bool DPS5015::setCurrent(float current) {
 
     uint16_t value = static_cast<uint16_t>(current * 100.0f);
     if (queueWrite(REG_SET_CURRENT, value)) {
-        _set_current = current;
+        _commanded_current = current;
         return true;
     }
     return false;
@@ -225,7 +226,7 @@ bool DPS5015::setOutput(bool on) {
         return false;
 
     if (queueWrite(REG_OUTPUT, on ? 1 : 0)) {
-        _output_on = on;
+        _commanded_output = on;
         return true;
     }
     return false;
@@ -243,9 +244,63 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     }
 }
 
+bool DPS5015::setCurrentImmediate(float current) {
+    if (!_initialized)
+        return false;
+
+    // Clear the serial buffer and send immediately (blocking)
+    clearSerialBuffer();
+
+    uint16_t value = static_cast<uint16_t>(current * 100.0f);
+    sendWriteRequest(REG_SET_CURRENT, value);
+
+    // Wait for response with timeout
+    unsigned long start = millis();
+    while (_serial.available() < 8) {
+        if (millis() - start > RESPONSE_TIMEOUT_MS) {
+            return false;
+        }
+    }
+
+    if (checkWriteResponse()) {
+        _commanded_current = current;
+        return true;
+    }
+    return false;
+}
+
+bool DPS5015::disableOutput() {
+    if (!_initialized)
+        return false;
+
+    // Clear the serial buffer and send immediately (blocking)
+    clearSerialBuffer();
+
+    sendWriteRequest(REG_OUTPUT, 0);
+
+    // Wait for response with timeout
+    unsigned long start = millis();
+    while (_serial.available() < 8) {
+        if (millis() - start > RESPONSE_TIMEOUT_MS) {
+            return false;
+        }
+    }
+
+    if (checkWriteResponse()) {
+        _commanded_output = false;
+        return true;
+    }
+    return false;
+}
+
 void DPS5015::applyPendingConfig() {
     if (!_pending_config.has_config)
         return;
+
+    // Track commanded values
+    _commanded_voltage = _pending_config.voltage;
+    _commanded_current = _pending_config.current;
+    _commanded_output = _pending_config.output_on;
 
     // Queue all the configuration writes
     queueWrite(REG_LOCK, 0); // Unlock first
