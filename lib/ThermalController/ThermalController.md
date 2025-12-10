@@ -37,7 +37,7 @@ The system uses a **hierarchical state machine with safety-first design**, autom
 | Parameter                 | Value | Description                    |
 | ------------------------- | ----- | ------------------------------ |
 | `TEC_VOLTAGE_SETPOINT`    | 16.0V | Fixed voltage for cascade TECs |
-| `MAX_CURRENT_PER_CHANNEL` | 10.6A | Maximum current per DPS        |
+| `MAX_CURRENT_PER_CHANNEL` | 12.0A | Maximum current per DPS        |
 | `MIN_CURRENT_PER_CHANNEL` | 0.5A  | Minimum operational current    |
 | `STARTUP_CURRENT`         | 2.0A  | Initial soft-start current     |
 | `HOT_SIDE_FAULT_C`        | 70°C  | Emergency shutdown threshold   |
@@ -305,19 +305,6 @@ The controller detects when a human physically adjusts the DPS dial:
 3. **Consecutive mismatches**: Require 3 consecutive read cycles (`MANUAL_OVERRIDE_MISMATCH_COUNT`) showing mismatch before declaring override
 4. **Tolerance**: Allow ±0.15A and ±0.15V tolerance for measurement noise
 
-### Pre-write Validation
-
-Before sending a current command, the controller validates that the DPS is in the expected state:
-
-```cpp
-if (!_psus[channel].validateStateBeforeWrite(current)) {
-    // DPS state doesn't match - user touched the dial
-    transitionTo(ThermalState::MANUAL_OVERRIDE);
-}
-```
-
-This catches overrides even before the post-write mismatch detection.
-
 ---
 
 ## Hot Reset Handling
@@ -440,7 +427,7 @@ All timing and threshold values are defined in `config.h`:
 | Parameter                            | Default | Description                |
 | ------------------------------------ | ------- | -------------------------- |
 | `TEC_VOLTAGE_SETPOINT`               | 16.0V   | Fixed TEC voltage          |
-| `MAX_CURRENT_PER_CHANNEL`            | 10.6A   | Maximum TEC current        |
+| `MAX_CURRENT_PER_CHANNEL`            | 12.0A   | Maximum TEC current        |
 | `MIN_CURRENT_PER_CHANNEL`            | 0.5A    | Minimum TEC current        |
 | `STARTUP_CURRENT`                    | 2.0A    | Initial soft-start current |
 | `DEGRADED_MODE_CURRENT`              | 5.0A    | Single-PSU limit           |

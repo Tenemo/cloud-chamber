@@ -14,8 +14,7 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _state(ModbusState::IDLE), _request_start_time(0),
       _expected_response_length(0), _consecutive_errors(0),
       _write_retry_count(0), _last_command_time(0), _current_write{0, 0},
-      _pending_writes(0), _consecutive_mismatches(0),
-      _last_confirmed_current(0.0f), _write_queue_head(0), _write_queue_tail(0),
+      _pending_writes(0), _write_queue_head(0), _write_queue_tail(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
@@ -156,24 +155,11 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     _cc_mode = (buffer[8] == 1);
     _output_on = (buffer[9] == 1);
 
-    // Track mismatch for manual override detection
-    // Only check if no pending writes and not in grace period
-    if (_pending_writes == 0 && !isInGracePeriod()) {
-        float current_diff = fabs(_set_current - _commanded_current);
-        if (current_diff > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A) {
-            _consecutive_mismatches++;
-        } else {
-            _consecutive_mismatches = 0;
-            _last_confirmed_current = _set_current;
-        }
-    }
-
     // First successful connection
     if (!_ever_connected) {
         _ever_connected = true;
         _connected = true;
         _in_error_state = false;
-        _last_confirmed_current = _set_current;
         registerDisplayLines();
         _logger.log("DPS5015 connected.");
         applyPendingConfig();
@@ -435,25 +421,6 @@ bool DPS5015::hasVoltageMismatch() const {
 bool DPS5015::hasOutputMismatch() const {
     // Returns true if DPS output state doesn't match commanded state
     return _output_on != _commanded_output;
-}
-
-bool DPS5015::validateStateBeforeWrite(float expected_current) const {
-    // Pre-write validation: detect manual override before issuing new command
-    // Returns true if safe to proceed, false if override detected
-    //
-    // Logic:
-    // - If DPS current matches our last command -> user hasn't touched it
-    // - If DPS current matches new target -> already at target (OK)
-    // - If DPS current matches neither -> user changed it manually (ABORT)
-
-    // Allow tolerance for comparison
-    const float tol = MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
-
-    bool matches_commanded = fabs(_set_current - _commanded_current) < tol;
-    bool matches_target = fabs(_set_current - expected_current) < tol;
-
-    // Safe if matches either commanded or target
-    return matches_commanded || matches_target;
 }
 
 void DPS5015::applyPendingConfig() {

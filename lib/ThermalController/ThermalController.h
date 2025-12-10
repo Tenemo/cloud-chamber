@@ -50,6 +50,31 @@ enum class ThermalState {
 // Result of evaluating a current change
 enum class EvaluationResult { WAITING, IMPROVED, DEGRADED, UNCHANGED };
 
+/**
+ * @brief Hill-climber optimizer state for current optimization
+ *
+ * Groups all variables related to finding the optimal TEC current.
+ * This makes save/restore of optimizer state cleaner and reduces
+ * clutter in the main controller class.
+ */
+struct OptimizerState {
+    float optimal_current = 0.0f;      // Best current found so far
+    float temp_at_optimal = 100.0f;    // Temperature achieved at optimal
+    float temp_before_step = 100.0f;   // Baseline temp before last step
+    float rate_before_step = 0.0f;     // Cooling rate before last step
+    bool awaiting_evaluation = false;  // Evaluation in progress
+    unsigned long eval_start_time = 0; // When evaluation started
+
+    void reset() {
+        optimal_current = 0.0f;
+        temp_at_optimal = 100.0f;
+        temp_before_step = 100.0f;
+        rate_before_step = 0.0f;
+        awaiting_evaluation = false;
+        eval_start_time = 0;
+    }
+};
+
 class ThermalController {
   public:
     ThermalController(Logger &logger, PT100Sensor &coldPlate,
@@ -86,13 +111,8 @@ class ThermalController {
     unsigned long _state_entry_time;
     unsigned long _last_sample_time;
 
-    // Optimal current tracking
-    float _optimal_current;
-    float _temp_at_optimal;
-    float _temp_before_last_increase;
-    float _rate_before_last_increase;
-    bool _awaiting_evaluation;
-    unsigned long _evaluation_start_time;
+    // Hill-climber optimizer state
+    OptimizerState _optimizer;
 
     // Tracking
     float _min_cold_temp_achieved;

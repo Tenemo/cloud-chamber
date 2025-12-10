@@ -78,19 +78,3 @@ float ThermalHistory::getColdPlateRate() const {
 float ThermalHistory::getHotPlateRate() const {
     return calculateSlopeKPerMin(true, HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES);
 }
-
-ThermalTrend ThermalHistory::analyzeTrend() const {
-    if (_count < 60) {
-        return ThermalTrend::ANOMALOUS;
-    }
-
-    float rate = getColdPlateRate();
-
-    if (rate < -COOLING_STALL_THRESHOLD_C) {
-        return ThermalTrend::COOLING;
-    } else if (rate > COOLING_STALL_THRESHOLD_C) {
-        return ThermalTrend::WARMING;
-    } else {
-        return ThermalTrend::STABLE;
-    }
-}

@@ -129,6 +129,9 @@ constexpr float TEC_VOLTAGE_SETPOINT = 16.0f; // Fixed voltage for cascade TECs
 constexpr float MAX_CURRENT_PER_CHANNEL = 12.0f; // Maximum current per DPS
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
+constexpr float HOT_RESET_NEAR_MAX_A =
+    MAX_CURRENT_PER_CHANNEL -
+    0.5f; // Threshold for skipping ramp after hot reset
 constexpr float DEGRADED_MODE_CURRENT =
     5.0f;                              // Max current when one DPS disconnects
 constexpr float DPS_OCP_LIMIT = 12.5f; // Hardware Over Current Protection
