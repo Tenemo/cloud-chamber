@@ -415,6 +415,10 @@ bool DPS5015::hasOutputMismatch() const {
     return _output_on != _commanded_output;
 }
 
+bool DPS5015::hasAnyMismatch() const {
+    return hasCurrentMismatch() || hasVoltageMismatch() || hasOutputMismatch();
+}
+
 void DPS5015::applyPendingConfig() {
     if (!_pending_config.has_config)
         return;

@@ -10,13 +10,14 @@
 SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
                              DS18B20Sensor &hotPlate, DualPowerSupply &dps)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate), _dps(dps),
-      _metrics(nullptr), _dps_was_connected(false), _hot_side_in_warning(false),
-      _hot_side_in_alarm(false), _cross_check_warning_active(false),
-      _last_cross_check_log_time(0) {
+      _metrics(nullptr), _hot_side_in_warning(false), _hot_side_in_alarm(false),
+      _cross_check_warning_active(false), _last_cross_check_log_time(0) {
     _last_fault_reason[0] = '\0';
 }
 
-SafetyResult SafetyMonitor::checkAll() {
+SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
+                                     unsigned long ramp_start_time,
+                                     float avg_current) {
     // Priority order: sensor health → sanity → thermal → DPS → override
 
     SafetyStatus status = checkSensorHealth();
@@ -40,6 +41,29 @@ SafetyResult SafetyMonitor::checkAll() {
     if (override == OverrideStatus::DETECTED) {
         return {SafetyStatus::MANUAL_OVERRIDE, "Manual override"};
     }
+
+    // PT100 plausibility check with grace period
+    // Skip during STARTUP and early RAMP_UP (first 3 minutes)
+    unsigned long now = millis();
+    bool in_early_ramp =
+        (current_state == ThermalState::RAMP_UP &&
+         (now - ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS);
+    bool skip_plausibility =
+        (current_state == ThermalState::STARTUP || in_early_ramp);
+
+    if (!skip_plausibility) {
+        status = checkPT100Plausibility(avg_current, false);
+        if (status == SafetyStatus::THERMAL_FAULT) {
+            return {status, _last_fault_reason};
+        }
+    }
+
+    // Cross-sensor validation with grace period
+    // Skip during early RAMP_UP (first 2 minutes)
+    bool in_cross_check_grace =
+        (current_state == ThermalState::RAMP_UP &&
+         (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS);
+    checkCrossSensorValidation(in_cross_check_grace);
 
     return {SafetyStatus::OK, nullptr};
 }
@@ -207,20 +231,15 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
 }
 
 SafetyStatus SafetyMonitor::checkDpsConnection() {
-    bool both_ok = _dps.areBothConnected();
-
-    // Track connection state
-    bool was_connected = _dps_was_connected;
-    _dps_was_connected = both_ok;
-
-    // Detect disconnection (was connected, now not)
-    if (was_connected && !both_ok) {
-        return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS disconnected");
-    }
-
-    // Also detect asymmetric failure (one connected, one not)
+    // Check for asymmetric failure (one connected, one not)
+    // This is the critical failure mode we need to catch
     if (_dps.isAsymmetricFailure()) {
         return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS asymmetric");
+    }
+
+    // Both disconnected is also a problem
+    if (!_dps.isEitherConnected()) {
+        return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS disconnected");
     }
 
     return SafetyStatus::OK;

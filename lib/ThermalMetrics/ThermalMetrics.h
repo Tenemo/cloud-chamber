@@ -1,12 +1,14 @@
 /**
  * @file ThermalMetrics.h
- * @brief Unified thermal data tracking: history buffer, trend analysis, and NVS
- * persistence
+ * @brief Unified thermal data tracking: history buffer, trend analysis,
+ *        optimization math, and NVS persistence
  *
- * This class combines two related concerns:
+ * This class combines several related concerns:
  * 1. **Runtime History**: Circular buffer of temperature samples for trend
  *    analysis and cooling rate calculations (volatile, lost on reset)
- * 2. **Persistent Metrics**: NVS storage for long-term tracking of best
+ * 2. **Optimization Math**: Evaluation of current changes and step size
+ *    recommendations based on thermal trends
+ * 3. **Persistent Metrics**: NVS storage for long-term tracking of best
  *    temperatures, optimal currents, and total runtime across sessions
  *
  * HISTORY BUFFER:
@@ -14,6 +16,12 @@
  * - 300 samples at 1-second intervals = 5 minutes of history
  * - Linear regression for cooling rate calculation (K/min)
  * - Separate windows for cold plate (60 samples) and hot plate (10 samples)
+ *
+ * OPTIMIZATION:
+ * -------------
+ * - OptimizerState struct tracks hill-climber state
+ * - evaluateEffect() determines if a current change improved cooling
+ * - recommendStepSize() selects adaptive step based on cooling rate
  *
  * NVS PERSISTENCE:
  * ----------------
@@ -42,6 +50,86 @@ struct ThermalSample {
     float cold_plate_temp;
     float hot_plate_temp;
     unsigned long timestamp;
+};
+
+/**
+ * @brief Result of evaluating a current change
+ */
+enum class EvaluationResult {
+    WAITING,  // Not enough time/data yet
+    IMPROVED, // Temperature improved
+    DEGRADED, // Temperature worsened or rate degraded
+    UNCHANGED // No significant change
+};
+
+/**
+ * @brief Hill-climber optimizer state for current optimization
+ *
+ * Groups all variables related to finding the optimal TEC current.
+ * This makes save/restore of optimizer state cleaner and reduces
+ * clutter in the controller class.
+ *
+ * Key concepts:
+ * - optimal_current/temp_at_optimal: Session best (updated when truly better)
+ * - baseline_current/temp: Point before the last step (for local revert)
+ * - probe_direction: +1 = increasing current, -1 = decreasing
+ * - current_step: Adaptive step size (coarse→medium→fine as we approach
+ * optimum)
+ * - consecutive_bounces: Tracks direction flips to shrink step size
+ * - converged: True when both directions fail to improve (stop probing)
+ */
+struct OptimizerState {
+    // Session best tracking
+    float optimal_current = 0.0f;   // Best current found so far this session
+    float temp_at_optimal = 100.0f; // Temperature achieved at optimal
+
+    // Baseline before last step (for local revert, not jump to global best)
+    float baseline_current = 0.0f; // Current before the last step
+    float baseline_temp = 100.0f;  // Cold plate temp at baseline
+    float baseline_rate = 0.0f;    // Cooling rate at baseline
+
+    // Step evaluation state
+    bool awaiting_evaluation = false;  // Evaluation in progress
+    unsigned long eval_start_time = 0; // When evaluation started
+
+    // Global best tracking during ramp (may differ from step-by-step optimal)
+    float best_temp_during_ramp = 100.0f; // Coldest temp seen during this ramp
+    float current_at_best_temp = 0.0f;    // Current that achieved best temp
+
+    // Adaptive step control
+    int8_t probe_direction = 1;      // +1 = increase current, -1 = decrease
+    float current_step = 0.5f;       // Current step size (adaptive)
+    uint8_t consecutive_bounces = 0; // Direction flips - shrink step after 2+
+    bool converged = false;          // True when both directions fail
+
+    void reset() {
+        optimal_current = 0.0f;
+        temp_at_optimal = 100.0f;
+        baseline_current = 0.0f;
+        baseline_temp = 100.0f;
+        baseline_rate = 0.0f;
+        awaiting_evaluation = false;
+        eval_start_time = 0;
+        best_temp_during_ramp = 100.0f;
+        current_at_best_temp = 0.0f;
+        probe_direction = 1;
+        current_step = 0.5f;
+        consecutive_bounces = 0;
+        converged = false;
+    }
+
+    /**
+     * @brief Update session best tracking with new optimal point
+     *
+     * Use this when adopting known-good values (e.g., hot reset detection)
+     * or when an evaluation confirms improvement.
+     */
+    void updateBest(float current, float temp) {
+        optimal_current = current;
+        temp_at_optimal = temp;
+        best_temp_during_ramp = temp;
+        current_at_best_temp = current;
+    }
 };
 
 /**
@@ -134,8 +222,76 @@ class ThermalMetrics {
     }
     unsigned long getSessionCount() const { return _session_count; }
 
+    /**
+     * @brief Get session minimum temperature (reset each boot)
+     *
+     * This tracks the coldest temperature achieved during the current session,
+     * distinct from the all-time minimum which persists to NVS.
+     */
+    float getSessionMinTemp() const { return _session_min_temp; }
+
+    /**
+     * @brief Update session minimum if new temp is lower
+     */
+    void updateSessionMin(float temp) {
+        if (temp < _session_min_temp) {
+            _session_min_temp = temp;
+        }
+    }
+
+    // =========================================================================
+    // Optimizer State & Analysis
+    // =========================================================================
+
+    /**
+     * @brief Get mutable reference to optimizer state
+     *
+     * The controller uses this to read/write optimizer state.
+     * ThermalMetrics owns the state but controller drives the logic flow.
+     */
+    OptimizerState &optimizer() { return _optimizer; }
+    const OptimizerState &optimizer() const { return _optimizer; }
+
+    /**
+     * @brief Evaluate the effect of a current change
+     *
+     * Checks if enough time has passed, waits for hot-side stabilization,
+     * then compares current temperature/rate against baseline.
+     *
+     * @param cold_temp Current cold plate temperature
+     * @return WAITING if not ready, IMPROVED/DEGRADED/UNCHANGED once evaluated
+     */
+    EvaluationResult evaluateEffect(float cold_temp);
+
+    /**
+     * @brief Recommend adaptive step size based on cooling rate and conditions
+     *
+     * Uses larger steps when far from optimum (fast cooling rate) and
+     * smaller steps when near optimum (slow cooling rate or bouncing).
+     *
+     * @param is_hot_side_warning True if hot side is in warning zone
+     * @return Step size in amps (COARSE_STEP_A, MEDIUM_STEP_A, or FINE_STEP_A)
+     */
+    float recommendStepSize(bool is_hot_side_warning) const;
+
+    /**
+     * @brief Check if it's time to perform an adjustment
+     * @param last_adjustment_time Time of last adjustment
+     * @param interval_ms Required interval between adjustments
+     * @return true if enough time has passed
+     */
+    bool isTimeForAdjustment(unsigned long last_adjustment_time,
+                             unsigned long interval_ms) const {
+        return (millis() - last_adjustment_time) >= interval_ms;
+    }
+
   private:
     Logger &_logger;
+
+    // -------------------------------------------------------------------------
+    // Optimizer state
+    // -------------------------------------------------------------------------
+    OptimizerState _optimizer;
 
     // -------------------------------------------------------------------------
     // History buffer (circular)
@@ -161,6 +317,9 @@ class ThermalMetrics {
     float _all_time_optimal_current;
     unsigned long _total_runtime_seconds;
     unsigned long _session_count;
+
+    // Session-only tracking (not persisted)
+    float _session_min_temp;
 
     // Timing for periodic saves
     unsigned long _session_start_time;
