@@ -23,22 +23,19 @@
 
 #include "CrashLog.h"
 #include "DualPowerSupply.h"
-#include "Logger.h"
 #include "SafetyMonitor.h"
 #include "TemperatureSensors.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
 #include "ThermalOptimizer.h"
 #include "ThermalTypes.h"
-#include <Arduino.h>
 
 // ThermalState enum is defined in ThermalTypes.h (shared for context-aware
 // checks)
 
 class ThermalController {
   public:
-    ThermalController(Logger &logger, TemperatureSensors &sensors,
-                      DualPowerSupply &dps);
+    ThermalController(Logger &logger, TemperatureSensors &sensors);
 
     void begin();
     void update();
@@ -55,8 +52,8 @@ class ThermalController {
     Logger &_logger;
     TemperatureSensors &_sensors;
 
-    // Delegate modules
-    DualPowerSupply &_dps;
+    // Delegate modules (DualPowerSupply is owned, others use references)
+    DualPowerSupply _dps;
     ThermalMetrics _metrics;
     ThermalOptimizer _optimizer;
     SafetyMonitor _safety;

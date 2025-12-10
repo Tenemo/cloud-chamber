@@ -29,7 +29,6 @@
 #include "DS18B20.h"
 #include "Logger.h"
 #include "PT100.h"
-#include "config.h"
 #include <DallasTemperature.h>
 #include <OneWire.h>
 

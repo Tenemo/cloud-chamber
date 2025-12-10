@@ -1,5 +1,4 @@
 #include "DPS5015.h"
-#include "config.h"
 #include <cmath>
 
 DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,

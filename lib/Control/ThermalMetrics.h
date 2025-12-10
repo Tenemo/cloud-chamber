@@ -30,7 +30,6 @@
 
 #include "Logger.h"
 #include "ThermalConstants.h"
-#include <Arduino.h>
 #include <Preferences.h>
 #include <nvs.h>
 
