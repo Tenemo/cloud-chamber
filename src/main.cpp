@@ -8,10 +8,15 @@
  *
  * Architecture:
  * - Logger: Manages TFT display (KV store + live log area) and Serial output
+ * - CrashLog: SPIFFS-based persistent crash logging (survives resets)
  * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface (cold plate)
  * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
  * - DPS5015: Programmable power supply control via Modbus RTU
  * - ThermalController: Smart control system coordinating all components
+ *   - ThermalHistory: Circular buffer for temperature history and trend
+ * analysis
+ *   - ThermalMetrics: NVS persistence for long-term metrics
+ *   - SafetyMonitor: Centralized safety checks with consistent error handling
  *
  * All modules self-manage their update timing and display registration.
  *
@@ -22,9 +27,10 @@
  * - Normal shutdown is via physical OFF switch (power cut)
  * - DPS5015 units always start in OFF state after power cycle
  * - No software-initiated clean shutdown needed
- * - "Unclean shutdown" detection removed as all shutdowns are power cuts
+ * - Crash events are logged to SPIFFS for post-mortem analysis
  */
 
+#include "CrashLog.h"
 #include "DPS5015.h"
 #include "DS18B20.h"
 #include "Logger.h"
@@ -73,6 +79,10 @@ static void initializeWatchdog() {
 
 static void initializeHardware() {
     logger.initializeDisplay();
+
+    // Initialize SPIFFS-based crash logging (before watchdog so we can log
+    // reset reason)
+    CrashLog::begin();
 
     // Initialize watchdog
     initializeWatchdog();

@@ -89,6 +89,9 @@ class DPS5015 {
     float getInputVoltage() const { return _input_voltage; }
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _connected; }
+    bool isConstantCurrentMode() const {
+        return _cc_mode;
+    }                             // True if in CC mode (current limiting)
     bool isInGracePeriod() const; // True if recent command still propagating
     bool isSettled() const;       // True if DPS state matches last command
     bool hasPendingWrites() const { return _pending_writes > 0; }
@@ -138,6 +141,7 @@ class DPS5015 {
     unsigned long _request_start_time;
     size_t _expected_response_length;
     int _consecutive_errors; // Consecutive comm failures
+    int _write_retry_count;  // Retry counter for current write operation
     unsigned long
         _last_command_time; // When last command was sent (for grace period)
 
@@ -153,6 +157,7 @@ class DPS5015 {
         uint16_t value;
     };
     WriteRequest _write_queue[WRITE_QUEUE_SIZE];
+    WriteRequest _current_write; // Current write being processed (for retry)
     size_t _write_queue_head;
     size_t _write_queue_tail;
 

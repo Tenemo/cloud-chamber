@@ -13,7 +13,8 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _commanded_current(0.0f), _commanded_output(false),
       _state(ModbusState::IDLE), _request_start_time(0),
       _expected_response_length(0), _consecutive_errors(0),
-      _last_command_time(0), _pending_writes(0), _consecutive_mismatches(0),
+      _write_retry_count(0), _last_command_time(0), _current_write{0, 0},
+      _pending_writes(0), _consecutive_mismatches(0),
       _last_confirmed_current(0.0f), _write_queue_head(0), _write_queue_tail(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
@@ -107,7 +108,16 @@ void DPS5015::update() {
     case ModbusState::WRITE_PENDING: {
         // Check for timeout
         if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
+            _write_retry_count++;
+            if (_write_retry_count < MODBUS_MAX_RETRIES) {
+                // Retry the write
+                sendWriteRequest(_current_write.reg, _current_write.value);
+                _request_start_time = millis();
+                return;
+            }
+            // Max retries exceeded, give up on this write
             _state = ModbusState::IDLE;
+            _write_retry_count = 0;
             _logger.log("DPS: write timeout", true);
             return;
         }
@@ -115,9 +125,17 @@ void DPS5015::update() {
         // Check if we have the response (8 bytes for write)
         if (_serial.available() >= 8) {
             if (!checkWriteResponse()) {
+                _write_retry_count++;
+                if (_write_retry_count < MODBUS_MAX_RETRIES) {
+                    // Retry the write
+                    sendWriteRequest(_current_write.reg, _current_write.value);
+                    _request_start_time = millis();
+                    return;
+                }
                 _logger.log("DPS: write fail", true);
             }
             _state = ModbusState::IDLE;
+            _write_retry_count = 0;
         }
         break;
     }
@@ -222,6 +240,10 @@ void DPS5015::processWriteQueue() {
     WriteRequest &req = _write_queue[_write_queue_tail];
     _write_queue_tail = (_write_queue_tail + 1) % WRITE_QUEUE_SIZE;
 
+    // Save for retry
+    _current_write = req;
+    _write_retry_count = 0;
+
     sendWriteRequest(req.reg, req.value);
     _state = ModbusState::WRITE_PENDING;
     _request_start_time = millis();
@@ -231,13 +253,24 @@ void DPS5015::processWriteQueue() {
         _pending_writes--;
 }
 
+// Helper to clamp and convert float to uint16_t safely
+static uint16_t floatToUint16Clamped(float value, float scale, float maxVal) {
+    if (value < 0.0f)
+        value = 0.0f;
+    if (value > maxVal)
+        value = maxVal;
+    return static_cast<uint16_t>(value * scale);
+}
+
 bool DPS5015::setVoltage(float voltage) {
     if (!_connected && _ever_connected)
         return false;
 
-    uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
+    // Clamp voltage to valid range (0-50V for DPS5015)
+    uint16_t value = floatToUint16Clamped(voltage, 100.0f, 50.0f);
     if (queueWrite(REG_SET_VOLTAGE, value)) {
-        _commanded_voltage = voltage;
+        _commanded_voltage =
+            voltage < 0.0f ? 0.0f : (voltage > 50.0f ? 50.0f : voltage);
         _last_command_time = millis();
         return true;
     }
@@ -248,9 +281,11 @@ bool DPS5015::setCurrent(float current) {
     if (!_connected && _ever_connected)
         return false;
 
-    uint16_t value = static_cast<uint16_t>(current * 100.0f);
+    // Clamp current to valid range (0-15A for DPS5015)
+    uint16_t value = floatToUint16Clamped(current, 100.0f, 15.0f);
     if (queueWrite(REG_SET_CURRENT, value)) {
-        _commanded_current = current;
+        _commanded_current =
+            current < 0.0f ? 0.0f : (current > 15.0f ? 15.0f : current);
         _last_command_time = millis();
         return true;
     }
@@ -275,7 +310,9 @@ bool DPS5015::setOCP(float current) {
     if (!_connected && _ever_connected)
         return false;
 
-    uint16_t value = static_cast<uint16_t>(current * 100.0f);
+    // Clamp to valid OCP range (0-16A, slightly above max for protection
+    // margin)
+    uint16_t value = floatToUint16Clamped(current, 100.0f, 16.0f);
     return queueWrite(REG_OCP, value);
 }
 
@@ -285,7 +322,9 @@ bool DPS5015::setOVP(float voltage) {
     if (!_connected && _ever_connected)
         return false;
 
-    uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
+    // Clamp to valid OVP range (0-55V, slightly above max for protection
+    // margin)
+    uint16_t value = floatToUint16Clamped(voltage, 100.0f, 55.0f);
     return queueWrite(REG_OVP, value);
 }
 
@@ -305,23 +344,29 @@ bool DPS5015::setCurrentImmediate(float current) {
     if (!_initialized)
         return false;
 
-    // Clear the serial buffer and send immediately (blocking)
-    clearSerialBuffer();
+    // Clamp current to valid range (0-15A for DPS5015)
+    float clamped = current < 0.0f ? 0.0f : (current > 15.0f ? 15.0f : current);
+    uint16_t value = static_cast<uint16_t>(clamped * 100.0f);
 
-    uint16_t value = static_cast<uint16_t>(current * 100.0f);
-    sendWriteRequest(REG_SET_CURRENT, value);
+    // Retry loop for critical immediate writes
+    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
+        // Clear the serial buffer and send immediately (blocking)
+        clearSerialBuffer();
 
-    // Wait for response with timeout
-    unsigned long start = millis();
-    while (_serial.available() < 8) {
-        if (millis() - start > RESPONSE_TIMEOUT_MS) {
-            return false;
+        sendWriteRequest(REG_SET_CURRENT, value);
+
+        // Wait for response with timeout
+        unsigned long start = millis();
+        while (_serial.available() < 8) {
+            if (millis() - start > RESPONSE_TIMEOUT_MS) {
+                continue; // Retry on timeout
+            }
         }
-    }
 
-    if (checkWriteResponse()) {
-        _commanded_current = current;
-        return true;
+        if (checkWriteResponse()) {
+            _commanded_current = clamped;
+            return true;
+        }
     }
     return false;
 }
@@ -330,23 +375,26 @@ bool DPS5015::disableOutput() {
     if (!_initialized)
         return false;
 
-    // Clear the serial buffer and send immediately (blocking)
-    clearSerialBuffer();
+    // Retry loop for critical output disable
+    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
+        // Clear the serial buffer and send immediately (blocking)
+        clearSerialBuffer();
 
-    sendWriteRequest(REG_OUTPUT, 0);
+        sendWriteRequest(REG_OUTPUT, 0);
 
-    // Wait for response with timeout
-    unsigned long start = millis();
-    while (_serial.available() < 8) {
-        if (millis() - start > RESPONSE_TIMEOUT_MS) {
-            return false;
+        // Wait for response with timeout
+        unsigned long start = millis();
+        while (_serial.available() < 8) {
+            if (millis() - start > RESPONSE_TIMEOUT_MS) {
+                continue; // Retry on timeout
+            }
         }
-    }
 
-    if (checkWriteResponse()) {
-        _commanded_output = false;
-        _last_command_time = millis();
-        return true;
+        if (checkWriteResponse()) {
+            _commanded_output = false;
+            _last_command_time = millis();
+            return true;
+        }
     }
     return false;
 }
