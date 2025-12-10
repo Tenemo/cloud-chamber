@@ -523,7 +523,24 @@ void ThermalController::handleRampUp() {
             (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
     }
 
-    if (at_max || hot_limited || cooling_stalled) {
+    // Hot limited or cooling stalled indicates overshoot - back off
+    if (hot_limited || cooling_stalled) {
+        float previous = current - RAMP_CURRENT_STEP_A;
+        previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
+        _dps.setSymmetricCurrent(previous);
+        _optimizer.optimal_current = previous;
+        _optimizer.temp_at_optimal = _optimizer.temp_before_step;
+
+        char buf[48];
+        snprintf(buf, sizeof(buf), "TC: Limit hit, back to %.1fA", previous);
+        _logger.log(buf, true);
+
+        transitionTo(ThermalState::STEADY_STATE);
+        return;
+    }
+
+    // Reached max through successful ramps - this is fine
+    if (at_max) {
         _optimizer.optimal_current = current;
         _optimizer.temp_at_optimal = cold_temp;
         transitionTo(ThermalState::STEADY_STATE);
@@ -591,6 +608,7 @@ void ThermalController::handleSteadyState() {
 
     if (can_probe) {
         _optimizer.temp_before_step = cold_temp;
+        _optimizer.rate_before_step = _history.getColdPlateRate();
         float new_current =
             fmin(current + RAMP_CURRENT_STEP_A / 2.0f, MAX_CURRENT_PER_CHANNEL);
         _dps.setSymmetricCurrent(new_current);
