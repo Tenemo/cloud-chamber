@@ -12,14 +12,21 @@
 // Constructor and Initialization
 // =============================================================================
 
-DualPowerSupply::DualPowerSupply(Logger &logger, DPS5015 &psu0, DPS5015 &psu1)
-    : _logger(logger), _psu0(psu0), _psu1(psu1), _target_current(0.0f),
+DualPowerSupply::DualPowerSupply(Logger &logger)
+    : _logger(logger), _psu0(logger, "DC12", Serial1),
+      _psu1(logger, "DC34", Serial2), _target_current(0.0f),
       _target_voltage(0.0f), _target_output(false),
       _shutdown_in_progress(false), _shutdown_current(0.0f),
       _last_shutdown_step_time(0), _consecutive_mismatches(0) {}
 
 void DualPowerSupply::begin() {
-    // Nothing special needed - PSUs are initialized separately
+    _psu0.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
+    _psu1.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
+}
+
+void DualPowerSupply::update() {
+    _psu0.update();
+    _psu1.update();
 }
 
 // =============================================================================

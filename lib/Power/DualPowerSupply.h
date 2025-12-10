@@ -2,10 +2,11 @@
  * @file DualPowerSupply.h
  * @brief Symmetric dual DPS5015 power supply controller
  *
- * This wrapper enforces symmetric control of two DPS5015 units.
+ * This wrapper owns and manages two DPS5015 units, enforcing symmetric control.
  * All operations apply to both PSUs together - if one fails, both are affected.
  *
  * RESPONSIBILITIES:
+ * - Owning and initializing both DPS5015 instances
  * - Symmetric current/voltage control (both channels always together)
  * - Manual override detection (consolidated from DPS5015 mismatch data)
  * - Fail-one-kill-both shutdown logic
@@ -14,11 +15,11 @@
  *
  * USAGE:
  * ------
- * DualPowerSupply dps(logger, psu0, psu1);
- * dps.begin();
+ * DualPowerSupply dps(logger);
+ * dps.begin();  // Initializes both PSUs with correct pins
  *
  * // In update loop:
- * dps.update();
+ * dps.update();  // Updates both PSUs
  *
  * // Control:
  * dps.setSymmetricCurrent(5.0f);  // Sets both to 5A
@@ -36,6 +37,7 @@
 #include "DPS5015.h"
 #include "Logger.h"
 #include "ThermalConstants.h"
+#include "config.h"
 #include <Arduino.h>
 
 /**
@@ -58,9 +60,23 @@ enum class SelfTestResult {
 
 class DualPowerSupply {
   public:
-    DualPowerSupply(Logger &logger, DPS5015 &psu0, DPS5015 &psu1);
+    explicit DualPowerSupply(Logger &logger);
 
+    /**
+     * @brief Initialize both PSUs with their hardware pins
+     *
+     * Calls begin() on both DPS5015 instances with the correct
+     * RX/TX pins from config.h.
+     */
     void begin();
+
+    /**
+     * @brief Update both PSUs (call in main loop)
+     *
+     * Calls update() on both DPS5015 instances to process
+     * Modbus communication.
+     */
+    void update();
 
     // =========================================================================
     // Symmetric Control
@@ -302,8 +318,8 @@ class DualPowerSupply {
 
   private:
     Logger &_logger;
-    DPS5015 &_psu0;
-    DPS5015 &_psu1;
+    DPS5015 _psu0;
+    DPS5015 _psu1;
 
     // Target setpoints (commanded values)
     float _target_current;

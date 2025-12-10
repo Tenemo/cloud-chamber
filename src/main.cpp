@@ -11,9 +11,8 @@
  * - CrashLog: SPIFFS-based persistent crash logging (survives resets)
  * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface (cold plate)
  * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
- * - DPS5015: Programmable power supply control via Modbus RTU
+ * - DualPowerSupply: Symmetric control of two DPS5015 units via Modbus RTU
  * - ThermalController: Smart control system coordinating all components
- *   - ThermalMetrics: History buffer, trend analysis, optimizer state, NVS
  * persistence
  *   - SafetyMonitor: Centralized safety checks with consistent error handling
  *
@@ -30,14 +29,17 @@
  */
 
 #include "CrashLog.h"
-#include "DPS5015.h"
 #include "DS18B20.h"
 #include "Logger.h"
 #include "PT100.h"
-#include "ThermalController.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
+
+#if CONTROL_LOOP_ENABLED
+#include "DualPowerSupply.h"
+#include "ThermalController.h"
+#endif
 
 Logger logger;
 
@@ -51,17 +53,17 @@ PT100Sensor pt100_sensor(logger, "PT100");
 // Hot plate sensor (DS18B20)
 DS18B20Sensor hot_plate_sensor(logger, dallasSensors, DS18B20_1_ADDRESS, "HOT");
 
-// DPS5015 power supplies (Serial1 and Serial2)
-DPS5015 psu0(logger, "DC12", Serial1);
-DPS5015 psu1(logger, "DC34", Serial2);
+#if CONTROL_LOOP_ENABLED
+// Dual power supply (owns and manages both DPS5015 units)
+DualPowerSupply dualPsu(logger);
 
 // Thermal controller - coordinates sensors and PSUs
 ThermalController thermalController(logger,
                                     pt100_sensor,     // Cold plate (PT100)
                                     hot_plate_sensor, // Hot plate (DS18B20)
-                                    psu0,             // PSU 0 (channels 1-2)
-                                    psu1              // PSU 1 (channels 3-4)
+                                    dualPsu           // Power supply controller
 );
+#endif
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
@@ -93,12 +95,10 @@ static void initializeHardware() {
     // Initialize PT100
     pt100_sensor.begin();
 
-    // Initialize PSUs (ThermalController will configure them)
-    psu0.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
-    psu1.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
-
-    // Initialize thermal controller
+#if CONTROL_LOOP_ENABLED
+    // Initialize thermal controller (handles PSU initialization internally)
     thermalController.begin();
+#endif
 }
 
 void setup() { initializeHardware(); }
@@ -111,9 +111,9 @@ void loop() {
     logger.update();
     pt100_sensor.update();
     hot_plate_sensor.update();
-    psu0.update();
-    psu1.update();
 
-    // Run thermal control logic
+#if CONTROL_LOOP_ENABLED
+    // Run thermal control logic (handles PSU updates internally)
     thermalController.update();
+#endif
 }
