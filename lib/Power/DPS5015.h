@@ -74,25 +74,19 @@ class DPS5015 {
     bool setCurrentImmediate(float current);
     bool disableOutput();
 
-    // Getters - return last commanded values (what we asked the DPS to do)
-    float getCommandedVoltage() const { return _commanded_voltage; }
-    float getCommandedCurrent() const { return _commanded_current; }
-
     // Getters - return last read values (what the DPS reports)
     float getSetVoltage() const { return _set_voltage; }
-    float getSetCurrent() const { return _set_current; }
     float getOutputVoltage() const { return _output_voltage; }
     float getOutputCurrent() const { return _output_current; }
     float getOutputPower() const { return _output_power; }
-    float getInputVoltage() const { return _input_voltage; }
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _currently_online; }
-    bool isConstantCurrentMode() const {
-        return _cc_mode;
-    } // True if in CC mode (current limiting)
-    bool isInGracePeriod() const; // True if recent command still propagating
-    bool isSettled() const;       // True if DPS state matches last command
+    bool isInGracePeriod() const;
+    bool isSettled() const;
     bool hasPendingWrites() const { return _pending_writes > 0; }
+
+    // Used internally by DualPowerSupply for imbalance detection
+    float getCommandedCurrent() const { return _commanded_current; }
 
     // Mismatch detection for manual override (current, voltage, output)
     bool hasCurrentMismatch() const;

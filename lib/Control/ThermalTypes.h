@@ -29,4 +29,32 @@ enum class ThermalState {
     DPS_DISCONNECTED // Lost communication with PSU(s)
 };
 
+/**
+ * @brief Convert ThermalState to display string
+ */
+inline const char *stateToString(ThermalState state) {
+    switch (state) {
+    case ThermalState::INITIALIZING:
+        return "INIT";
+    case ThermalState::SELF_TEST:
+        return "TEST";
+    case ThermalState::STARTUP:
+        return "START";
+    case ThermalState::RAMP_UP:
+        return "RAMP";
+    case ThermalState::STEADY_STATE:
+        return "STEADY";
+    case ThermalState::MANUAL_OVERRIDE:
+        return "MANUAL";
+    case ThermalState::THERMAL_FAULT:
+        return "FAULT";
+    case ThermalState::SENSOR_FAULT:
+        return "SENS_F";
+    case ThermalState::DPS_DISCONNECTED:
+        return "DSCNCT";
+    default:
+        return "???";
+    }
+}
+
 #endif // THERMAL_TYPES_H

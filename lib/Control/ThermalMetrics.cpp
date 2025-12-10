@@ -4,7 +4,17 @@
  */
 
 #include "ThermalMetrics.h"
+#include "DualPowerSupply.h"
+#include "SafetyMonitor.h"
+#include "TemperatureSensors.h"
+#include "ThermalOptimizer.h"
 #include <cmath>
+
+namespace {
+constexpr const char *LINE_STATE = "TC_STATE";
+constexpr const char *LINE_RATE = "TC_RATE";
+constexpr const char *LINE_CURRENT = "TC_I";
+} // namespace
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
     : _logger(logger), _head(0), _count(0), _all_time_min_temp(100.0f),
@@ -43,8 +53,43 @@ void ThermalMetrics::recordSample(const ThermalSample &sample) {
         _count++;
     }
 
-    // Track session minimum automatically
     updateSessionMin(sample.cold_plate_temp);
+}
+
+void ThermalMetrics::recordSample(TemperatureSensors &sensors,
+                                  DualPowerSupply &dps) {
+    ThermalSample sample;
+    sample.cold_plate_temp = sensors.getColdPlateTemperature();
+    sample.hot_plate_temp = sensors.getHotPlateTemperature();
+    sample.set_current = dps.getTargetCurrent();
+    sample.voltage[0] = dps.getOutputVoltage(0);
+    sample.voltage[1] = dps.getOutputVoltage(1);
+    sample.current[0] = dps.getOutputCurrent(0);
+    sample.current[1] = dps.getOutputCurrent(1);
+    sample.power[0] = dps.getOutputPower(0);
+    sample.power[1] = dps.getOutputPower(1);
+    sample.timestamp = millis();
+
+    recordSample(sample);
+
+    dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
+                             CHANNEL_POWER_IMBALANCE_W,
+                             Timing::IMBALANCE_LOG_INTERVAL_MS);
+}
+
+ThermalSnapshot ThermalMetrics::buildSnapshot(TemperatureSensors &sensors,
+                                              DualPowerSupply &dps,
+                                              SafetyMonitor &safety) const {
+    return ThermalSnapshot{
+        sensors.getColdPlateTemperature(),
+        sensors.getHotPlateTemperature(),
+        getColdPlateRate(),
+        getHotPlateRate(),
+        dps.getTargetCurrent(),
+        safety.isHotSideWarning(),
+        safety.isHotSideAlarm(),
+        isHotSideStable(HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN),
+        millis()};
 }
 
 bool ThermalMetrics::hasMinimumHistory(size_t min_samples) const {
@@ -132,8 +177,6 @@ void ThermalMetrics::recordNewMinimum(float temp, float current) {
         saveToNvs(true); // Force save for new records
     }
 }
-
-void ThermalMetrics::forceSave() { saveToNvs(true); }
 
 bool ThermalMetrics::checkNvsSpace() {
     nvs_stats_t nvs_stats;
@@ -262,4 +305,17 @@ void ThermalMetrics::updateRuntime() {
         _prefs.putULong(KEY_RUNTIME, _total_runtime_seconds);
         _prefs.end();
     }
+}
+
+void ThermalMetrics::registerDisplayLines() {
+    _logger.registerTextLine(LINE_STATE, "State:", "INIT");
+    _logger.registerLine(LINE_RATE, "dT/dt:", "K/m", 0.0f);
+    _logger.registerLine(LINE_CURRENT, "I Set:", "A", 0.0f);
+}
+
+void ThermalMetrics::updateDisplay(const char *state_string,
+                                   float target_current) {
+    _logger.updateLineText(LINE_STATE, state_string);
+    _logger.updateLine(LINE_RATE, getColdPlateRate());
+    _logger.updateLine(LINE_CURRENT, target_current);
 }

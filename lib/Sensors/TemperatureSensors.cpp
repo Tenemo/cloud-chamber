@@ -12,11 +12,8 @@ TemperatureSensors::TemperatureSensors(Logger &logger)
       _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "HOT") {}
 
 void TemperatureSensors::begin() {
-    // Initialize DS18B20 bus
     _dallasSensors.begin();
     _dallasSensors.setWaitForConversion(false);
-
-    // Initialize individual sensors
     _hotPlate.begin();
     _pt100.begin();
 

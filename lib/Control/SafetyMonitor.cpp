@@ -54,18 +54,17 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
         (current_state == ThermalState::STARTUP || in_early_ramp);
 
     if (!skip_plausibility) {
-        status = checkPT100Plausibility(avg_current, false);
+        status = checkPT100Plausibility(avg_current);
         if (status == SafetyStatus::THERMAL_FAULT) {
             return {status, _last_fault_reason};
         }
     }
 
-    // Cross-sensor validation with grace period
-    // Skip during early RAMP_UP (first 2 minutes)
+    // Cross-sensor validation with grace period (warning-only, no state change)
     bool in_cross_check_grace =
         (current_state == ThermalState::RAMP_UP &&
          (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS);
-    checkCrossSensorValidation(in_cross_check_grace);
+    logCrossSensorWarnings(in_cross_check_grace);
 
     return {SafetyStatus::OK, nullptr};
 }
@@ -167,12 +166,7 @@ SafetyStatus SafetyMonitor::checkSensorSanity() {
     return SafetyStatus::OK;
 }
 
-SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current,
-                                                   bool skip_check) {
-    if (skip_check) {
-        return SafetyStatus::OK;
-    }
-
+SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current) {
     float cold_temp = _cold_plate.getTemperature();
     float hot_temp = _hot_plate.getTemperature();
 
@@ -200,10 +194,9 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current,
     return SafetyStatus::OK;
 }
 
-SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
-    if (skip_check) {
-        return SafetyStatus::OK;
-    }
+void SafetyMonitor::logCrossSensorWarnings(bool skip_check) {
+    if (skip_check)
+        return;
 
     float cold_temp = _cold_plate.getTemperature();
     float hot_temp = _hot_plate.getTemperature();
@@ -220,16 +213,12 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
             _logger.logf("WARN: Cold>=Hot C=%.1f H=%.1f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         }
-
-        return SafetyStatus::WARNING;
     } else {
         if (_cross_check_warning_active) {
             _cross_check_warning_active = false;
             _logger.log("Cross-check OK: Cold<Hot");
         }
     }
-
-    return SafetyStatus::OK;
 }
 
 SafetyStatus SafetyMonitor::checkDpsConnection() {

@@ -18,7 +18,7 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
-        return; // prevent re-initialization
+        return;
 
     // Use config baud rate if default (0) passed, otherwise use specified
     unsigned long actual_baud = (baud == 0) ? MODBUS_BAUD_RATE : baud;

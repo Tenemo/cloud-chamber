@@ -7,10 +7,6 @@
 #include "CrashLog.h"
 #include <cmath>
 
-// =============================================================================
-// Constructor and Initialization
-// =============================================================================
-
 DualPowerSupply::DualPowerSupply(Logger &logger)
     : _logger(logger), _psu0(logger, "DC12", Serial1),
       _psu1(logger, "DC34", Serial2), _target_current(0.0f),
@@ -27,10 +23,6 @@ void DualPowerSupply::update() {
     _psu0.update();
     _psu1.update();
 }
-
-// =============================================================================
-// Symmetric Control
-// =============================================================================
 
 bool DualPowerSupply::setSymmetricCurrent(float current) {
     // Clamp to valid range
@@ -95,10 +87,6 @@ void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
     _psu0.configure(voltage, current, outputOn);
     _psu1.configure(voltage, current, outputOn);
 }
-
-// =============================================================================
-// Emergency Shutdown
-// =============================================================================
 
 void DualPowerSupply::startEmergencyShutdown() {
     if (_shutdown_in_progress)
@@ -166,10 +154,6 @@ bool DualPowerSupply::hardShutdown() {
 
     return success;
 }
-
-// =============================================================================
-// Status Queries
-// =============================================================================
 
 bool DualPowerSupply::areBothConnected() const {
     return _psu0.isConnected() && _psu1.isConnected();
@@ -272,14 +256,6 @@ float DualPowerSupply::getOutputPower(size_t channel) const {
     return 0.0f;
 }
 
-float DualPowerSupply::getSetCurrent(size_t channel) const {
-    if (channel == 0)
-        return _psu0.getSetCurrent();
-    if (channel == 1)
-        return _psu1.getSetCurrent();
-    return 0.0f;
-}
-
 bool DualPowerSupply::isConnected(size_t channel) const {
     if (channel == 0)
         return _psu0.isConnected();
@@ -295,10 +271,6 @@ bool DualPowerSupply::isOutputOn(size_t channel) const {
         return _psu1.isOutputOn();
     return false;
 }
-
-// =============================================================================
-// Channel Imbalance Detection
-// =============================================================================
 
 float DualPowerSupply::getCurrentImbalance() const {
     if (!areBothConnected())
@@ -341,10 +313,6 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
     }
 }
 
-// =============================================================================
-// Hot Reset Detection
-// =============================================================================
-
 float DualPowerSupply::detectHotReset(float min_threshold) {
     if (!isEitherConnected() || !isOutputOn())
         return 0.0f;
@@ -363,10 +331,6 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
     _logger.log("DPS: Hot reset detected");
     return fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
 }
-
-// =============================================================================
-// Self-Test
-// =============================================================================
 
 void DualPowerSupply::resetSelfTest() {
     _selftest_phase = static_cast<int>(SelfTestPhase::START);

@@ -90,8 +90,8 @@ constexpr float HOT_SIDE_WARNING_C = 55.0f;      // Reduce ramp aggressiveness
 constexpr float HOT_SIDE_WARNING_EXIT_C = 50.0f; // Exit warning (hysteresis)
 constexpr float HOT_SIDE_ALARM_C = 65.0f;        // Stop increasing current
 constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f;   // Exit alarm (hysteresis)
-const float HOT_SIDE_FAULT_C = 70.0f;            // Emergency shutdown
-const float HOT_SIDE_PROBE_HEADROOM_C =
+constexpr float HOT_SIDE_FAULT_C = 70.0f;        // Emergency shutdown
+constexpr float HOT_SIDE_PROBE_HEADROOM_C =
     5.0f; // Headroom below warning for probing
 
 // Thermal runaway detection

@@ -203,7 +203,6 @@ class ThermalOptimizer {
 
     // Adaptive step control
     int8_t _probe_direction;
-    float _current_step;
     uint8_t _consecutive_bounces;
     bool _converged;
 
