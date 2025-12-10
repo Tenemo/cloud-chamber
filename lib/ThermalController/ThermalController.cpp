@@ -611,6 +611,7 @@ void ThermalController::handleSteadyState() {
             _optimizer.optimal_current = current;
             _optimizer.temp_at_optimal = cold_temp;
             _optimizer.consecutive_bounces = 0; // Reset on success
+            _optimizer.converged = false;       // Can probe again
             _logger.logf(true, "TC: New optimal %.1fA=%.1fC", current,
                          cold_temp);
         } else {
@@ -625,8 +626,16 @@ void ThermalController::handleSteadyState() {
             _optimizer.probe_direction *= -1;
             _optimizer.consecutive_bounces++;
 
-            _logger.logf(true, "TC: Probe bad, revert %.1fA (bounce #%d)",
-                         revert_current, _optimizer.consecutive_bounces);
+            // Convergence: if we've bounced twice (tried both directions), stop
+            if (_optimizer.consecutive_bounces >= 2) {
+                _optimizer.converged = true;
+                _logger.logf(true, "TC: Converged at %.1fA (%.1fC)",
+                             _optimizer.optimal_current,
+                             _optimizer.temp_at_optimal);
+            } else {
+                _logger.logf(true, "TC: Probe bad, revert %.1fA (bounce #%d)",
+                             revert_current, _optimizer.consecutive_bounces);
+            }
         }
         _optimizer.awaiting_evaluation = false;
         return;
@@ -637,6 +646,14 @@ void ThermalController::handleSteadyState() {
         (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
 
     if (can_probe) {
+        // Reset converged state at each recheck interval - conditions may have
+        // changed
+        if (_optimizer.converged) {
+            _optimizer.converged = false;
+            _optimizer.consecutive_bounces = 0;
+            _logger.log("TC: Recheck, probing again", true);
+        }
+
         // Choose adaptive step size (smaller when near optimum / bouncing)
         float step = chooseStepSize();
         _optimizer.current_step = step;

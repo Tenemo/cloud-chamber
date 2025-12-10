@@ -64,6 +64,7 @@ enum class EvaluationResult { WAITING, IMPROVED, DEGRADED, UNCHANGED };
  * - current_step: Adaptive step size (coarse→medium→fine as we approach
  * optimum)
  * - consecutive_bounces: Tracks direction flips to shrink step size
+ * - converged: True when both directions fail to improve (stop probing)
  */
 struct OptimizerState {
     // Session best tracking
@@ -89,6 +90,7 @@ struct OptimizerState {
     int8_t probe_direction = 1;      // +1 = increase current, -1 = decrease
     float current_step = 0.5f;       // Current step size (adaptive)
     uint8_t consecutive_bounces = 0; // Direction flips - shrink step after 2+
+    bool converged = false;          // True when both directions fail
 
     void reset() {
         optimal_current = 0.0f;
@@ -105,6 +107,7 @@ struct OptimizerState {
         probe_direction = 1;
         current_step = 0.5f;
         consecutive_bounces = 0;
+        converged = false;
     }
 };
 
