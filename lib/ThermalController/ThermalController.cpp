@@ -103,7 +103,6 @@ void ThermalController::update() {
     }
 
     // Update delegate modules
-    _dps.update();
     _metrics.update();
     _safety.updateHysteresis();
 
@@ -671,6 +670,13 @@ void ThermalController::recordSample() {
     ThermalSample sample;
     sample.cold_plate_temp = _cold_plate.getTemperature();
     sample.hot_plate_temp = _hot_plate.getTemperature();
+    sample.set_current = _dps.getTargetCurrent();
+    sample.voltage[0] = _dps.getOutputVoltage(0);
+    sample.voltage[1] = _dps.getOutputVoltage(1);
+    sample.current[0] = _dps.getOutputCurrent(0);
+    sample.current[1] = _dps.getOutputCurrent(1);
+    sample.power[0] = _dps.getOutputPower(0);
+    sample.power[1] = _dps.getOutputPower(1);
     sample.timestamp = millis();
 
     _metrics.recordSample(sample);

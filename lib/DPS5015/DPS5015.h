@@ -27,10 +27,10 @@
  * Default slave address is 1.
  *
  * Key registers (holding registers, function 0x03 read, 0x06 write):
- * - 0x0000: Set voltage (0.01V units)
- * - 0x0001: Set current (0.001A units)
+ * - 0x0000: Set voltage (0.01V units, i.e. register value / 100 = volts)
+ * - 0x0001: Set current (0.01A units, i.e. register value / 100 = amps)
  * - 0x0002: Actual output voltage (0.01V units)
- * - 0x0003: Actual output current (0.001A units)
+ * - 0x0003: Actual output current (0.01A units)
  * - 0x0004: Actual output power (0.01W units)
  * - 0x0005: Input voltage (0.01V units)
  * - 0x0006: Lock (0=unlocked, 1=locked)

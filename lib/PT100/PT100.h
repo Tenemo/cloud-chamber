@@ -16,6 +16,19 @@
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
+ *
+ * ERROR HANDLING:
+ * ---------------
+ * All PT100 error detection is centralized here. Callers should use
+ * isInError() to check sensor health rather than interpreting raw temperature
+ * values. Error conditions include:
+ * - Temperature below PT100_ERROR_MIN_C or above PT100_ERROR_MAX_C
+ * - MAX31865 fault flags (open wire, short, etc.)
+ * - Hardware communication failures
+ *
+ * When isInError() returns true, getTemperature() returns the last valid
+ * reading. The error state is logged and the display is updated to show
+ * the error condition.
  */
 
 #ifndef PT100_H
