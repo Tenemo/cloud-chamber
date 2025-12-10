@@ -22,11 +22,10 @@
 #define THERMAL_CONTROLLER_H
 
 #include "CrashLog.h"
-#include "DS18B20.h"
 #include "DualPowerSupply.h"
 #include "Logger.h"
-#include "PT100.h"
 #include "SafetyMonitor.h"
+#include "TemperatureSensors.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
 #include "ThermalOptimizer.h"
@@ -38,8 +37,8 @@
 
 class ThermalController {
   public:
-    ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                      DS18B20Sensor &hotPlate, DualPowerSupply &dps);
+    ThermalController(Logger &logger, TemperatureSensors &sensors,
+                      DualPowerSupply &dps);
 
     void begin();
     void update();
@@ -54,8 +53,7 @@ class ThermalController {
   private:
     // Hardware references
     Logger &_logger;
-    PT100Sensor &_cold_plate;
-    DS18B20Sensor &_hot_plate;
+    TemperatureSensors &_sensors;
 
     // Delegate modules
     DualPowerSupply &_dps;

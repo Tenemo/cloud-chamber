@@ -29,9 +29,8 @@
  */
 
 #include "CrashLog.h"
-#include "DS18B20.h"
 #include "Logger.h"
-#include "PT100.h"
+#include "TemperatureSensors.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
@@ -43,26 +42,15 @@
 
 Logger logger;
 
-// Shared OneWire bus for all DS18B20 sensors
-OneWire oneWire(PIN_DS18B20);
-DallasTemperature dallasSensors(&oneWire);
-
-// Cold plate sensor (PT100 via MAX31865)
-PT100Sensor pt100_sensor(logger, "PT100");
-
-// Hot plate sensor (DS18B20)
-DS18B20Sensor hot_plate_sensor(logger, dallasSensors, DS18B20_1_ADDRESS, "HOT");
+// Temperature sensors (owns PT100 and DS18B20)
+TemperatureSensors sensors(logger);
 
 #if CONTROL_LOOP_ENABLED
 // Dual power supply (owns and manages both DPS5015 units)
 DualPowerSupply dualPsu(logger);
 
 // Thermal controller - coordinates sensors and PSUs
-ThermalController thermalController(logger,
-                                    pt100_sensor,     // Cold plate (PT100)
-                                    hot_plate_sensor, // Hot plate (DS18B20)
-                                    dualPsu           // Power supply controller
-);
+ThermalController thermalController(logger, sensors, dualPsu);
 #endif
 
 static void initializeWatchdog() {
@@ -87,13 +75,8 @@ static void initializeHardware() {
     // Initialize watchdog
     initializeWatchdog();
 
-    // Initialize DS18B20 bus and sensor
-    dallasSensors.begin();
-    dallasSensors.setWaitForConversion(false);
-    hot_plate_sensor.begin();
-
-    // Initialize PT100
-    pt100_sensor.begin();
+    // Initialize temperature sensors
+    sensors.begin();
 
 #if CONTROL_LOOP_ENABLED
     // Initialize thermal controller (handles PSU initialization internally)
@@ -109,8 +92,7 @@ void loop() {
 
     // Update all hardware drivers
     logger.update();
-    pt100_sensor.update();
-    hot_plate_sensor.update();
+    sensors.update();
 
 #if CONTROL_LOOP_ENABLED
     // Run thermal control logic (handles PSU updates internally)
