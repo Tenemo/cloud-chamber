@@ -16,10 +16,10 @@
 // =============================================================================
 
 ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                                     DS18B20Sensor &hotPlate, DPS5015 &psu0,
-                                     DPS5015 &psu1)
-    : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _dps(logger, psu0, psu1), _metrics(logger), _optimizer(logger),
+                                     DS18B20Sensor &hotPlate,
+                                     DualPowerSupply &dps)
+    : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate), _dps(dps),
+      _metrics(logger), _optimizer(logger),
       _safety(logger, coldPlate, hotPlate, _dps),
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
@@ -95,6 +95,9 @@ float ThermalController::getCoolingRate() const {
 
 void ThermalController::update() {
     unsigned long now = millis();
+
+    // Update PSU communication (Modbus polling)
+    _dps.update();
 
     // Record history sample at regular intervals
     if (now - _last_sample_time >= HISTORY_SAMPLE_INTERVAL_MS) {

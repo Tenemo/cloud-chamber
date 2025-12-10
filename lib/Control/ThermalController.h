@@ -39,7 +39,7 @@
 class ThermalController {
   public:
     ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                      DS18B20Sensor &hotPlate, DPS5015 &psu0, DPS5015 &psu1);
+                      DS18B20Sensor &hotPlate, DualPowerSupply &dps);
 
     void begin();
     void update();
@@ -58,7 +58,7 @@ class ThermalController {
     DS18B20Sensor &_hot_plate;
 
     // Delegate modules
-    DualPowerSupply _dps;
+    DualPowerSupply &_dps;
     ThermalMetrics _metrics;
     ThermalOptimizer _optimizer;
     SafetyMonitor _safety;
