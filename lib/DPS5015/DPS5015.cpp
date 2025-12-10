@@ -13,7 +13,8 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _commanded_current(0.0f), _commanded_output(false),
       _state(ModbusState::IDLE), _request_start_time(0),
       _expected_response_length(0), _consecutive_errors(0),
-      _last_command_time(0), _write_queue_head(0), _write_queue_tail(0),
+      _last_command_time(0), _pending_writes(0), _consecutive_mismatches(0),
+      _last_confirmed_current(0.0f), _write_queue_head(0), _write_queue_tail(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
@@ -137,11 +138,24 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     _cc_mode = (buffer[8] == 1);
     _output_on = (buffer[9] == 1);
 
+    // Track mismatch for manual override detection
+    // Only check if no pending writes and not in grace period
+    if (_pending_writes == 0 && !isInGracePeriod()) {
+        float current_diff = fabs(_set_current - _commanded_current);
+        if (current_diff > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A) {
+            _consecutive_mismatches++;
+        } else {
+            _consecutive_mismatches = 0;
+            _last_confirmed_current = _set_current;
+        }
+    }
+
     // First successful connection
     if (!_ever_connected) {
         _ever_connected = true;
         _connected = true;
         _in_error_state = false;
+        _last_confirmed_current = _set_current;
         registerDisplayLines();
         _logger.log("DPS5015 connected.");
         applyPendingConfig();
@@ -193,6 +207,10 @@ bool DPS5015::queueWrite(uint16_t reg, uint16_t value) {
     _write_queue[_write_queue_head].reg = reg;
     _write_queue[_write_queue_head].value = value;
     _write_queue_head = next_head;
+
+    // Track pending writes for manual override detection
+    _pending_writes++;
+
     return true;
 }
 
@@ -207,6 +225,10 @@ void DPS5015::processWriteQueue() {
     sendWriteRequest(req.reg, req.value);
     _state = ModbusState::WRITE_PENDING;
     _request_start_time = millis();
+
+    // Decrement pending count (write has been sent, awaiting response)
+    if (_pending_writes > 0)
+        _pending_writes--;
 }
 
 bool DPS5015::setVoltage(float voltage) {
@@ -330,11 +352,9 @@ bool DPS5015::isInGracePeriod() const {
 bool DPS5015::isSettled() const {
     // Returns true if DPS state matches what we last commanded
     // Used to verify DPS has processed our commands before sending new ones
-    if (_last_command_time == 0)
-        return true; // No commands sent yet, consider settled
 
-    // If in grace period, not yet settled
-    if (isInGracePeriod())
+    // If we have pending writes or in grace period, not yet settled
+    if (_pending_writes > 0 || isInGracePeriod())
         return false;
 
     // Check if current matches commanded value (within tolerance)

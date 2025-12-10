@@ -16,14 +16,15 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_update_time(0), _target_current{0.0f, 0.0f}, _optimal_current(0.0f),
       _temp_at_optimal(100.0f), _temp_before_last_increase(100.0f),
-      _rate_before_last_increase(0.0f),
-      _awaiting_evaluation(false), _evaluation_start_time(0),
-      _min_cold_temp_achieved(100.0f), _last_adjustment_time(0),
-      _cooling_rate(0.0f), _steady_state_start_time(0), _history_head(0),
-      _history_count(0), _last_sample_time(0), _sensor_fault_time(0),
+      _rate_before_last_increase(0.0f), _awaiting_evaluation(false),
+      _evaluation_start_time(0), _min_cold_temp_achieved(100.0f),
+      _last_adjustment_time(0), _cooling_rate(0.0f),
+      _steady_state_start_time(0), _history_head(0), _history_count(0),
+      _last_sample_time(0), _sensor_fault_time(0),
       _dps_was_connected{false, false}, _shutdown_in_progress(false),
       _shutdown_current(0.0f), _last_shutdown_step_time(0),
-      _hot_side_in_warning(false), _hot_side_in_alarm(false) {}
+      _hot_side_in_warning(false), _hot_side_in_alarm(false),
+      _last_imbalance_log_time(0) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -177,7 +178,8 @@ void ThermalController::handleInitializing() {
                 _logger.log(buf);
 
                 // Set target current to actual (clamped to max)
-                float adopted_current = fmin(max_actual, MAX_CURRENT_PER_CHANNEL);
+                float adopted_current =
+                    fmin(max_actual, MAX_CURRENT_PER_CHANNEL);
                 _target_current[0] = adopted_current;
                 _target_current[1] = adopted_current;
                 _psus[0].configure(TEC_VOLTAGE_SETPOINT, adopted_current, true);
@@ -306,8 +308,8 @@ void ThermalController::handleRampUp() {
 
         bool temp_improved = (cold_temp < _temp_before_last_increase - 0.1f);
         bool rate_degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
-        bool temp_worsened =
-            (cold_temp > _temp_before_last_increase + OVERCURRENT_WARMING_THRESHOLD_C);
+        bool temp_worsened = (cold_temp > _temp_before_last_increase +
+                                              OVERCURRENT_WARMING_THRESHOLD_C);
 
         if (temp_improved && !rate_degraded) {
             // Temperature improved and rate didn't degrade - this current is
@@ -531,15 +533,16 @@ bool ThermalController::checkForManualOverride() {
         if (!_psus[i].isConnected())
             continue;
 
-        // Skip check if we recently sent a command (settling window)
+        // Skip check if there are pending writes or we're in grace period
         // This prevents false positives during Modbus propagation delay
-        if (_psus[i].isInGracePeriod())
+        if (_psus[i].hasPendingWrites() || _psus[i].isInGracePeriod())
             continue;
 
-        // Check if DPS is settled (current matches what we commanded)
-        if (!_psus[i].isSettled()) {
-            // Current doesn't match commanded after grace period
-            // This indicates user manually changed the dial
+        // Require N consecutive mismatches before declaring override
+        // This filters out transient read errors or timing glitches
+        if (_psus[i].getConsecutiveMismatches() >=
+            MANUAL_OVERRIDE_MISMATCH_COUNT) {
+            // Sustained mismatch detected - user manually changed the dial
             _logger.log("TC: Manual override");
             transitionTo(ThermalState::MANUAL_OVERRIDE);
             return true;
@@ -549,6 +552,13 @@ bool ThermalController::checkForManualOverride() {
 }
 
 bool ThermalController::checkThermalLimits() {
+    // Hot-side sensor fault is an immediate safety concern
+    // We cannot trust thermal limits if we can't read the temperature
+    if (!_hot_plate.isConnected()) {
+        enterThermalFault("HOT SENSOR LOST");
+        return false;
+    }
+
     float hot_temp = _hot_plate.getTemperature();
 
     // Critical hot side fault
@@ -664,6 +674,18 @@ void ThermalController::enterThermalFault(const char *reason) {
     _state_entry_time = millis();
 }
 
+/**
+ * @brief Start non-blocking emergency shutdown
+ *
+ * IMPORTANT: This emergency shutdown still relies on Modbus communication
+ * to the DPS5015 units. If Modbus is down, shutdown commands will not reach
+ * the PSUs. For true fail-safe behavior, external hardware interlocks
+ * (thermal cutoff switches, contactors, etc.) should be used in addition
+ * to software control.
+ *
+ * The shutdown ramps down current rather than cutting immediately to avoid
+ * thermal shock to TEC modules, but will disable outputs if comms fail.
+ */
 void ThermalController::startEmergencyShutdown() {
     if (_shutdown_in_progress)
         return;
@@ -758,6 +780,42 @@ void ThermalController::recordSample() {
     _history_head = (_history_head + 1) % HISTORY_BUFFER_SIZE;
     if (_history_count < HISTORY_BUFFER_SIZE) {
         _history_count++;
+    }
+
+    // Check for channel imbalance (only when both channels are commanded
+    // equally)
+    checkChannelImbalance();
+}
+
+void ThermalController::checkChannelImbalance() {
+    // Only check if both PSUs are connected and commanded to same current
+    if (!_psus[0].isConnected() || !_psus[1].isConnected())
+        return;
+
+    float cmd_diff = fabs(_target_current[0] - _target_current[1]);
+    if (cmd_diff > 0.1f)
+        return; // Channels intentionally set differently
+
+    // Rate limit imbalance logging
+    unsigned long now = millis();
+    if (now - _last_imbalance_log_time < IMBALANCE_LOG_INTERVAL_MS)
+        return;
+
+    float i1 = _psus[0].getOutputCurrent();
+    float i2 = _psus[1].getOutputCurrent();
+    float p1 = _psus[0].getOutputPower();
+    float p2 = _psus[1].getOutputPower();
+
+    float current_diff = fabs(i1 - i2);
+    float power_diff = fabs(p1 - p2);
+
+    if (current_diff > CHANNEL_CURRENT_IMBALANCE_A ||
+        power_diff > CHANNEL_POWER_IMBALANCE_W) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "IMBAL: dI=%.1fA dP=%.0fW", current_diff,
+                 power_diff);
+        _logger.log(buf);
+        _last_imbalance_log_time = now;
     }
 }
 

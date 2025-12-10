@@ -82,11 +82,11 @@ constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
 constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
 // Fixed buffer sizes (avoid heap fragmentation from String)
-constexpr size_t MAX_DISPLAY_LINES = 16;       // Maximum display lines
-constexpr size_t MAX_LINE_NAME_LEN = 12;       // e.g., "TC_I1", "DC12_P"
-constexpr size_t MAX_LINE_LABEL_LEN = 12;      // e.g., "DC12 V:", "State:"
-constexpr size_t MAX_LINE_VALUE_LEN = 16;      // e.g., "12.34 V", "INIT..."
-constexpr size_t MAX_LINE_UNIT_LEN = 6;        // e.g., "K/m", "A"
+constexpr size_t MAX_DISPLAY_LINES = 16;  // Maximum display lines
+constexpr size_t MAX_LINE_NAME_LEN = 12;  // e.g., "TC_I1", "DC12_P"
+constexpr size_t MAX_LINE_LABEL_LEN = 12; // e.g., "DC12 V:", "State:"
+constexpr size_t MAX_LINE_VALUE_LEN = 16; // e.g., "12.34 V", "INIT..."
+constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
 
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
@@ -94,7 +94,7 @@ struct DisplayLine {
     char value[MAX_LINE_VALUE_LEN];      // current display value
     char prev_value[MAX_LINE_VALUE_LEN]; // previous value for comparison
     char unit[MAX_LINE_UNIT_LEN];        // unit suffix (e.g., "A", "C")
-    int slot;          // Y position slot on screen
+    int slot;                            // Y position slot on screen
     bool uses_wrap;    // true if value wraps to next line due to overflow
     bool needs_redraw; // true if value changed and needs to be redrawn
     bool active;       // true if this slot is in use
@@ -134,15 +134,15 @@ class Logger {
     void clearValueArea(int y);
     void drawLineLabel(const char *label, int slot);
     void drawLineValue(DisplayLine &line, bool force_full_redraw = false);
-    void drawChangedCharacters(const char *old_val, const char *new_val,
-                               int x, int y);
+    void drawChangedCharacters(const char *old_val, const char *new_val, int x,
+                               int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
     void registerLineInternal(const char *name, const char *label,
                               const char *value, const char *unit);
     bool shouldWrap(const char *label, const char *value) const;
-    DisplayLine* findLine(const char *name);
-    DisplayLine* findFreeSlot();
+    DisplayLine *findLine(const char *name);
+    DisplayLine *findFreeSlot();
 
     DFRobot_ST7735_128x160_HW_SPI *_screen;
     int8_t _backlight;
@@ -150,7 +150,7 @@ class Logger {
     unsigned long _last_display_update;
 
     DisplayLayout _layout;
-    DisplayLine _lines[MAX_DISPLAY_LINES];  // Fixed array instead of std::map
+    DisplayLine _lines[MAX_DISPLAY_LINES]; // Fixed array instead of std::map
 
     // Spinner state
     int _spinner_index;
