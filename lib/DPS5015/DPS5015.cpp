@@ -11,7 +11,8 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _output_on(false), _cc_mode(false), _commanded_voltage(0.0f),
       _commanded_current(0.0f), _commanded_output(false),
       _state(ModbusState::IDLE), _request_start_time(0),
-      _expected_response_length(0), _write_queue_head(0), _write_queue_tail(0),
+      _expected_response_length(0), _consecutive_errors(0),
+      _last_command_time(0), _write_queue_head(0), _write_queue_tail(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
@@ -20,7 +21,7 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
 
     // Initialize Serial for Modbus communication
     _serial.begin(baud, SERIAL_8N1, rxPin, txPin);
-    delay(100); // allow serial to stabilize
+    delay(100); // Allow UART hardware to stabilize after configuration
 
     // Register placeholder display line for initial state
     char labelBuf[16];
@@ -119,6 +120,9 @@ void DPS5015::update() {
 }
 
 void DPS5015::handleReadComplete(uint16_t *buffer) {
+    // Reset consecutive error count on successful read
+    _consecutive_errors = 0;
+
     // Parse register values
     _set_voltage = buffer[0] / 100.0f;
     _set_current = buffer[1] / 100.0f;
@@ -155,13 +159,17 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
 }
 
 void DPS5015::handleCommError() {
+    // Increment consecutive error count
+    _consecutive_errors++;
+
     // If never connected, keep trying silently
     if (!_ever_connected) {
         return;
     }
 
-    // Only log error if we were previously connected
-    if (!_in_error_state) {
+    // Only transition to error state after MODBUS_MAX_RETRIES consecutive
+    // failures
+    if (_consecutive_errors >= MODBUS_MAX_RETRIES && !_in_error_state) {
         _in_error_state = true;
         _connected = false;
         _logger.log("DPS5015 comm error");
@@ -204,6 +212,7 @@ bool DPS5015::setVoltage(float voltage) {
     uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
     if (queueWrite(REG_SET_VOLTAGE, value)) {
         _commanded_voltage = voltage;
+        _last_command_time = millis();
         return true;
     }
     return false;
@@ -216,6 +225,7 @@ bool DPS5015::setCurrent(float current) {
     uint16_t value = static_cast<uint16_t>(current * 100.0f);
     if (queueWrite(REG_SET_CURRENT, value)) {
         _commanded_current = current;
+        _last_command_time = millis();
         return true;
     }
     return false;
@@ -227,6 +237,7 @@ bool DPS5015::setOutput(bool on) {
 
     if (queueWrite(REG_OUTPUT, on ? 1 : 0)) {
         _commanded_output = on;
+        _last_command_time = millis();
         return true;
     }
     return false;
@@ -288,9 +299,18 @@ bool DPS5015::disableOutput() {
 
     if (checkWriteResponse()) {
         _commanded_output = false;
+        _last_command_time = millis();
         return true;
     }
     return false;
+}
+
+bool DPS5015::isInGracePeriod() const {
+    // Returns true if a command was sent recently and we're still waiting
+    // for the DPS to process it and for us to read back the new value
+    if (_last_command_time == 0)
+        return false;
+    return (millis() - _last_command_time) < MANUAL_OVERRIDE_GRACE_MS;
 }
 
 void DPS5015::applyPendingConfig() {
@@ -364,6 +384,7 @@ bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
     uint8_t response[64];
     for (size_t i = 0; i < expected_length && i < sizeof(response); i++) {
         // Wait briefly for each byte if not immediately available
+        // 10ms timeout per byte - at 9600 baud, one byte takes ~1ms
         unsigned long start = millis();
         while (!_serial.available()) {
             if (millis() - start > 10) {

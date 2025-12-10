@@ -90,6 +90,7 @@ constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     800; // 12-bit resolution needs 750ms conversion
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
+constexpr int MODBUS_MAX_RETRIES = 3; // Consecutive failures before error state
 
 // PT100 serial logging (serial only, not display)
 constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
@@ -98,6 +99,9 @@ constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
 
 // Display update timing
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
+
+// Watchdog configuration
+constexpr unsigned long WDT_TIMEOUT_SECONDS = 10; // Task WDT timeout
 
 // Live log area (bottom of screen)
 constexpr int LOG_AREA_LINES =
@@ -133,8 +137,11 @@ constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
 
 // Temperature thresholds (Celsius)
 constexpr float HOT_SIDE_WARNING_C = 55.0f; // Reduce ramp aggressiveness
-constexpr float HOT_SIDE_ALARM_C = 65.0f;   // Stop increasing current
-constexpr float HOT_SIDE_FAULT_C = 70.0f;   // Emergency shutdown
+constexpr float HOT_SIDE_WARNING_EXIT_C =
+    50.0f;                                // Exit warning state (hysteresis)
+constexpr float HOT_SIDE_ALARM_C = 65.0f; // Stop increasing current
+constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f; // Exit alarm state (hysteresis)
+constexpr float HOT_SIDE_FAULT_C = 70.0f;      // Emergency shutdown
 constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
     5.0f; // Thermal runaway detection
 constexpr float COOLING_STALL_THRESHOLD_C =
@@ -148,8 +155,12 @@ constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
     0.15f; // Tolerance for override detection
 constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
     0.15f; // Tolerance for override detection
+constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS =
+    2000; // Grace period after command before checking for override
 constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC =
     2.0f; // Emergency shutdown ramp
+constexpr unsigned long EMERGENCY_SHUTDOWN_STEP_MS =
+    500; // Time between ramp-down steps (non-blocking)
 
 // History buffer
 constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz

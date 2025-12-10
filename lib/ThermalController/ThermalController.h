@@ -133,6 +133,15 @@ class ThermalController {
     unsigned long _sensor_fault_time;
     bool _dps_was_connected[2];
 
+    // Emergency shutdown state (non-blocking)
+    bool _shutdown_in_progress;
+    float _shutdown_current;
+    unsigned long _last_shutdown_step_time;
+
+    // Temperature hysteresis tracking
+    bool _hot_side_in_warning;
+    bool _hot_side_in_alarm;
+
     // Display line IDs
     static constexpr const char *LINE_STATE = "TC_STATE";
     static constexpr const char *LINE_RATE = "TC_RATE";
@@ -162,7 +171,9 @@ class ThermalController {
     // Control actions
     void setChannelCurrent(size_t channel, float current);
     void setAllCurrents(float current);
-    void emergencyShutdown();
+    void startEmergencyShutdown();
+    void updateEmergencyShutdown();
+    void emergencyShutdown(); // Legacy blocking version for init only
     void rampDownCurrent(float targetCurrent, float ratePerSecond);
 
     // History and analysis

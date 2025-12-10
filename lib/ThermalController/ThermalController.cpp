@@ -20,7 +20,9 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _min_cold_temp_achieved(100.0f), _last_adjustment_time(0),
       _cooling_rate(0.0f), _steady_state_start_time(0), _history_head(0),
       _history_count(0), _last_sample_time(0), _sensor_fault_time(0),
-      _dps_was_connected{false, false} {}
+      _dps_was_connected{false, false}, _shutdown_in_progress(false),
+      _shutdown_current(0.0f), _last_shutdown_step_time(0),
+      _hot_side_in_warning(false), _hot_side_in_alarm(false) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -185,7 +187,8 @@ void ThermalController::handleInitializing() {
 void ThermalController::handleStartup() {
     unsigned long elapsed = millis() - _state_entry_time;
 
-    // On entry, configure PSUs
+    // First 100ms: Configure PSUs (only runs once on state entry)
+    // This timing ensures the transition has completed before sending commands
     if (elapsed < 100) {
         for (size_t i = 0; i < 2; i++) {
             _psus[i].setVoltage(TEC_VOLTAGE_SETPOINT);
@@ -229,6 +232,23 @@ void ThermalController::handleRampUp() {
     unsigned long now = millis();
     float hot_temp = _hot_plate.getTemperature();
     float cold_temp = _cold_plate.getTemperature();
+
+    // Update hysteresis state for hot side
+    if (_hot_side_in_alarm) {
+        if (hot_temp < HOT_SIDE_ALARM_EXIT_C)
+            _hot_side_in_alarm = false;
+    } else {
+        if (hot_temp >= HOT_SIDE_ALARM_C)
+            _hot_side_in_alarm = true;
+    }
+
+    if (_hot_side_in_warning) {
+        if (hot_temp < HOT_SIDE_WARNING_EXIT_C)
+            _hot_side_in_warning = false;
+    } else {
+        if (hot_temp >= HOT_SIDE_WARNING_C)
+            _hot_side_in_warning = true;
+    }
 
     // Track minimum achieved temperature
     if (cold_temp < _min_cold_temp_achieved) {
@@ -281,8 +301,8 @@ void ThermalController::handleRampUp() {
     bool at_max = (_target_current[0] >= MAX_CURRENT_PER_CHANNEL &&
                    _target_current[1] >= MAX_CURRENT_PER_CHANNEL);
 
-    // Check if hot side is limiting further increases
-    bool hot_limited = (hot_temp >= HOT_SIDE_ALARM_C);
+    // Check if hot side is limiting further increases (uses hysteresis)
+    bool hot_limited = _hot_side_in_alarm;
 
     // Check if cooling has stalled (rate near zero for extended period)
     bool cooling_stalled = false;
@@ -310,10 +330,10 @@ void ThermalController::handleRampUp() {
         return;
     }
 
-    // Determine step size based on hot side temperature
+    // Determine step size based on hot side temperature (uses hysteresis)
     float step = RAMP_CURRENT_STEP_A;
-    if (hot_temp >= HOT_SIDE_WARNING_C) {
-        step = RAMP_CURRENT_STEP_A / 2.0f; // Half step when approaching limit
+    if (_hot_side_in_warning) {
+        step = RAMP_CURRENT_STEP_A / 2.0f; // Half step when in warning zone
     }
 
     // Record temperature before increase for later comparison
@@ -400,8 +420,9 @@ void ThermalController::handleManualOverride() {
 }
 
 void ThermalController::handleThermalFault() {
-    // Latched state - do nothing except continue monitoring display
-    // Emergency shutdown was already performed on entry
+    // Continue non-blocking shutdown if in progress
+    updateEmergencyShutdown();
+    // Latched state otherwise - do nothing except continue monitoring display
 }
 
 void ThermalController::handleSensorFault() {
@@ -457,6 +478,10 @@ void ThermalController::handleDpsDisconnected() {
 bool ThermalController::checkForManualOverride() {
     for (size_t i = 0; i < 2; i++) {
         if (!_psus[i].isConnected())
+            continue;
+
+        // Skip check if we recently sent a command (race condition window)
+        if (_psus[i].isInGracePeriod())
             continue;
 
         float cmd_voltage = _psus[i].getCommandedVoltage();
@@ -561,26 +586,71 @@ void ThermalController::enterThermalFault(const char *reason) {
     snprintf(buf, sizeof(buf), "TC FAULT: %s", reason);
     _logger.log(buf);
 
-    emergencyShutdown();
+    // Start non-blocking shutdown
+    startEmergencyShutdown();
     _state = ThermalState::THERMAL_FAULT;
     _state_entry_time = millis();
 }
 
+void ThermalController::startEmergencyShutdown() {
+    if (_shutdown_in_progress)
+        return;
+
+    _logger.log("TC: Emergency shutdown");
+    _shutdown_in_progress = true;
+    _shutdown_current = fmax(_target_current[0], _target_current[1]);
+    _last_shutdown_step_time = millis();
+}
+
+void ThermalController::updateEmergencyShutdown() {
+    if (!_shutdown_in_progress)
+        return;
+
+    unsigned long now = millis();
+    if (now - _last_shutdown_step_time < EMERGENCY_SHUTDOWN_STEP_MS)
+        return;
+
+    _last_shutdown_step_time = now;
+
+    // Calculate step to ramp down over ~5 seconds
+    float step = EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
+                 (EMERGENCY_SHUTDOWN_STEP_MS / 1000.0f);
+    _shutdown_current -= step;
+
+    if (_shutdown_current <= 0.1f) {
+        // Final step: disable outputs
+        _psus[0].disableOutput();
+        _psus[1].disableOutput();
+        _target_current[0] = 0;
+        _target_current[1] = 0;
+        _shutdown_in_progress = false;
+        _logger.log("TC: Shutdown complete");
+    } else {
+        // Ramp down current
+        _psus[0].setCurrentImmediate(_shutdown_current);
+        _psus[1].setCurrentImmediate(_shutdown_current);
+    }
+}
+
 void ThermalController::emergencyShutdown() {
+    // Legacy blocking version - only for use during INITIALIZING
+    // when we need to shut down DPS that was left running
     _logger.log("TC: Emergency shutdown");
 
-    // Ramp down current over ~5 seconds
     float current = fmax(_target_current[0], _target_current[1]);
-    float step = current / 5.0f; // Reduce to zero in 5 steps
+    if (current < 0.1f) {
+        current = 5.0f; // Assume some current if we don't know
+    }
 
-    while (current > 0.1f) {
-        current -= step;
-        if (current < 0)
+    // Quick ramp down - fewer steps for blocking version
+    for (int i = 0; i < 5 && current > 0.1f; i++) {
+        current -= current / 3.0f;
+        if (current < 0.1f)
             current = 0;
 
         _psus[0].setCurrentImmediate(current);
         _psus[1].setCurrentImmediate(current);
-        delay(1000);
+        delay(200); // 200ms per step = 1 second total max
     }
 
     // Disable outputs

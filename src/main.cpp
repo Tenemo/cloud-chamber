@@ -14,6 +14,10 @@
  * - ThermalController: Smart control system coordinating all components
  *
  * All modules self-manage their update timing and display registration.
+ *
+ * SAFETY:
+ * - Task Watchdog Timer (WDT) enabled - resets if loop() takes >10 seconds
+ * - Clean shutdown flag stored in NVS - detects crash recovery on boot
  */
 
 #include "DPS5015.h"
@@ -23,6 +27,13 @@
 #include "ThermalController.h"
 #include "config.h"
 #include <Arduino.h>
+#include <Preferences.h>
+#include <esp_task_wdt.h>
+
+// NVS storage for crash detection
+Preferences preferences;
+static constexpr const char *NVS_NAMESPACE = "cloud_chamber";
+static constexpr const char *NVS_KEY_CLEAN_SHUTDOWN = "clean_shutdown";
 
 Logger logger;
 
@@ -53,8 +64,42 @@ ThermalController
                       psus // PSU array
     );
 
+static bool checkCleanShutdown() {
+    preferences.begin(NVS_NAMESPACE, true); // Read-only
+    bool was_clean = preferences.getBool(NVS_KEY_CLEAN_SHUTDOWN, true);
+    preferences.end();
+    return was_clean;
+}
+
+static void markShutdownState(bool clean) {
+    preferences.begin(NVS_NAMESPACE, false); // Read-write
+    preferences.putBool(NVS_KEY_CLEAN_SHUTDOWN, clean);
+    preferences.end();
+}
+
+static void initializeWatchdog() {
+    // Configure Task Watchdog Timer
+    // This will reset the ESP32 if loop() hangs for longer than timeout
+    // Using older API compatible with Arduino ESP32 core
+    esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true); // timeout, panic on trigger
+    esp_task_wdt_add(NULL); // Add current task (loopTask) to watchdog
+}
+
 static void initializeHardware() {
     logger.initializeDisplay();
+
+    // Check for crash recovery
+    if (!checkCleanShutdown()) {
+        logger.log("WARN: Crash recovery!");
+        // ThermalController will detect DPS running and shut down safely
+    }
+
+    // Mark as "not clean" until we properly shut down
+    // (If we crash, next boot will see this)
+    markShutdownState(false);
+
+    // Initialize watchdog
+    initializeWatchdog();
 
     // Initialize DS18B20 bus and sensors
     dallasSensors.begin();
@@ -76,6 +121,9 @@ static void initializeHardware() {
 void setup() { initializeHardware(); }
 
 void loop() {
+    // Feed the watchdog - must be called regularly
+    esp_task_wdt_reset();
+
     // Update all hardware drivers
     logger.update();
     pt100_sensor.update();
