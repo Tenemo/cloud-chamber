@@ -91,20 +91,15 @@ class DPS5015 {
     bool isConnected() const { return _connected; }
     bool isConstantCurrentMode() const {
         return _cc_mode;
-    }                             // True if in CC mode (current limiting)
+    } // True if in CC mode (current limiting)
     bool isInGracePeriod() const; // True if recent command still propagating
     bool isSettled() const;       // True if DPS state matches last command
     bool hasPendingWrites() const { return _pending_writes > 0; }
-    int getConsecutiveMismatches() const { return _consecutive_mismatches; }
 
     // Mismatch detection for manual override (current, voltage, output)
     bool hasCurrentMismatch() const;
     bool hasVoltageMismatch() const;
     bool hasOutputMismatch() const;
-
-    // Pre-write validation: check if DPS state is consistent before commanding
-    // Returns true if safe to write, false if manual override detected
-    bool validateStateBeforeWrite(float expected_current) const;
 
   private:
     Logger &_logger;
@@ -146,9 +141,7 @@ class DPS5015 {
         _last_command_time; // When last command was sent (for grace period)
 
     // Write tracking for manual override detection
-    size_t _pending_writes;        // Number of writes queued but not confirmed
-    int _consecutive_mismatches;   // Sustained mismatch counter for override
-    float _last_confirmed_current; // Current value confirmed by read-back
+    size_t _pending_writes; // Number of writes queued but not confirmed
 
     // Write queue for non-blocking writes
     static constexpr size_t WRITE_QUEUE_SIZE = 8;

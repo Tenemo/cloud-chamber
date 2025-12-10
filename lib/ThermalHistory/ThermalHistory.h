@@ -12,26 +12,15 @@
 #include "config.h"
 #include <Arduino.h>
 
-// Trend classification for analysis
-enum class ThermalTrend {
-    COOLING,  // Sustained negative temperature slope
-    WARMING,  // Sustained positive slope
-    STABLE,   // Near-zero slope with low variance
-    ANOMALOUS // Insufficient history for classification
-};
-
 // History sample record
 struct ThermalSample {
     unsigned long timestamp_ms;
     float cold_plate_temp;
     float hot_plate_temp;
     float ambient_temp;
-    float current_setpoint_ch1;
-    float current_setpoint_ch2;
-    float actual_current_ch1;
-    float actual_current_ch2;
-    float power_ch1;
-    float power_ch2;
+    float current_setpoint;   // Commanded current (same for both channels)
+    float actual_current_avg; // Average actual current across channels
+    float total_power;        // Total power from both channels
 };
 
 /**
@@ -61,12 +50,6 @@ class ThermalHistory {
      * @return Rate in K/min, or RATE_INSUFFICIENT_HISTORY if not enough data
      */
     float getHotPlateRate() const;
-
-    /**
-     * @brief Analyze the current thermal trend
-     * @return ThermalTrend classification
-     */
-    ThermalTrend analyzeTrend() const;
 
     /**
      * @brief Check if enough history exists for reliable rate calculation

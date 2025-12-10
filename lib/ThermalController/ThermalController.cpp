@@ -23,15 +23,13 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
       _ambient_sensors(ambientSensors), _num_ambient(numAmbient),
       _dps(logger, psu0, psu1), _metrics(logger),
-      _safety(logger, coldPlate, hotPlate, psu0, psu1),
+      _safety(logger, coldPlate, hotPlate, _dps),
       _state(ThermalState::INITIALIZING),
       _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
-      _last_sample_time(0), _optimal_current(0.0f), _temp_at_optimal(100.0f),
-      _temp_before_last_increase(100.0f), _rate_before_last_increase(0.0f),
-      _awaiting_evaluation(false), _evaluation_start_time(0),
-      _min_cold_temp_achieved(100.0f), _last_adjustment_time(0),
-      _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
-      _last_imbalance_log_time(0), _selftest_phase(0), _selftest_phase_start(0),
+      _last_sample_time(0), _optimizer(), _min_cold_temp_achieved(100.0f),
+      _last_adjustment_time(0), _steady_state_start_time(0),
+      _ramp_start_time(0), _sensor_fault_time(0), _last_imbalance_log_time(0),
+      _selftest_phase(0), _selftest_phase_start(0),
       _selftest_passed{false, false} {}
 
 void ThermalController::begin() {
@@ -186,6 +184,13 @@ bool ThermalController::runSafetyChecks() {
         return false;
     }
 
+    // Check sensor sanity (impossible values)
+    status = _safety.checkSensorSanity();
+    if (status == SafetyStatus::SENSOR_FAULT) {
+        transitionTo(ThermalState::SENSOR_FAULT);
+        return false;
+    }
+
     // Check DPS connection
     status = _safety.checkDpsConnection();
     if (status == SafetyStatus::DPS_DISCONNECTED) {
@@ -306,10 +311,10 @@ void ThermalController::handleInitializing() {
 
             float adopted = fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
             _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
-            _optimal_current = adopted;
-            _temp_at_optimal = _cold_plate.getTemperature();
+            _optimizer.optimal_current = adopted;
+            _optimizer.temp_at_optimal = _cold_plate.getTemperature();
 
-            if (adopted >= MAX_CURRENT_PER_CHANNEL - 0.5f) {
+            if (adopted >= HOT_RESET_NEAR_MAX_A) {
                 transitionTo(ThermalState::STEADY_STATE);
             } else {
                 transitionTo(ThermalState::RAMP_UP);
@@ -482,29 +487,29 @@ void ThermalController::handleRampUp() {
     }
 
     // Evaluate pending current change
-    if (_awaiting_evaluation) {
+    if (_optimizer.awaiting_evaluation) {
         EvaluationResult result = evaluateCurrentChange();
 
         if (result == EvaluationResult::WAITING)
             return;
 
         if (result == EvaluationResult::IMPROVED) {
-            _optimal_current = _dps.getTargetCurrent();
-            _temp_at_optimal = cold_temp;
+            _optimizer.optimal_current = _dps.getTargetCurrent();
+            _optimizer.temp_at_optimal = cold_temp;
             char buf[40];
-            snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC", _optimal_current,
-                     _temp_at_optimal);
+            snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC",
+                     _optimizer.optimal_current, _optimizer.temp_at_optimal);
             _logger.log(buf, true);
         } else if (result == EvaluationResult::DEGRADED) {
             float previous = _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
             previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
             _dps.setSymmetricCurrent(previous);
-            _optimal_current = previous;
-            _temp_at_optimal = _temp_before_last_increase;
+            _optimizer.optimal_current = previous;
+            _optimizer.temp_at_optimal = _optimizer.temp_before_step;
             transitionTo(ThermalState::STEADY_STATE);
             return;
         }
-        _awaiting_evaluation = false;
+        _optimizer.awaiting_evaluation = false;
     }
 
     // Check termination conditions
@@ -519,8 +524,8 @@ void ThermalController::handleRampUp() {
     }
 
     if (at_max || hot_limited || cooling_stalled) {
-        _optimal_current = current;
-        _temp_at_optimal = cold_temp;
+        _optimizer.optimal_current = current;
+        _optimizer.temp_at_optimal = cold_temp;
         transitionTo(ThermalState::STEADY_STATE);
         return;
     }
@@ -534,15 +539,15 @@ void ThermalController::handleRampUp() {
                                             : RAMP_CURRENT_STEP_A;
 
     // Record baseline before increase
-    _temp_before_last_increase = cold_temp;
-    _rate_before_last_increase = _history.getColdPlateRate();
+    _optimizer.temp_before_step = cold_temp;
+    _optimizer.rate_before_step = _history.getColdPlateRate();
 
     // Increase current
     float new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
     _dps.setSymmetricCurrent(new_current);
     _last_adjustment_time = now;
-    _awaiting_evaluation = true;
-    _evaluation_start_time = now;
+    _optimizer.awaiting_evaluation = true;
+    _optimizer.eval_start_time = now;
 
     char buf[32];
     snprintf(buf, sizeof(buf), "TC: Ramp %.1fA", new_current);
@@ -561,19 +566,19 @@ void ThermalController::handleSteadyState() {
     _metrics.recordNewMinimum(cold_temp, _dps.getTargetCurrent());
 
     // Evaluate pending change
-    if (_awaiting_evaluation) {
+    if (_optimizer.awaiting_evaluation) {
         EvaluationResult result = evaluateCurrentChange();
         if (result == EvaluationResult::WAITING)
             return;
 
         if (result == EvaluationResult::IMPROVED) {
-            _optimal_current = _dps.getTargetCurrent();
-            _temp_at_optimal = cold_temp;
+            _optimizer.optimal_current = _dps.getTargetCurrent();
+            _optimizer.temp_at_optimal = cold_temp;
             _logger.log("TC: New optimal", true);
         } else {
-            _dps.setSymmetricCurrent(_optimal_current);
+            _dps.setSymmetricCurrent(_optimizer.optimal_current);
         }
-        _awaiting_evaluation = false;
+        _optimizer.awaiting_evaluation = false;
         return;
     }
 
@@ -585,13 +590,13 @@ void ThermalController::handleSteadyState() {
         (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
 
     if (can_probe) {
-        _temp_before_last_increase = cold_temp;
+        _optimizer.temp_before_step = cold_temp;
         float new_current =
             fmin(current + RAMP_CURRENT_STEP_A / 2.0f, MAX_CURRENT_PER_CHANNEL);
         _dps.setSymmetricCurrent(new_current);
         _last_adjustment_time = now;
-        _awaiting_evaluation = true;
-        _evaluation_start_time = now;
+        _optimizer.awaiting_evaluation = true;
+        _optimizer.eval_start_time = now;
         _logger.log("TC: Steady probe", true);
     }
 }
@@ -653,26 +658,26 @@ EvaluationResult ThermalController::evaluateCurrentChange() {
     unsigned long now = millis();
 
     // Minimum delay
-    if (now - _evaluation_start_time < CURRENT_EVALUATION_DELAY_MS)
+    if (now - _optimizer.eval_start_time < CURRENT_EVALUATION_DELAY_MS)
         return EvaluationResult::WAITING;
 
     // Wait for hot-side stabilization
     float hot_rate = fabs(_history.getHotPlateRate());
     bool stable = (hot_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
     bool timeout =
-        (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+        (now - _optimizer.eval_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
 
     if (!stable && !timeout)
         return EvaluationResult::WAITING;
 
     float cold_temp = _cold_plate.getTemperature();
     float rate = _history.getColdPlateRate();
-    float rate_delta = rate - _rate_before_last_increase;
+    float rate_delta = rate - _optimizer.rate_before_step;
 
-    bool improved = (cold_temp < _temp_before_last_increase -
+    bool improved = (cold_temp < _optimizer.temp_before_step -
                                      Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
     bool degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
-    bool worsened = (cold_temp > _temp_before_last_increase +
+    bool worsened = (cold_temp > _optimizer.temp_before_step +
                                      OVERCURRENT_WARMING_THRESHOLD_C);
 
     if (improved && !degraded)
@@ -692,12 +697,9 @@ void ThermalController::recordSample() {
     sample.cold_plate_temp = _cold_plate.getTemperature();
     sample.hot_plate_temp = _hot_plate.getTemperature();
     sample.ambient_temp = getAmbientTemperature();
-    sample.current_setpoint_ch1 = _dps.getTargetCurrent();
-    sample.current_setpoint_ch2 = _dps.getTargetCurrent();
-    sample.actual_current_ch1 = _dps.getOutputCurrent(0);
-    sample.actual_current_ch2 = _dps.getOutputCurrent(1);
-    sample.power_ch1 = _dps.getTotalPower() / 2.0f; // Approximate per-channel
-    sample.power_ch2 = _dps.getTotalPower() / 2.0f;
+    sample.current_setpoint = _dps.getTargetCurrent();
+    sample.actual_current_avg = _dps.getAverageOutputCurrent();
+    sample.total_power = _dps.getTotalPower();
 
     _history.recordSample(sample);
     checkChannelImbalance();

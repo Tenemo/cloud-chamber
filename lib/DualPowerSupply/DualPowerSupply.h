@@ -185,13 +185,6 @@ class DualPowerSupply {
     bool isOutputOn(size_t channel) const;
 
     /**
-     * @brief Pre-write validation: check if DPS state allows safe write
-     * @param expected_current The current we're about to command
-     * @return true if safe to proceed
-     */
-    bool validateBeforeWrite(float expected_current) const;
-
-    /**
      * @brief Get raw PSU reference for direct access (e.g., self-test)
      * @param channel 0 or 1
      * @return Reference to the requested PSU
@@ -232,10 +225,9 @@ class DualPowerSupply {
     // Manual override tracking
     mutable int _consecutive_mismatches;
 
-    // Constants (could be moved to config if needed)
-    static constexpr float EMERGENCY_RAMP_RATE_A_PER_SEC = 2.0f;
-    static constexpr unsigned long SHUTDOWN_STEP_MS = 500;
-    static constexpr int OVERRIDE_CONFIRM_COUNT = 3;
+    // Override confirmation count
+    static constexpr int OVERRIDE_CONFIRM_COUNT =
+        MANUAL_OVERRIDE_MISMATCH_COUNT;
 };
 
 #endif // DUAL_POWER_SUPPLY_H

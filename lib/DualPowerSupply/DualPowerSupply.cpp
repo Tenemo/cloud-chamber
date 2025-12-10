@@ -5,6 +5,7 @@
 
 #include "DualPowerSupply.h"
 #include "CrashLog.h"
+#include "ThermalConstants.h"
 #include <cmath>
 
 // =============================================================================
@@ -120,12 +121,13 @@ bool DualPowerSupply::updateEmergencyShutdown() {
         return false;
 
     unsigned long now = millis();
-    if (now - _last_shutdown_step_time < SHUTDOWN_STEP_MS)
+    if (now - _last_shutdown_step_time < Timing::SHUTDOWN_STEP_MS)
         return true;
 
     _last_shutdown_step_time = now;
 
-    float step = EMERGENCY_RAMP_RATE_A_PER_SEC * (SHUTDOWN_STEP_MS / 1000.0f);
+    float step = EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
+                 (Timing::SHUTDOWN_STEP_MS / 1000.0f);
     _shutdown_current -= step;
 
     if (_shutdown_current <= 0.1f) {
@@ -269,16 +271,6 @@ bool DualPowerSupply::isOutputOn(size_t channel) const {
     if (channel == 1)
         return _psu1.isOutputOn();
     return false;
-}
-
-bool DualPowerSupply::validateBeforeWrite(float expected_current) const {
-    if (!areBothConnected())
-        return true; // Can't validate if not connected
-
-    bool valid0 = _psu0.validateStateBeforeWrite(expected_current);
-    bool valid1 = _psu1.validateStateBeforeWrite(expected_current);
-
-    return valid0 && valid1;
 }
 
 // =============================================================================

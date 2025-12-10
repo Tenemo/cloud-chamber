@@ -15,8 +15,8 @@
 #ifndef SAFETY_MONITOR_H
 #define SAFETY_MONITOR_H
 
-#include "DPS5015.h"
 #include "DS18B20.h"
+#include "DualPowerSupply.h"
 #include "Logger.h"
 #include "PT100.h"
 #include "ThermalHistory.h"
@@ -46,7 +46,7 @@ enum class SafetyStatus {
 class SafetyMonitor {
   public:
     SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
-                  DS18B20Sensor &hotPlate, DPS5015 &psu0, DPS5015 &psu1);
+                  DS18B20Sensor &hotPlate, DualPowerSupply &dps);
 
     /**
      * @brief Get the reason string for the last fault
@@ -119,15 +119,14 @@ class SafetyMonitor {
     Logger &_logger;
     PT100Sensor &_cold_plate;
     DS18B20Sensor &_hot_plate;
-    DPS5015 &_psu0;
-    DPS5015 &_psu1;
+    DualPowerSupply &_dps;
     const ThermalHistory *_history;
 
     // Fault tracking
     char _last_fault_reason[48];
 
     // DPS connection state tracking
-    bool _dps_was_connected[2];
+    bool _dps_was_connected;
 
     // Hot-side hysteresis
     bool _hot_side_in_warning;

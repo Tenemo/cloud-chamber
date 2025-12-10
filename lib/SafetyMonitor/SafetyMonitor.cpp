@@ -8,11 +8,9 @@
 #include <cstring>
 
 SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
-                             DS18B20Sensor &hotPlate, DPS5015 &psu0,
-                             DPS5015 &psu1)
-    : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _psu0(psu0), _psu1(psu1), _history(nullptr),
-      _dps_was_connected{false, false}, _hot_side_in_warning(false),
+                             DS18B20Sensor &hotPlate, DualPowerSupply &dps)
+    : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate), _dps(dps),
+      _history(nullptr), _dps_was_connected(false), _hot_side_in_warning(false),
       _hot_side_in_alarm(false), _cross_check_warning_active(false),
       _last_cross_check_log_time(0) {
     _last_fault_reason[0] = '\0';
@@ -192,18 +190,20 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
 }
 
 SafetyStatus SafetyMonitor::checkDpsConnection() {
-    bool psu0_ok = _psu0.isConnected();
-    bool psu1_ok = _psu1.isConnected();
+    bool both_ok = _dps.areBothConnected();
 
     // Track connection state
-    bool was0 = _dps_was_connected[0];
-    bool was1 = _dps_was_connected[1];
-    _dps_was_connected[0] = psu0_ok;
-    _dps_was_connected[1] = psu1_ok;
+    bool was_connected = _dps_was_connected;
+    _dps_was_connected = both_ok;
 
-    // Detect disconnection
-    if ((was0 && !psu0_ok) || (was1 && !psu1_ok)) {
+    // Detect disconnection (was connected, now not)
+    if (was_connected && !both_ok) {
         return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS disconnected");
+    }
+
+    // Also detect asymmetric failure (one connected, one not)
+    if (_dps.isAsymmetricFailure()) {
+        return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS asymmetric");
     }
 
     return SafetyStatus::OK;
