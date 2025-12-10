@@ -87,6 +87,7 @@ class DPS5015 {
     float getInputVoltage() const { return _input_voltage; }
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _connected; }
+    bool isInGracePeriod() const; // True if recent command still propagating
 
   private:
     Logger &_logger;
@@ -122,6 +123,9 @@ class DPS5015 {
     ModbusState _state;
     unsigned long _request_start_time;
     size_t _expected_response_length;
+    int _consecutive_errors; // Consecutive comm failures
+    unsigned long
+        _last_command_time; // When last command was sent (for grace period)
 
     // Write queue for non-blocking writes
     static constexpr size_t WRITE_QUEUE_SIZE = 8;
