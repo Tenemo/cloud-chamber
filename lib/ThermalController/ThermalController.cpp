@@ -28,8 +28,7 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _optimizer(), _min_cold_temp_achieved(100.0f),
       _last_adjustment_time(0), _steady_state_start_time(0),
-      _ramp_start_time(0), _sensor_fault_time(0), _selftest_phase(0),
-      _selftest_phase_start(0), _selftest_passed{false, false} {}
+      _ramp_start_time(0), _sensor_fault_time(0) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -272,10 +271,7 @@ void ThermalController::transitionTo(ThermalState newState) {
         _optimizer.current_at_best_temp = _dps.getTargetCurrent();
         break;
     case ThermalState::SELF_TEST:
-        _selftest_phase = SelfTest::PHASE_START;
-        _selftest_phase_start = millis();
-        _selftest_passed[0] = false;
-        _selftest_passed[1] = false;
+        _dps.resetSelfTest();
         break;
     case ThermalState::SENSOR_FAULT:
         _sensor_fault_time = millis();
@@ -352,112 +348,19 @@ void ThermalController::handleInitializing() {
 }
 
 void ThermalController::handleSelfTest() {
-    unsigned long now = millis();
-    unsigned long phase_elapsed = now - _selftest_phase_start;
+    SelfTestResult result = _dps.runSelfTest();
 
-    // Access raw PSUs for self-test
-    DPS5015 &psu0 = _dps.getPsu(0);
-    DPS5015 &psu1 = _dps.getPsu(1);
-
-    switch (_selftest_phase) {
-    case SelfTest::PHASE_START:
-        _logger.log("TC: Self-test start");
-        psu0.setVoltage(SensorLimits::SELFTEST_VOLTAGE);
-        psu0.setCurrent(SensorLimits::SELFTEST_CURRENT);
-        psu0.setOutput(false);
-        psu1.setVoltage(SensorLimits::SELFTEST_VOLTAGE);
-        psu1.setCurrent(SensorLimits::SELFTEST_CURRENT);
-        psu1.setOutput(false);
-        _selftest_phase = SelfTest::PHASE_CHECK_SETTINGS;
-        _selftest_phase_start = now;
+    switch (result) {
+    case SelfTestResult::PASSED:
+        transitionTo(ThermalState::STARTUP);
         break;
 
-    case SelfTest::PHASE_CHECK_SETTINGS:
-        if (phase_elapsed < Timing::SELFTEST_SETTLE_MS)
-            return;
-
-        if (!_dps.areBothConnected()) {
-            _logger.log("TC: Self-test FAIL: DPS offline");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS offline");
-            transitionTo(ThermalState::DPS_DISCONNECTED);
-            return;
-        }
-
-        if (fabs(psu0.getSetVoltage() - SensorLimits::SELFTEST_VOLTAGE) >
-                SensorLimits::SELFTEST_VOLTAGE_TOLERANCE ||
-            fabs(psu1.getSetVoltage() - SensorLimits::SELFTEST_VOLTAGE) >
-                SensorLimits::SELFTEST_VOLTAGE_TOLERANCE) {
-            _logger.log("TC: Self-test FAIL: V mismatch");
-            CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
-            transitionTo(ThermalState::DPS_DISCONNECTED);
-            return;
-        }
-
-        _selftest_phase = SelfTest::PHASE_ENABLE_PSU0;
-        _selftest_phase_start = now;
+    case SelfTestResult::FAILED:
+        transitionTo(ThermalState::DPS_DISCONNECTED);
         break;
 
-    case SelfTest::PHASE_ENABLE_PSU0:
-        psu0.setOutput(true);
-        _selftest_phase = SelfTest::PHASE_VERIFY_PSU0;
-        _selftest_phase_start = now;
-        break;
-
-    case SelfTest::PHASE_VERIFY_PSU0:
-        if (phase_elapsed < Timing::SELFTEST_SETTLE_MS)
-            return;
-
-        if (psu0.isOutputOn()) {
-            _selftest_passed[0] = true;
-            psu0.setOutput(false);
-            _selftest_phase = SelfTest::PHASE_ENABLE_PSU1;
-            _selftest_phase_start = now;
-        } else if (phase_elapsed > Timing::SELFTEST_TIMEOUT_MS) {
-            _logger.log("TC: Self-test FAIL: DPS0 output");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS0 output");
-            transitionTo(ThermalState::DPS_DISCONNECTED);
-        }
-        break;
-
-    case SelfTest::PHASE_ENABLE_PSU1:
-        if (phase_elapsed < Timing::SELFTEST_SETTLE_MS)
-            return;
-        psu1.setOutput(true);
-        _selftest_phase = SelfTest::PHASE_VERIFY_PSU1;
-        _selftest_phase_start = now;
-        break;
-
-    case SelfTest::PHASE_VERIFY_PSU1:
-        if (phase_elapsed < Timing::SELFTEST_SETTLE_MS)
-            return;
-
-        if (psu1.isOutputOn()) {
-            _selftest_passed[1] = true;
-            psu1.setOutput(false);
-            _selftest_phase = SelfTest::PHASE_COMPLETE;
-            _selftest_phase_start = now;
-        } else if (phase_elapsed > Timing::SELFTEST_TIMEOUT_MS) {
-            _logger.log("TC: Self-test FAIL: DPS1 output");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS1 output");
-            transitionTo(ThermalState::DPS_DISCONNECTED);
-        }
-        break;
-
-    case SelfTest::PHASE_COMPLETE:
-        if (phase_elapsed < Timing::SELFTEST_SETTLE_MS)
-            return;
-
-        if (_selftest_passed[0] && _selftest_passed[1]) {
-            _logger.log("TC: Self-test PASS");
-            transitionTo(ThermalState::STARTUP);
-        } else {
-            _logger.log("TC: Self-test incomplete");
-            CrashLog::logCritical("SELFTEST_FAIL", "Incomplete");
-            transitionTo(ThermalState::DPS_DISCONNECTED);
-        }
-        break;
-
-    default:
+    case SelfTestResult::IN_PROGRESS:
+        // Still running, check for overall timeout
         if (millis() - _state_entry_time > Timing::SELFTEST_TIMEOUT_MS * 3) {
             _logger.log("TC: Self-test timeout");
             CrashLog::logCritical("SELFTEST_FAIL", "Timeout");
@@ -865,22 +768,8 @@ void ThermalController::recordSample() {
     sample.timestamp = millis();
 
     _metrics.recordSample(sample);
-    checkChannelImbalance();
-}
 
-float ThermalController::getAmbientTemperature() const {
-    if (_num_ambient == 0 || _ambient_sensors == nullptr)
-        return 25.0f;
-
-    for (size_t i = 0; i < _num_ambient; i++) {
-        if (_ambient_sensors[i].isConnected()) {
-            return _ambient_sensors[i].getTemperature();
-        }
-    }
-    return 25.0f;
-}
-
-void ThermalController::checkChannelImbalance() {
+    // Check for channel imbalance (rate-limited logging)
     _dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
                               CHANNEL_POWER_IMBALANCE_W,
                               Timing::IMBALANCE_LOG_INTERVAL_MS);

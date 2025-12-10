@@ -231,24 +231,3 @@ void CrashLog::clear() {
         Serial.println("CrashLog: Cleared");
     }
 }
-
-size_t CrashLog::getEventCount() {
-    if (!_initialized || !SPIFFS.exists(CRASH_LOG_PATH)) {
-        return 0;
-    }
-
-    File f = SPIFFS.open(CRASH_LOG_PATH, "r");
-    if (!f) {
-        return 0;
-    }
-
-    size_t count = 0;
-    while (f.available()) {
-        if (f.read() == '\n') {
-            count++;
-        }
-    }
-
-    f.close();
-    return count;
-}

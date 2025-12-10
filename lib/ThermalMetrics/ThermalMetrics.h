@@ -109,12 +109,6 @@ class ThermalMetrics {
     bool isHotSideStable(float max_rate_k_per_min,
                          size_t min_samples = 60) const;
 
-    /**
-     * @brief Clear history buffer
-     * @note Annotated as potentially unused - kept for testing/reset scenarios
-     */
-    [[maybe_unused]] void clearHistory();
-
     // =========================================================================
     // NVS Persistence Interface
     // =========================================================================

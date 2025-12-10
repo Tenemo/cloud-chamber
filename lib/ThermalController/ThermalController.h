@@ -152,11 +152,6 @@ class ThermalController {
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
 
-    // Self-test state
-    int _selftest_phase;
-    unsigned long _selftest_phase_start;
-    bool _selftest_passed[2];
-
     // =========================================================================
     // State handlers (contain only state-specific logic)
     // =========================================================================
@@ -227,8 +222,6 @@ class ThermalController {
     // History and display
     // =========================================================================
     void recordSample();
-    float getAmbientTemperature() const;
-    void checkChannelImbalance();
     void registerDisplayLines();
     void updateDisplay();
 };
