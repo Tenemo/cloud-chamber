@@ -126,7 +126,7 @@ bool DualPowerSupply::updateEmergencyShutdown() {
 
     _last_shutdown_step_time = now;
 
-    float step = EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
+    float step = Timing::EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
                  (Timing::SHUTDOWN_STEP_MS / 1000.0f);
     _shutdown_current -= step;
 

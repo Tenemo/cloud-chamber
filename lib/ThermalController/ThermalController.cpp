@@ -16,12 +16,9 @@
 // =============================================================================
 
 ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                                     DS18B20Sensor &hotPlate,
-                                     DS18B20Sensor *ambientSensors,
-                                     size_t numAmbient, DPS5015 &psu0,
+                                     DS18B20Sensor &hotPlate, DPS5015 &psu0,
                                      DPS5015 &psu1)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _ambient_sensors(ambientSensors), _num_ambient(numAmbient),
       _dps(logger, psu0, psu1), _metrics(logger),
       _safety(logger, coldPlate, hotPlate, _dps),
       _state(ThermalState::INITIALIZING),
