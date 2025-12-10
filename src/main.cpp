@@ -49,25 +49,20 @@ DallasTemperature dallasSensors(&oneWire);
 // Cold plate sensor (PT100 via MAX31865)
 PT100Sensor pt100_sensor(logger, "PT100");
 
-// Hot plate and ambient sensors (DS18B20)
-// TEMP_1 = hot plate, TEMP_2/TEMP_3 = ambient
-DS18B20Sensor ds18b20_sensors[] = {
-    {logger, dallasSensors, DS18B20_1_ADDRESS, "HOT"},
-    {logger, dallasSensors, DS18B20_2_ADDRESS, "AMB_1"},
-    {logger, dallasSensors, DS18B20_3_ADDRESS, "AMB_2"}};
+// Hot plate sensor (DS18B20)
+DS18B20Sensor hot_plate_sensor(logger, dallasSensors, DS18B20_1_ADDRESS, "HOT");
 
 // DPS5015 power supplies (Serial1 and Serial2)
 DPS5015 psu0(logger, "DC12", Serial1);
 DPS5015 psu1(logger, "DC34", Serial2);
 
 // Thermal controller - coordinates sensors and PSUs
-ThermalController
-    thermalController(logger,
-                      pt100_sensor,       // Cold plate (PT100)
-                      ds18b20_sensors[0], // Hot plate (first DS18B20)
-                      psu0,               // PSU 0 (channels 1-2)
-                      psu1                // PSU 1 (channels 3-4)
-    );
+ThermalController thermalController(logger,
+                                    pt100_sensor,     // Cold plate (PT100)
+                                    hot_plate_sensor, // Hot plate (DS18B20)
+                                    psu0,             // PSU 0 (channels 1-2)
+                                    psu1              // PSU 1 (channels 3-4)
+);
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
@@ -91,11 +86,10 @@ static void initializeHardware() {
     // Initialize watchdog
     initializeWatchdog();
 
-    // Initialize DS18B20 bus and sensors
+    // Initialize DS18B20 bus and sensor
     dallasSensors.begin();
     dallasSensors.setWaitForConversion(false);
-    for (auto &sensor : ds18b20_sensors)
-        sensor.begin();
+    hot_plate_sensor.begin();
 
     // Initialize PT100
     pt100_sensor.begin();
@@ -117,8 +111,7 @@ void loop() {
     // Update all hardware drivers
     logger.update();
     pt100_sensor.update();
-    for (auto &sensor : ds18b20_sensors)
-        sensor.update();
+    hot_plate_sensor.update();
     psu0.update();
     psu1.update();
 

@@ -88,4 +88,21 @@ constexpr unsigned long STARTUP_CONFIG_WINDOW_MS = 500;
 constexpr unsigned long STARTUP_CONFIG_SEND_MS = 50;
 } // namespace Timing
 
+// =============================================================================
+// Utility Functions
+// =============================================================================
+
+namespace Clamp {
+/**
+ * @brief Clamp current to valid operational range
+ */
+inline float current(float val) {
+    if (val < MIN_CURRENT_PER_CHANNEL)
+        return MIN_CURRENT_PER_CHANNEL;
+    if (val > MAX_CURRENT_PER_CHANNEL)
+        return MAX_CURRENT_PER_CHANNEL;
+    return val;
+}
+} // namespace Clamp
+
 #endif // THERMAL_CONSTANTS_H

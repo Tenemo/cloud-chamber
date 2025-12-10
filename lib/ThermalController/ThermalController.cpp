@@ -22,7 +22,7 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _dps(logger, psu0, psu1), _metrics(logger),
       _safety(logger, coldPlate, hotPlate, _dps),
       _state(ThermalState::INITIALIZING),
-      _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
+      _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
       _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0) {}
 
@@ -104,7 +104,6 @@ void ThermalController::update() {
 
     // Update delegate modules
     _metrics.update();
-    _safety.updateHysteresis();
 
     // Continue emergency shutdown if in progress
     if (_dps.isShutdownInProgress()) {
@@ -227,11 +226,11 @@ void ThermalController::transitionTo(ThermalState newState) {
     if (newState == _state)
         return;
 
-    _previous_state = _state;
+    _state_before_fault = _state;
     _state = newState;
     _state_entry_time = millis();
 
-    _logger.logf("TC: -> %s", getStateString());
+    _logger.logf(false, "TC: -> %s", getStateString());
 
     // State entry actions
     switch (newState) {
@@ -240,10 +239,6 @@ void ThermalController::transitionTo(ThermalState newState) {
         break;
     case ThermalState::RAMP_UP:
         _ramp_start_time = millis();
-        // Initialize global best tracking for this ramp
-        _metrics.optimizer().best_temp_during_ramp =
-            _cold_plate.getTemperature();
-        _metrics.optimizer().current_at_best_temp = _dps.getTargetCurrent();
         break;
     case ThermalState::SELF_TEST:
         _dps.resetSelfTest();
@@ -262,7 +257,7 @@ void ThermalController::transitionTo(ThermalState newState) {
 }
 
 void ThermalController::enterThermalFault(const char *reason) {
-    _logger.logf("TC FAULT: %s", reason);
+    _logger.logf(false, "TC FAULT: %s", reason);
     CrashLog::logCritical("THERMAL_FAULT", reason);
 
     float hot_temp = _hot_plate.getTemperature();
@@ -374,12 +369,6 @@ void ThermalController::handleRampUp() {
     // Track session minimum temperature
     _metrics.updateSessionMin(cold_temp);
 
-    // Track global best during this ramp (informational, not for hard revert)
-    if (cold_temp < opt.best_temp_during_ramp) {
-        opt.best_temp_during_ramp = cold_temp;
-        opt.current_at_best_temp = current;
-    }
-
     // Evaluate pending current change (with transition on bounce)
     if (processEvaluationIfPending(true)) {
         if (_state != ThermalState::RAMP_UP)
@@ -387,31 +376,18 @@ void ThermalController::handleRampUp() {
     }
 
     // Check termination conditions
-    bool at_max = (current >= MAX_CURRENT_PER_CHANNEL);
-    bool hot_limited = _safety.isHotSideAlarm();
-    bool cooling_stalled = false;
-
-    if (_metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2)) {
-        cooling_stalled =
-            (fabs(_metrics.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
-    }
-
-    // Hot limited or cooling stalled - switch to steady state for fine tuning
-    if (hot_limited || cooling_stalled) {
-        // Use current position as starting point, let steady-state probe refine
+    if (shouldExitRamp(current)) {
         opt.optimal_current = current;
         opt.temp_at_optimal = cold_temp;
-        opt.probe_direction = -1; // Start by trying to decrease
 
-        _logger.logf(true, "TC: Limit/stall at %.1fA, fine-tuning", current);
-        transitionTo(ThermalState::STEADY_STATE);
-        return;
-    }
+        if (_safety.isHotSideAlarm() ||
+            (fabs(_metrics.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C &&
+             _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2))) {
+            opt.probe_direction = -1; // Start by trying to decrease
+            _logger.logf(true, "TC: Limit/stall at %.1fA, fine-tuning",
+                         current);
+        }
 
-    // Reached max through successful ramps - this is fine
-    if (at_max) {
-        opt.optimal_current = current;
-        opt.temp_at_optimal = cold_temp;
         transitionTo(ThermalState::STEADY_STATE);
         return;
     }
@@ -449,6 +425,24 @@ void ThermalController::handleRampUp() {
     opt.eval_start_time = now;
 
     _logger.logf(true, "TC: Ramp %.1fA (+%.2fA)", new_current, step);
+}
+
+bool ThermalController::shouldExitRamp(float current) const {
+    // At maximum current
+    if (current >= MAX_CURRENT_PER_CHANNEL)
+        return true;
+
+    // Hot side limiting
+    if (_safety.isHotSideAlarm())
+        return true;
+
+    // Cooling stalled (only if we have enough history)
+    if (_metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2)) {
+        if (fabs(_metrics.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C)
+            return true;
+    }
+
+    return false;
 }
 
 void ThermalController::handleSteadyState() {
@@ -574,7 +568,7 @@ void ThermalController::handleSensorFault() {
 
     if (cold_ok && hot_ok) {
         _logger.log("TC: Sensors recovered");
-        transitionTo(_previous_state);
+        transitionTo(_state_before_fault);
         return;
     }
 
@@ -604,61 +598,27 @@ void ThermalController::handleDpsDisconnected() {
 // =============================================================================
 
 bool ThermalController::processEvaluationIfPending(bool allow_transition) {
-    OptimizerState &opt = _metrics.optimizer();
-
-    if (!opt.awaiting_evaluation)
-        return false;
-
-    // Delegate evaluation to ThermalMetrics
     float cold_temp = _cold_plate.getTemperature();
-    EvaluationResult result = _metrics.evaluateEffect(cold_temp);
-    if (result == EvaluationResult::WAITING)
-        return false;
-
     float current = _dps.getTargetCurrent();
 
-    if (result == EvaluationResult::IMPROVED) {
-        // Accept new current as session best
-        opt.optimal_current = current;
-        opt.temp_at_optimal = cold_temp;
-        opt.consecutive_bounces = 0;
-        opt.converged = false;
-        _logger.logf(true, "TC: Opt %.1fA=%.1fC", current, cold_temp);
-    } else if (result == EvaluationResult::DEGRADED) {
-        // Revert to baseline (local), not global best
-        float revert_current = opt.baseline_current;
-        if (revert_current < MIN_CURRENT_PER_CHANNEL) {
-            revert_current = opt.optimal_current;
-        }
-        revert_current = fmax(revert_current, MIN_CURRENT_PER_CHANNEL);
+    // Delegate evaluation to ThermalMetrics
+    EvaluationAction action = _metrics.processEvaluation(
+        cold_temp, current, allow_transition, _logger);
 
-        _dps.setSymmetricCurrent(revert_current);
+    if (action.result == EvaluationResult::WAITING)
+        return false;
+
+    // Handle revert if needed
+    if (action.result == EvaluationResult::DEGRADED) {
+        _dps.setSymmetricCurrent(action.revert_current);
         _dps.resetOverrideCounter(); // Intentional change - reset counter
-        opt.optimal_current = revert_current;
-        opt.temp_at_optimal = opt.baseline_temp;
 
-        // Bounce: flip direction and track
-        opt.probe_direction *= -1;
-        opt.consecutive_bounces++;
-
-        // Check for convergence (tried both directions)
-        if (opt.consecutive_bounces >= 2) {
-            opt.converged = true;
-            _logger.logf(true, "TC: Converged at %.1fA (%.1fC)",
-                         opt.optimal_current, opt.temp_at_optimal);
-        } else {
-            _logger.logf(true, "TC: Revert %.1fA (bounce #%d)", revert_current,
-                         opt.consecutive_bounces);
-        }
-
-        // Transition to steady state if bounced during ramp and allowed
-        if (allow_transition && _state == ThermalState::RAMP_UP) {
+        // Transition to steady state if bounced during ramp
+        if (action.should_transition && _state == ThermalState::RAMP_UP) {
             transitionTo(ThermalState::STEADY_STATE);
         }
     }
-    // UNCHANGED: no action needed, optimizer state unchanged
 
-    opt.awaiting_evaluation = false;
     return true;
 }
 
