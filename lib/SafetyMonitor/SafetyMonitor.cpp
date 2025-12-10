@@ -8,11 +8,13 @@
 #include <cstring>
 
 SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
-                             DS18B20Sensor &hotPlate, DPS5015 *psus)
+                             DS18B20Sensor &hotPlate, DPS5015 &psu0,
+                             DPS5015 &psu1)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _psus(psus), _history(nullptr), _dps_was_connected{false, false},
-      _hot_side_in_warning(false), _hot_side_in_alarm(false),
-      _cross_check_warning_active(false), _last_cross_check_log_time(0) {
+      _psu0(psu0), _psu1(psu1), _history(nullptr),
+      _dps_was_connected{false, false}, _hot_side_in_warning(false),
+      _hot_side_in_alarm(false), _cross_check_warning_active(false),
+      _last_cross_check_log_time(0) {
     _last_fault_reason[0] = '\0';
 }
 
@@ -217,8 +219,8 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
 }
 
 SafetyStatus SafetyMonitor::checkDpsConnection() {
-    bool psu0_ok = _psus[0].isConnected();
-    bool psu1_ok = _psus[1].isConnected();
+    bool psu0_ok = _psu0.isConnected();
+    bool psu1_ok = _psu1.isConnected();
 
     // Track connection state
     bool was0 = _dps_was_connected[0];
@@ -235,31 +237,33 @@ SafetyStatus SafetyMonitor::checkDpsConnection() {
 }
 
 SafetyStatus SafetyMonitor::checkManualOverride() {
+    DPS5015 *psus[2] = {&_psu0, &_psu1};
+
     for (size_t i = 0; i < 2; i++) {
-        if (!_psus[i].isConnected())
+        if (!psus[i]->isConnected())
             continue;
 
         // Skip check if there are pending writes or we're in grace period
-        if (_psus[i].hasPendingWrites() || _psus[i].isInGracePeriod())
+        if (psus[i]->hasPendingWrites() || psus[i]->isInGracePeriod())
             continue;
 
         // Check for sustained current mismatch
-        if (_psus[i].getConsecutiveMismatches() >=
+        if (psus[i]->getConsecutiveMismatches() >=
             MANUAL_OVERRIDE_MISMATCH_COUNT) {
             return setFault(SafetyStatus::MANUAL_OVERRIDE,
                             "Manual override (I)");
         }
 
         // Voltage mismatch (immediate)
-        if (_psus[i].hasVoltageMismatch()) {
+        if (psus[i]->hasVoltageMismatch()) {
             char buf[48];
             snprintf(buf, sizeof(buf), "Manual override (V) %.1f!=%.1f",
-                     _psus[i].getSetVoltage(), _psus[i].getCommandedVoltage());
+                     psus[i]->getSetVoltage(), psus[i]->getCommandedVoltage());
             return setFault(SafetyStatus::MANUAL_OVERRIDE, buf);
         }
 
         // Output state mismatch (immediate)
-        if (_psus[i].hasOutputMismatch()) {
+        if (psus[i]->hasOutputMismatch()) {
             return setFault(SafetyStatus::MANUAL_OVERRIDE, "Output toggled");
         }
     }

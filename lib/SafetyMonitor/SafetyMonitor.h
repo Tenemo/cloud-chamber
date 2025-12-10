@@ -46,7 +46,7 @@ enum class SafetyStatus {
 class SafetyMonitor {
   public:
     SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
-                  DS18B20Sensor &hotPlate, DPS5015 *psus);
+                  DS18B20Sensor &hotPlate, DPS5015 &psu0, DPS5015 &psu1);
 
     /**
      * @brief Run all safety checks
@@ -130,11 +130,18 @@ class SafetyMonitor {
      */
     bool isHotSideAlarm() const { return _hot_side_in_alarm; }
 
+    /**
+     * @brief Get raw PSU reference for self-test
+     * @param channel 0 or 1
+     */
+    DPS5015 &getPsu(size_t channel) { return (channel == 0) ? _psu0 : _psu1; }
+
   private:
     Logger &_logger;
     PT100Sensor &_cold_plate;
     DS18B20Sensor &_hot_plate;
-    DPS5015 *_psus;
+    DPS5015 &_psu0;
+    DPS5015 &_psu1;
     const ThermalHistory *_history;
 
     // Fault tracking
