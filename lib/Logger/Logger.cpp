@@ -8,6 +8,7 @@
 
 #include "Logger.h"
 #include "config.h"
+#include <cstdarg>
 #include <cstring>
 #include <esp_heap_caps.h> // For PSRAM allocation
 
@@ -502,6 +503,24 @@ void Logger::log(const char *message, bool serialOnly) {
 
     // Redraw entire log area
     drawLogArea();
+}
+
+void Logger::logf(const char *format, ...) {
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    log(buf, false);
+}
+
+void Logger::logf(bool serialOnly, const char *format, ...) {
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+    log(buf, serialOnly);
 }
 
 /**

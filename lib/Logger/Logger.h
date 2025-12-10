@@ -140,6 +140,11 @@ class Logger {
     // Live log output (to screen and serial, or serial only)
     void log(const char *message, bool serialOnly = false);
 
+    // Formatted log output (printf-style) - convenience wrapper
+    // Usage: logger.logf("Temp: %.2f C", temp);
+    void logf(const char *format, ...);
+    void logf(bool serialOnly, const char *format, ...);
+
     // PSRAM log buffer access (for diagnostics)
     void dumpLogBuffer(); // Dump entire log buffer to Serial
     size_t getLogBufferCount() const { return _psram_log_count; }

@@ -66,9 +66,10 @@ float ThermalHistory::calculateSlopeKPerMin(bool use_hot_plate,
     // Slope in degrees per sample
     float slope = (n * sum_xy - sum_x * sum_y) / denom;
 
-    // Convert to K/min (samples are 1 second apart per
-    // HISTORY_SAMPLE_INTERVAL_MS)
-    return slope * 60.0f;
+    // Convert to K/min based on actual sample interval
+    // slope is in degrees/sample, multiply by samples/minute
+    float samples_per_minute = 60000.0f / HISTORY_SAMPLE_INTERVAL_MS;
+    return slope * samples_per_minute;
 }
 
 float ThermalHistory::getColdPlateRate() const {

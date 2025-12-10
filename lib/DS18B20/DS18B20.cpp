@@ -25,7 +25,7 @@ void DS18B20Sensor::begin() {
 
     // Request initial temperature using specific address
     _sensors.requestTemperaturesByAddress(_address);
-    delay(750); // wait for 12-bit conversion
+    delay(DS18B20_CONVERSION_TIME_MS); // wait for 12-bit conversion
     float temp_c = _sensors.getTempC(_address);
 
     if (temp_c == DEVICE_DISCONNECTED_C || temp_c == TEMP_ERROR_VALUE) {
@@ -53,7 +53,8 @@ void DS18B20Sensor::update() {
 
         // If reconnection conversion is pending, check if it's complete
         if (_reconnect_pending) {
-            if (current_time - _reconnect_start_time < CONVERSION_DELAY_MS) {
+            if (current_time - _reconnect_start_time <
+                DS18B20_CONVERSION_TIME_MS) {
                 return; // Still converting, don't block
             }
             // Conversion complete, read result
@@ -107,7 +108,7 @@ void DS18B20Sensor::update() {
     // If conversion is pending, wait for it to complete
     if (_shared_conversion_pending) {
         if (current_time - _shared_conversion_start_time <
-            CONVERSION_DELAY_MS) {
+            DS18B20_CONVERSION_TIME_MS) {
             return; // Still converting
         }
         // Conversion complete - clear the flag
