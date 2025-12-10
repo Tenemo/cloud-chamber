@@ -6,35 +6,37 @@
  * to achieve and maintain optimal cold plate temperature for cloud chamber
  * operation.
  *
+ * ARCHITECTURE:
+ * -------------
+ * The controller delegates responsibilities to specialized modules:
+ * - ThermalHistory: Circular buffer and trend analysis
+ * - ThermalMetrics: NVS persistence for long-term tracking
+ * - SafetyMonitor: Centralized safety checks with consistent error handling
+ * - CrashLog: SPIFFS persistence for crash diagnostics
+ *
  * FEATURES:
  * ---------
  * - Hierarchical state machine with safety-first design
- * - Independent dual-channel current control
+ * - Symmetric dual-channel current control (both channels always together)
  * - Automatic optimization to find minimum cold plate temperature
  * - Manual override detection (respects human intervention)
  * - Thermal fault protection with emergency shutdown
- * - 5-minute history buffer for trend analysis
- *
- * USAGE:
- * ------
- *   ThermalController controller(logger, coldPlateSensor, hotPlateSensor,
- *                                 ambientSensors, numAmbient, psus);
- *   controller.begin();
- *   // In loop:
- *   controller.update();
+ * - Hot reset recovery (adopts running current to avoid thermal shock)
  */
 
 #ifndef THERMAL_CONTROLLER_H
 #define THERMAL_CONTROLLER_H
 
+#include "CrashLog.h"
 #include "DPS5015.h"
 #include "DS18B20.h"
 #include "Logger.h"
 #include "PT100.h"
+#include "SafetyMonitor.h"
+#include "ThermalHistory.h"
+#include "ThermalMetrics.h"
 #include "config.h"
 #include <Arduino.h>
-#include <Preferences.h>
-#include <nvs.h> // For nvs_get_stats (NVS space checking)
 
 // Controller state machine states
 enum class ThermalState {
@@ -49,27 +51,14 @@ enum class ThermalState {
     DPS_DISCONNECTED // Lost communication with PSU(s)
 };
 
-// History sample record
-struct ThermalSample {
-    unsigned long timestamp_ms;
-    float cold_plate_temp;
-    float hot_plate_temp;
-    float ambient_temp;
-    float current_setpoint_ch1;
-    float current_setpoint_ch2;
-    float actual_current_ch1;
-    float actual_current_ch2;
-    float power_ch1;
-    float power_ch2;
-};
-
-// Trend classification for analysis
-enum class ThermalTrend {
-    COOLING,     // Sustained negative temperature slope
-    WARMING,     // Sustained positive slope
-    STABLE,      // Near-zero slope with low variance
-    OSCILLATING, // Slope changes sign frequently
-    ANOMALOUS    // High variance without clear trend
+/**
+ * @brief Result of evaluating a current change
+ */
+enum class EvaluationResult {
+    WAITING,  // Still waiting for stabilization
+    IMPROVED, // Temperature improved
+    DEGRADED, // Temperature or rate degraded
+    UNCHANGED // No significant change
 };
 
 class ThermalController {
@@ -84,15 +73,12 @@ class ThermalController {
     // State accessors
     ThermalState getState() const { return _state; }
     const char *getStateString() const;
-    float getCoolingRate() const { return _cooling_rate; }
+    float getCoolingRate() const;
     float getTargetCurrent(size_t channel) const;
     unsigned long getSteadyStateUptime() const;
 
-    // Manual control (for testing/debugging)
-    void requestManualOverride();
-
   private:
-    // References to hardware
+    // Hardware references
     Logger &_logger;
     PT100Sensor &_cold_plate;
     DS18B20Sensor &_hot_plate;
@@ -100,74 +86,47 @@ class ThermalController {
     size_t _num_ambient;
     DPS5015 *_psus;
 
+    // Delegate modules
+    ThermalHistory _history;
+    ThermalMetrics _metrics;
+    SafetyMonitor _safety;
+
     // State machine
     ThermalState _state;
-    ThermalState _previous_state; // For recovery after sensor fault
+    ThermalState _previous_state;
     unsigned long _state_entry_time;
-    unsigned long _last_update_time;
-
-    // Current setpoints (commanded to each channel)
-    float _target_current[2];
-
-    // Optimal current tracking - detects when more power makes things worse
-    float _optimal_current;           // Best current found so far
-    float _temp_at_optimal;           // Temperature at optimal current
-    float _temp_before_last_increase; // Temperature before last current bump
-    float _rate_before_last_increase; // Cooling rate before last current bump
-    bool _awaiting_evaluation; // True when waiting to evaluate last change
-    unsigned long _evaluation_start_time;
-
-    // Steady state tracking
-    float _min_cold_temp_achieved;
-    unsigned long _last_adjustment_time;
-
-    // Cooling rate calculation
-    float _cooling_rate; // K/min, negative = cooling
-
-    // Steady state tracking
-    unsigned long _steady_state_start_time;
-
-    // History buffer (circular)
-    ThermalSample _history[HISTORY_BUFFER_SIZE];
-    size_t _history_head;
-    size_t _history_count;
     unsigned long _last_sample_time;
 
-    // Fault tracking
-    unsigned long _sensor_fault_time;
-    bool _dps_was_connected[2];
+    // Current setpoints
+    float _target_current[2];
 
-    // Emergency shutdown state (non-blocking)
+    // Optimal current tracking
+    float _optimal_current;
+    float _temp_at_optimal;
+    float _temp_before_last_increase;
+    float _rate_before_last_increase;
+    bool _awaiting_evaluation;
+    unsigned long _evaluation_start_time;
+
+    // Tracking
+    float _min_cold_temp_achieved;
+    unsigned long _last_adjustment_time;
+    unsigned long _steady_state_start_time;
+    unsigned long _ramp_start_time;
+    unsigned long _sensor_fault_time;
+
+    // Emergency shutdown state
     bool _shutdown_in_progress;
     float _shutdown_current;
     unsigned long _last_shutdown_step_time;
 
-    // Temperature hysteresis tracking
-    bool _hot_side_in_warning;
-    bool _hot_side_in_alarm;
-
-    // Channel imbalance tracking
-    unsigned long _last_imbalance_log_time;
-
-    // Cross-sensor validation
-    unsigned long _ramp_start_time; // When RAMP_UP started (for grace period)
-    unsigned long _last_cross_check_log_time; // Rate limit cross-check warnings
-    bool _cross_check_warning_active; // Currently in cross-check warning state
-
-    // NVS metrics persistence
-    Preferences _metrics_prefs;
-    unsigned long _last_metrics_save_time;
-    unsigned long _last_runtime_save_time;
-    unsigned long _session_start_time;    // When this session started
-    unsigned long _total_runtime_seconds; // Accumulated runtime from NVS
-    float _all_time_min_temp;             // Best temperature ever achieved
-    float _all_time_optimal_current;      // Current that achieved best temp
-    uint32_t _session_count;              // Number of boot cycles
-
     // Self-test state
-    int _selftest_phase;                 // Current phase of self-test
-    unsigned long _selftest_phase_start; // When current phase started
-    bool _selftest_passed[2];            // Per-DPS test result
+    int _selftest_phase;
+    unsigned long _selftest_phase_start;
+    bool _selftest_passed[2];
+
+    // Imbalance logging
+    unsigned long _last_imbalance_log_time;
 
     // Display line IDs
     static constexpr const char *LINE_STATE = "TC_STATE";
@@ -175,7 +134,9 @@ class ThermalController {
     static constexpr const char *LINE_I1_SET = "TC_I1";
     static constexpr const char *LINE_I2_SET = "TC_I2";
 
+    // =========================================================================
     // State handlers
+    // =========================================================================
     void handleInitializing();
     void handleSelfTest();
     void handleStartup();
@@ -186,41 +147,87 @@ class ThermalController {
     void handleSensorFault();
     void handleDpsDisconnected();
 
+    // =========================================================================
     // State transitions
+    // =========================================================================
     void transitionTo(ThermalState newState);
     void enterThermalFault(const char *reason);
 
-    // Safety checks
-    bool checkForManualOverride();
-    bool checkThermalLimits();
-    bool checkSensorHealth();
-    bool checkDpsConnection();
-    bool checkCrossSensorValidation(); // Cross-validate sensor readings
-    bool checkSensorSanity();          // Check for impossible sensor values
-    bool checkPT100Plausibility();     // Physics-based PT100 validation
+    // =========================================================================
+    // Safety check wrapper
+    // =========================================================================
 
+    /**
+     * @brief Run all safety checks and handle transitions
+     * @param include_plausibility Include PT100 plausibility check
+     * @param include_cross_check Include cross-sensor validation
+     * @return true if all checks passed, false if transitioned to fault state
+     */
+    bool runSafetyChecks(bool include_plausibility = true,
+                         bool include_cross_check = true);
+
+    // =========================================================================
     // Control actions
-    void setAllCurrents(float current); // ALWAYS sets BOTH channels together
-    void startEmergencyShutdown();
-    void updateEmergencyShutdown();
-    void emergencyShutdown(); // Legacy blocking version for init only
-    void rampDownCurrent(float targetCurrent, float ratePerSecond);
+    // =========================================================================
 
+    /**
+     * @brief Set current on both channels symmetrically
+     * @param current Target current (will be clamped to valid range)
+     */
+    void setAllCurrents(float current);
+
+    /**
+     * @brief Start non-blocking emergency shutdown
+     */
+    void startEmergencyShutdown();
+
+    /**
+     * @brief Continue emergency shutdown ramp-down
+     */
+    void updateEmergencyShutdown();
+
+    // =========================================================================
+    // Evaluation logic (extracted from handleRampUp/handleSteadyState)
+    // =========================================================================
+
+    /**
+     * @brief Evaluate the result of a current change
+     * @return EvaluationResult indicating what to do next
+     */
+    EvaluationResult evaluateCurrentChange();
+
+    /**
+     * @brief Check if plausibility checks should be skipped
+     */
+    bool shouldSkipPlausibilityCheck() const;
+
+    /**
+     * @brief Check if cross-sensor validation should be skipped
+     */
+    bool shouldSkipCrossCheck() const;
+
+    // =========================================================================
     // History and analysis
+    // =========================================================================
+
+    /**
+     * @brief Record a sample to the history buffer
+     */
     void recordSample();
-    float calculateCoolingRate() const;
-    float calculateHotSideRate() const; // Hot side dT/dt for stabilization
-    ThermalTrend analyzeTrend() const;
+
+    /**
+     * @brief Get average ambient temperature
+     */
     float getAmbientTemperature() const;
+
+    /**
+     * @brief Check for channel imbalance and log if significant
+     */
     void checkChannelImbalance();
 
-    // NVS metrics persistence
-    void loadMetricsFromNvs();
-    void saveMetricsToNvs(bool force = false);
-    void updateRuntimeCounter();
-    bool checkNvsSpace(); // Check if NVS has enough free space
-
-    // Display updates
+    // =========================================================================
+    // Display
+    // =========================================================================
     void registerDisplayLines();
     void updateDisplay();
 };

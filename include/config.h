@@ -1,6 +1,9 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <cstddef> // for size_t
+#include <cstdint> // for uint8_t, etc.
+
 // Display pins (directly mapped to GPIO)
 // ============================================================================
 #define TFT_DC 3   // GPIO3 - Data/Command selection
@@ -261,5 +264,33 @@ constexpr unsigned long DPS_SELFTEST_SETTLE_MS =
     500;                                     // Time to wait after command
 constexpr float DPS_SELFTEST_VOLTAGE = 1.0f; // Safe test voltage
 constexpr float DPS_SELFTEST_CURRENT = 0.1f; // Safe test current (no load)
+
+// ============================================================================
+// Startup Timing Configuration
+// ============================================================================
+
+// Timing thresholds during STARTUP and INITIALIZING states
+constexpr unsigned long STARTUP_CONFIG_WINDOW_MS =
+    500; // Time window to send initial PSU configuration
+constexpr unsigned long STARTUP_CONFIG_SEND_MS =
+    50; // Only send config in first 50ms of window
+constexpr float HOT_RESET_CURRENT_THRESHOLD_A =
+    STARTUP_CURRENT; // Current threshold for hot reset detection
+constexpr float MODBUS_READ_COMPLETE_THRESHOLD_A =
+    0.01f; // Below this, Modbus read hasn't completed
+
+// ============================================================================
+// Sensor Validation Configuration
+// ============================================================================
+
+// PT100 sensor error detection thresholds
+constexpr float PT100_ERROR_MIN_C = -100.0f; // Below this = sensor error
+constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
+
+// DPS voltage tolerance for self-test verification
+constexpr float DPS_SELFTEST_VOLTAGE_TOLERANCE = 0.2f;
+
+// Minimum trend analysis history (samples at 1Hz)
+constexpr size_t MIN_TREND_HISTORY_SAMPLES = 60;
 
 #endif
