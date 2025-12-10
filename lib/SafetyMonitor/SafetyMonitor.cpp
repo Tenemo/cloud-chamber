@@ -164,7 +164,6 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
         } else if (now - _last_cross_check_log_time >=
                    SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
             _logger.logf("WARN: Cold>=Hot C=%.1f H=%.1f", cold_temp, hot_temp);
-            _logger.log(buf);
             _last_cross_check_log_time = now;
         }
 
