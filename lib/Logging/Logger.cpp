@@ -139,16 +139,37 @@ void Logger::clearValueArea(int y) {
     }
 }
 
+void Logger::drawDeltaChar(int x, int y) {
+    if (!_screen)
+        return;
+
+    // Draw a delta (triangle) character: Δ
+    // Triangle fits in a 5x7 pixel box (standard char size)
+    _screen->drawLine(x + 2, y + 1, x, y + 6, COLOR_RGB565_WHITE);     // Left edge
+    _screen->drawLine(x + 2, y + 1, x + 4, y + 6, COLOR_RGB565_WHITE); // Right edge
+    _screen->drawLine(x, y + 6, x + 4, y + 6, COLOR_RGB565_WHITE);     // Bottom edge
+}
+
 void Logger::drawLineLabel(const char *label, int slot) {
     if (!_screen)
         return;
     int y = slot * _layout.line_height;
 
-    // Always print the full label
     _screen->setTextSize(1);
     _screen->setTextColor(COLOR_RGB565_WHITE);
-    _screen->setCursor(0, y);
-    _screen->print(label);
+
+    // Check if label starts with special delta marker "\delta"
+    if (strncmp(label, "\\delta", 6) == 0) {
+        // Draw custom delta character
+        drawDeltaChar(0, y);
+        // Print the rest of the label after the marker
+        _screen->setCursor(CHAR_WIDTH, y);
+        _screen->print(&label[6]);
+    } else {
+        // Normal label printing
+        _screen->setCursor(0, y);
+        _screen->print(label);
+    }
 }
 
 void Logger::drawChangedCharacters(const char *old_val, const char *new_val,

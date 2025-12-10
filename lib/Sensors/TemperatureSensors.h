@@ -62,6 +62,22 @@ class TemperatureSensors {
      */
     float getHotPlateTemperature() const { return _hotPlate.getTemperature(); }
 
+    /**
+     * @brief Get temperature difference (ΔT = hot - cold)
+     *
+     * @return Temperature difference in Celsius (hot plate - cold plate)
+     *
+     * This is useful for:
+     * - Monitoring TEC performance (higher ΔT = better cooling)
+     * - Safety checks (excessive ΔT may indicate thermal runaway)
+     * - Control algorithms (ΔT is proportional to cooling power)
+     *
+     * Note: Returns valid value only if both sensors are working
+     */
+    float getDeltaT() const {
+        return _hotPlate.getTemperature() - _pt100.getTemperature();
+    }
+
     // =========================================================================
     // Sensor Status
     // =========================================================================
