@@ -193,16 +193,16 @@ constexpr int MANUAL_OVERRIDE_MISMATCH_COUNT =
        // At 500ms update interval, this is 1.5 seconds of sustained mismatch
 constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC =
     2.0f; // Emergency shutdown ramp
-constexpr unsigned long EMERGENCY_SHUTDOWN_STEP_MS =
-    500; // Time between ramp-down steps (non-blocking)
+// Note: EMERGENCY_SHUTDOWN_STEP_MS moved to ThermalConstants.h as
+// Timing::SHUTDOWN_STEP_MS
 
 // Channel imbalance detection
 constexpr float CHANNEL_CURRENT_IMBALANCE_A =
     1.0f; // Log warning if |I1-I2| exceeds this when both commanded equal
 constexpr float CHANNEL_POWER_IMBALANCE_W =
     5.0f; // Log warning if |P1-P2| exceeds this when both commanded equal
-constexpr unsigned long IMBALANCE_LOG_INTERVAL_MS =
-    60000; // Only log imbalance once per minute to avoid spam
+// Note: IMBALANCE_LOG_INTERVAL_MS moved to ThermalConstants.h as
+// Timing::IMBALANCE_LOG_INTERVAL_MS
 
 // History buffer
 constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz

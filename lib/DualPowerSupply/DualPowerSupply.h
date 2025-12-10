@@ -191,6 +191,13 @@ class DualPowerSupply {
      */
     bool validateBeforeWrite(float expected_current) const;
 
+    /**
+     * @brief Get raw PSU reference for direct access (e.g., self-test)
+     * @param channel 0 or 1
+     * @return Reference to the requested PSU
+     */
+    DPS5015 &getPsu(size_t channel) { return (channel == 0) ? _psu0 : _psu1; }
+
     // =========================================================================
     // Channel Imbalance Detection
     // =========================================================================

@@ -49,15 +49,6 @@ class SafetyMonitor {
                   DS18B20Sensor &hotPlate, DPS5015 &psu0, DPS5015 &psu1);
 
     /**
-     * @brief Run all safety checks
-     * @return SafetyStatus indicating the most severe issue found
-     *
-     * Checks are run in priority order (most critical first).
-     * Returns as soon as a blocking issue is found.
-     */
-    SafetyStatus runAllChecks();
-
-    /**
      * @brief Get the reason string for the last fault
      * @return Human-readable description of the fault
      */
@@ -103,12 +94,6 @@ class SafetyMonitor {
     SafetyStatus checkDpsConnection();
 
     /**
-     * @brief Check for manual override on DPS units
-     * @return SafetyStatus::OK or SafetyStatus::MANUAL_OVERRIDE
-     */
-    SafetyStatus checkManualOverride();
-
-    /**
      * @brief Set thermal history reference for rate-based checks
      * @param history Pointer to thermal history buffer
      */
@@ -129,12 +114,6 @@ class SafetyMonitor {
      * @brief Check if hot side is in alarm zone (with hysteresis)
      */
     bool isHotSideAlarm() const { return _hot_side_in_alarm; }
-
-    /**
-     * @brief Get raw PSU reference for self-test
-     * @param channel 0 or 1
-     */
-    DPS5015 &getPsu(size_t channel) { return (channel == 0) ? _psu0 : _psu1; }
 
   private:
     Logger &_logger;

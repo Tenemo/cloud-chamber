@@ -459,7 +459,8 @@ Logger logger(display, Serial);
 PT100Sensor coldPlate(PIN_MAX31865_CS);
 DS18B20Sensor hotPlate(oneWire, DS18B20_1_ADDRESS);
 DS18B20Sensor ambientSensors[2] = { ... };
-DPS5015 psus[2] = { DPS5015(Serial1), DPS5015(Serial2) };
+DPS5015 psu0(logger, "DC12", Serial1);
+DPS5015 psu1(logger, "DC34", Serial2);
 
 // Create controller
 ThermalController controller(
@@ -467,7 +468,8 @@ ThermalController controller(
     coldPlate,
     hotPlate,
     ambientSensors, 2,
-    psus
+    psu0,   // First PSU (reference)
+    psu1    // Second PSU (reference)
 );
 
 void setup() {
