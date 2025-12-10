@@ -88,8 +88,8 @@
 
 // Display layout
 constexpr int LINE_HEIGHT = 12;
-constexpr int VALUE_X = 60;
-constexpr int VALUE_WIDTH = 70;
+constexpr int VALUE_X = 72;  // 60 + (2 * 6) - increased by 2 char widths
+constexpr int VALUE_WIDTH = 58; // 70 - 12 - adjusted to maintain screen width
 
 // Display physical properties
 constexpr int SCREEN_WIDTH = 128;
