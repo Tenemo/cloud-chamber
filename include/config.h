@@ -27,9 +27,9 @@ constexpr bool CONTROL_LOOP_ENABLED = false;
 // =============================================================================
 // Sensor Update Intervals
 // =============================================================================
-constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
+constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
-    800; // 12-bit resolution needs 750ms conversion
+    1000; // 12-bit resolution needs 750ms conversion
 constexpr unsigned long DS18B20_CONVERSION_TIME_MS =
     750; // 12-bit resolution conversion time
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
