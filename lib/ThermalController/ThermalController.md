@@ -184,8 +184,10 @@ The controller operates as a finite state machine with the following states:
 
 - **Purpose**: Lost Modbus communication with PSU(s)
 - **Actions**:
-  - If one PSU connected, operate in degraded mode (max 5A)
-  - Wait for reconnection
+  - **SYMMETRIC SHUTDOWN**: If one PSU fails, shut down BOTH immediately
+  - No degraded mode - running one TEC creates dangerous thermal gradient
+  - Wait for reconnection with both channels at 0A
+- **Rationale**: The mechanical stress of differential expansion on the cooling assembly (and the glass chamber on top) is too high risk. Thermal gradients across the cold plate can damage seals, crack the vacuum chamber, or warp the aluminum plate.
 - **Exit conditions**:
   - Both PSUs reconnected → STARTUP (safe restart)
 
@@ -198,10 +200,28 @@ The controller operates as a finite state machine with the following states:
 The controller automatically finds the optimal TEC current using an iterative approach:
 
 1. **Start low** (2A) to avoid thermal shock
-2. **Ramp up** in 0.5A steps with 60-second evaluation windows
-3. **Watch for inflection point**: When increasing current no longer improves cooling (or makes it worse), back off
+2. **Ramp up** in 0.5A steps with 60-second minimum evaluation windows
+3. **Wait for hot-side stabilization**: The 420mm AIO water loop has ~3-5 minute thermal equilibrium time. Don't evaluate cold side success until the hot side dT/dt approaches zero.
+4. **Watch for inflection point**: When increasing current no longer improves cooling (or makes it worse), back off
 
 TECs have an optimal operating current - too little current provides insufficient cooling, but too much current generates excess heat that overwhelms the heat rejection capacity. The controller finds this sweet spot automatically.
+
+### Thermal Inertia Compensation
+
+The water cooling loop has significant thermal mass. After a step-change in TEC power:
+
+1. **Cold plate responds quickly** (direct thermal contact with TEC)
+2. **Hot plate responds slowly** (heat must propagate through water loop)
+3. **Evaluating too early gives misleading results** (cold plate may appear to improve before hot side equilibrates)
+
+The controller waits for **hot side dT/dt to stabilize** (< 0.3°C/min) before evaluating whether a current change helped, with a maximum wait of 5 minutes to prevent infinite waiting.
+
+| Parameter                                  | Value     | Description                     |
+| ------------------------------------------ | --------- | ------------------------------- |
+| `CURRENT_EVALUATION_DELAY_MS`              | 60000     | Minimum wait time (1 min)       |
+| `HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN` | 0.3°C/min | Hot side considered "stable"    |
+| `HOT_SIDE_STABILIZATION_MAX_WAIT_MS`       | 300000    | Maximum wait (5 min)            |
+| `HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES`      | 60        | 60s window for rate calculation |
 
 ### Derivative Control
 
@@ -388,29 +408,32 @@ All timing and threshold values are defined in `config.h`:
 
 ### Timing Parameters
 
-| Parameter                          | Default | Description                        |
-| ---------------------------------- | ------- | ---------------------------------- |
-| `STARTUP_HOLD_DURATION_MS`         | 60000   | Soft-start duration                |
-| `RAMP_ADJUSTMENT_INTERVAL_MS`      | 20000   | Time between current steps         |
-| `CURRENT_EVALUATION_DELAY_MS`      | 60000   | Wait time before evaluating change |
-| `STEADY_STATE_RECHECK_INTERVAL_MS` | 900000  | Periodic optimization probe        |
-| `SENSOR_RECOVERY_TIMEOUT_MS`       | 60000   | Sensor fault recovery window       |
-| `INIT_TIMEOUT_MS`                  | 30000   | Hardware initialization timeout    |
-| `MANUAL_OVERRIDE_GRACE_MS`         | 3000    | Settling window after command      |
-| `EMERGENCY_SHUTDOWN_STEP_MS`       | 500     | Ramp-down step interval            |
+| Parameter                             | Default | Description                         |
+| ------------------------------------- | ------- | ----------------------------------- |
+| `STARTUP_HOLD_DURATION_MS`            | 60000   | Soft-start duration                 |
+| `RAMP_ADJUSTMENT_INTERVAL_MS`         | 20000   | Time between current steps          |
+| `CURRENT_EVALUATION_DELAY_MS`         | 60000   | Minimum wait before evaluating      |
+| `HOT_SIDE_STABILIZATION_MAX_WAIT_MS`  | 300000  | Max wait for hot side stabilization |
+| `HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES` | 60      | Window for hot side dT/dt (samples) |
+| `STEADY_STATE_RECHECK_INTERVAL_MS`    | 900000  | Periodic optimization probe         |
+| `SENSOR_RECOVERY_TIMEOUT_MS`          | 60000   | Sensor fault recovery window        |
+| `INIT_TIMEOUT_MS`                     | 30000   | Hardware initialization timeout     |
+| `MANUAL_OVERRIDE_GRACE_MS`            | 3000    | Settling window after command       |
+| `EMERGENCY_SHUTDOWN_STEP_MS`          | 500     | Ramp-down step interval             |
 
 ### Temperature Thresholds
 
-| Parameter                         | Default   | Description                |
-| --------------------------------- | --------- | -------------------------- |
-| `HOT_SIDE_WARNING_C`              | 55°C      | Reduce ramp aggressiveness |
-| `HOT_SIDE_WARNING_EXIT_C`         | 50°C      | Exit warning (hysteresis)  |
-| `HOT_SIDE_ALARM_C`                | 65°C      | Stop increasing current    |
-| `HOT_SIDE_ALARM_EXIT_C`           | 60°C      | Exit alarm (hysteresis)    |
-| `HOT_SIDE_FAULT_C`                | 70°C      | Emergency shutdown         |
-| `HOT_SIDE_RATE_FAULT_C_PER_MIN`   | 5.0°C/min | Runaway detection          |
-| `COOLING_STALL_THRESHOLD_C`       | 0.5°C/min | Stall detection            |
-| `OVERCURRENT_WARMING_THRESHOLD_C` | 0.3°C     | Back-off threshold         |
+| Parameter                                  | Default   | Description                |
+| ------------------------------------------ | --------- | -------------------------- |
+| `HOT_SIDE_WARNING_C`                       | 55°C      | Reduce ramp aggressiveness |
+| `HOT_SIDE_WARNING_EXIT_C`                  | 50°C      | Exit warning (hysteresis)  |
+| `HOT_SIDE_ALARM_C`                         | 65°C      | Stop increasing current    |
+| `HOT_SIDE_ALARM_EXIT_C`                    | 60°C      | Exit alarm (hysteresis)    |
+| `HOT_SIDE_FAULT_C`                         | 70°C      | Emergency shutdown         |
+| `HOT_SIDE_RATE_FAULT_C_PER_MIN`            | 5.0°C/min | Runaway detection          |
+| `HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN` | 0.3°C/min | Hot side stabilization     |
+| `COOLING_STALL_THRESHOLD_C`                | 0.5°C/min | Stall detection            |
+| `OVERCURRENT_WARMING_THRESHOLD_C`          | 0.3°C     | Back-off threshold         |
 
 ### Current Parameters
 

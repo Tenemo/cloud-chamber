@@ -200,8 +200,7 @@ class ThermalController {
     bool checkPT100Plausibility();     // Physics-based PT100 validation
 
     // Control actions
-    void setChannelCurrent(size_t channel, float current);
-    void setAllCurrents(float current);
+    void setAllCurrents(float current); // ALWAYS sets BOTH channels together
     void startEmergencyShutdown();
     void updateEmergencyShutdown();
     void emergencyShutdown(); // Legacy blocking version for init only
@@ -210,6 +209,7 @@ class ThermalController {
     // History and analysis
     void recordSample();
     float calculateCoolingRate() const;
+    float calculateHotSideRate() const; // Hot side dT/dt for stabilization
     ThermalTrend analyzeTrend() const;
     float getAmbientTemperature() const;
     void checkChannelImbalance();
