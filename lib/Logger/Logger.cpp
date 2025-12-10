@@ -11,6 +11,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <esp_heap_caps.h> // For PSRAM allocation
+#include <esp_task_wdt.h>  // For WDT reset during long dumps
 
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), _display_initialized(false),
@@ -553,6 +554,9 @@ void Logger::addToLogBuffer(const char *message) {
  *
  * Outputs logs in chronological order (oldest first).
  * Call this via serial command for post-mortem diagnostics.
+ *
+ * Note: Includes WDT reset in loop to prevent timeout during large dumps
+ * (~12k entries can take several seconds to output over serial).
  */
 void Logger::dumpLogBuffer() {
     if (!_psram_available || _psram_log_buffer == nullptr) {
@@ -581,6 +585,7 @@ void Logger::dumpLogBuffer() {
     }
 
     // Output all entries in chronological order
+    // Reset WDT periodically to prevent timeout during large dumps
     for (size_t i = 0; i < _psram_log_count; i++) {
         size_t idx = (start_idx + i) % PSRAM_LOG_BUFFER_ENTRIES;
         char *entry = _psram_log_buffer + (idx * PSRAM_LOG_ENTRY_SIZE);
@@ -588,6 +593,11 @@ void Logger::dumpLogBuffer() {
         // Only print non-empty entries
         if (entry[0] != '\0') {
             Serial.println(entry);
+        }
+
+        // Reset WDT every 100 entries to prevent timeout
+        if (i % 100 == 0) {
+            esp_task_wdt_reset();
         }
     }
 

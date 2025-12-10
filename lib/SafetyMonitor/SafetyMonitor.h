@@ -19,7 +19,7 @@
 #include "DualPowerSupply.h"
 #include "Logger.h"
 #include "PT100.h"
-#include "ThermalHistory.h"
+#include "ThermalMetrics.h"
 #include "config.h"
 #include <Arduino.h>
 
@@ -38,6 +38,14 @@ enum class SafetyStatus {
 };
 
 /**
+ * @brief Result of comprehensive safety check
+ */
+struct SafetyResult {
+    SafetyStatus status;
+    const char *reason; // Points to internal buffer, valid until next check
+};
+
+/**
  * @brief Centralized safety monitoring
  *
  * All safety checks return SafetyStatus for consistent handling.
@@ -47,6 +55,19 @@ class SafetyMonitor {
   public:
     SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
                   DS18B20Sensor &hotPlate, DualPowerSupply &dps);
+
+    /**
+     * @brief Run all safety checks in priority order
+     *
+     * Consolidates sensor health, sanity, thermal limits, DPS connection,
+     * and manual override checks. Does NOT include PT100 plausibility or
+     * cross-sensor validation (which have grace period logic).
+     *
+     * Order: sensor health → sensor sanity → thermal limits → DPS → override
+     *
+     * @return SafetyResult with status and reason (if fault)
+     */
+    SafetyResult checkAll();
 
     /**
      * @brief Get the reason string for the last fault
@@ -94,10 +115,10 @@ class SafetyMonitor {
     SafetyStatus checkDpsConnection();
 
     /**
-     * @brief Set thermal history reference for rate-based checks
-     * @param history Pointer to thermal history buffer
+     * @brief Set thermal metrics reference for rate-based checks
+     * @param metrics Pointer to unified thermal metrics (includes history)
      */
-    void setHistory(const ThermalHistory *history) { _history = history; }
+    void setMetrics(const ThermalMetrics *metrics) { _metrics = metrics; }
 
     /**
      * @brief Update hot-side hysteresis state
@@ -120,7 +141,7 @@ class SafetyMonitor {
     PT100Sensor &_cold_plate;
     DS18B20Sensor &_hot_plate;
     DualPowerSupply &_dps;
-    const ThermalHistory *_history;
+    const ThermalMetrics *_metrics;
 
     // Fault tracking
     char _last_fault_reason[48];

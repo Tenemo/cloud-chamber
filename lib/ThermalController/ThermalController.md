@@ -121,7 +121,7 @@ The controller operates as a finite state machine with the following states:
 - **Purpose**: Gradually increase current to find optimal operating point
 - **Interval**: 20 seconds between adjustments (`RAMP_ADJUSTMENT_INTERVAL_MS`)
 - **Algorithm**:
-  1. Increase current by `RAMP_CURRENT_STEP_A` (0.5A) on both channels
+  1. Increase current by adaptive step size (0.5A coarse / 0.25A medium / 0.1A fine) on both channels
   2. Wait 60 seconds for thermal system to stabilize
   3. Evaluate: Did temperature improve?
      - Yes → Record as new optimal, continue ramping
@@ -427,15 +427,16 @@ All timing and threshold values are defined in `config.h`:
 
 ### Current Parameters
 
-| Parameter                            | Default | Description                |
-| ------------------------------------ | ------- | -------------------------- |
-| `TEC_VOLTAGE_SETPOINT`               | 16.0V   | Fixed TEC voltage          |
-| `MAX_CURRENT_PER_CHANNEL`            | 12.0A   | Maximum TEC current        |
-| `MIN_CURRENT_PER_CHANNEL`            | 0.5A    | Minimum TEC current        |
-| `STARTUP_CURRENT`                    | 2.0A    | Initial soft-start current |
-| `DEGRADED_MODE_CURRENT`              | 5.0A    | Single-PSU limit           |
-| `RAMP_CURRENT_STEP_A`                | 0.5A    | Normal step size           |
-| `EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC` | 2.0A/s  | Shutdown ramp rate         |
+| Parameter                            | Default | Description                         |
+| ------------------------------------ | ------- | ----------------------------------- |
+| `TEC_VOLTAGE_SETPOINT`               | 16.0V   | Fixed TEC voltage                   |
+| `MAX_CURRENT_PER_CHANNEL`            | 12.0A   | Maximum TEC current                 |
+| `MIN_CURRENT_PER_CHANNEL`            | 0.5A    | Minimum TEC current                 |
+| `STARTUP_CURRENT`                    | 2.0A    | Initial soft-start current          |
+| `DEGRADED_MODE_CURRENT`              | 5.0A    | Single-PSU limit                    |
+| `COARSE_STEP_A`                      | 0.5A    | Coarse step size (far from optimum) |
+| `EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC` | 2.0A/s  | Shutdown ramp rate                  |
+| `Timing::SHUTDOWN_STEP_MS`           | 500ms   | Time between shutdown steps         |
 
 ---
 

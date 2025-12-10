@@ -10,10 +10,38 @@
 SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
                              DS18B20Sensor &hotPlate, DualPowerSupply &dps)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate), _dps(dps),
-      _history(nullptr), _dps_was_connected(false), _hot_side_in_warning(false),
+      _metrics(nullptr), _dps_was_connected(false), _hot_side_in_warning(false),
       _hot_side_in_alarm(false), _cross_check_warning_active(false),
       _last_cross_check_log_time(0) {
     _last_fault_reason[0] = '\0';
+}
+
+SafetyResult SafetyMonitor::checkAll() {
+    // Priority order: sensor health → sanity → thermal → DPS → override
+
+    SafetyStatus status = checkSensorHealth();
+    if (status != SafetyStatus::OK)
+        return {status, _last_fault_reason};
+
+    status = checkSensorSanity();
+    if (status != SafetyStatus::OK)
+        return {status, _last_fault_reason};
+
+    status = checkThermalLimits();
+    if (status != SafetyStatus::OK)
+        return {status, _last_fault_reason};
+
+    status = checkDpsConnection();
+    if (status != SafetyStatus::OK)
+        return {status, _last_fault_reason};
+
+    // Manual override via DualPowerSupply
+    OverrideStatus override = _dps.checkManualOverride();
+    if (override == OverrideStatus::DETECTED) {
+        return {SafetyStatus::MANUAL_OVERRIDE, "Manual override"};
+    }
+
+    return {SafetyStatus::OK, nullptr};
 }
 
 SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {
@@ -58,8 +86,8 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     }
 
     // Hot side rate check (thermal runaway detection)
-    if (_history != nullptr && _history->hasMinimumHistory(60)) {
-        float hot_rate = _history->getHotPlateRate();
+    if (_metrics != nullptr && _metrics->hasMinimumHistory(60)) {
+        float hot_rate = _metrics->getHotPlateRate();
         if (hot_rate > HOT_SIDE_RATE_FAULT_C_PER_MIN) {
             return setFault(SafetyStatus::THERMAL_FAULT, "RUNAWAY");
         }

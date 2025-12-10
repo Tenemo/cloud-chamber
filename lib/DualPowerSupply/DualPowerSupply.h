@@ -144,18 +144,20 @@ class DualPowerSupply {
     OverrideStatus checkManualOverride() const;
 
     /**
-     * @brief Check if both PSUs are settled (commanded = reported)
-     *
-     * Use this before sending new commands to verify the previous
-     * command was processed. Returns false if in grace period,
-     * have pending writes, or values don't match.
-     */
-    bool areBothSettled() const;
-
-    /**
      * @brief Check if either PSU has its output enabled
      */
     bool isOutputOn() const;
+
+    /**
+     * @brief Check if both PSUs have settled (match commanded values)
+     *
+     * Use this before issuing new setpoints to verify PSUs are ready.
+     * A PSU is "settled" when it has processed our last command and
+     * its reported values match what we commanded.
+     *
+     * @return true if both PSUs are settled and ready for new commands
+     */
+    bool areBothSettled() const;
 
     /**
      * @brief Get current target (what we commanded)
@@ -220,6 +222,34 @@ class DualPowerSupply {
      */
     float getPowerImbalance() const;
 
+    /**
+     * @brief Log imbalance warning if significant, with rate limiting
+     *
+     * Checks current and power imbalance between channels and logs a warning
+     * if thresholds are exceeded. Rate-limited to avoid log spam.
+     *
+     * @param current_threshold Current imbalance threshold in amps
+     * @param power_threshold Power imbalance threshold in watts
+     * @param interval_ms Minimum interval between log messages
+     */
+    void checkAndLogImbalance(float current_threshold, float power_threshold,
+                              unsigned long interval_ms);
+
+    // =========================================================================
+    // Hot Reset Detection
+    // =========================================================================
+
+    /**
+     * @brief Detect if DPS was already running on boot (hot reset)
+     *
+     * Checks if the DPS has output enabled with significant current flow.
+     * Use this during initialization to detect MCU reset while TEC was active.
+     *
+     * @param min_threshold Minimum current (A) to consider "running"
+     * @return Adopted current if hot reset detected, 0.0 if not
+     */
+    float detectHotReset(float min_threshold);
+
   private:
     Logger &_logger;
     DPS5015 &_psu0;
@@ -237,6 +267,9 @@ class DualPowerSupply {
 
     // Manual override tracking
     mutable int _consecutive_mismatches;
+
+    // Imbalance logging rate limiting
+    unsigned long _last_imbalance_log_time = 0;
 
     // Override confirmation count
     static constexpr int OVERRIDE_CONFIRM_COUNT =

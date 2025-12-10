@@ -220,6 +220,14 @@ bool DualPowerSupply::isOutputOn() const {
     return _psu0.isOutputOn() || _psu1.isOutputOn();
 }
 
+bool DualPowerSupply::areBothSettled() const {
+    // Both PSUs must be connected and have processed our last commands
+    if (!areBothConnected())
+        return false;
+
+    return _psu0.isSettled() && _psu1.isSettled();
+}
+
 float DualPowerSupply::getAverageOutputCurrent() const {
     float sum = 0.0f;
     int count = 0;
@@ -303,9 +311,44 @@ float DualPowerSupply::getPowerImbalance() const {
     return fabs(_psu0.getOutputPower() - _psu1.getOutputPower());
 }
 
-bool DualPowerSupply::areBothSettled() const {
+void DualPowerSupply::checkAndLogImbalance(float current_threshold,
+                                           float power_threshold,
+                                           unsigned long interval_ms) {
     if (!areBothConnected())
-        return false;
+        return;
 
-    return _psu0.isSettled() && _psu1.isSettled();
+    unsigned long now = millis();
+    if (now - _last_imbalance_log_time < interval_ms)
+        return;
+
+    float current_diff = getCurrentImbalance();
+    float power_diff = getPowerImbalance();
+
+    if (current_diff > current_threshold || power_diff > power_threshold) {
+        _logger.logf("IMBAL: dI=%.1fA dP=%.0fW", current_diff, power_diff);
+        _last_imbalance_log_time = now;
+    }
+}
+
+// =============================================================================
+// Hot Reset Detection
+// =============================================================================
+
+float DualPowerSupply::detectHotReset(float min_threshold) {
+    if (!isEitherConnected() || !isOutputOn())
+        return 0.0f;
+
+    float actual_current = getAverageOutputCurrent();
+
+    // Wait for Modbus read to complete (current not yet available)
+    if (actual_current < Tolerance::MIN_CURRENT_THRESHOLD)
+        return 0.0f;
+
+    // Below threshold - not considered a hot reset
+    if (actual_current <= min_threshold)
+        return 0.0f;
+
+    // Hot reset detected - return the current to adopt
+    _logger.log("DPS: Hot reset detected");
+    return fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
 }

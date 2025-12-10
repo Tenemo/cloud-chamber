@@ -73,13 +73,15 @@ class CrashLog {
 
     /**
      * @brief Clear all crash logs
+     * @note Reserved for future serial command interface
      */
     static void clear();
 
     /**
      * @brief Get number of logged events
+     * @note Reserved for future serial command interface
      */
-    static size_t getEventCount();
+    [[maybe_unused]] static size_t getEventCount();
 
     /**
      * @brief Check if SPIFFS is available
