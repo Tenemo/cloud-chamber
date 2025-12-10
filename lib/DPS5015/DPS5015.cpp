@@ -372,6 +372,23 @@ bool DPS5015::isSettled() const {
     return current_diff < MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
 }
 
+bool DPS5015::hasCurrentMismatch() const {
+    // Returns true if DPS current doesn't match commanded current
+    float current_diff = fabs(_set_current - _commanded_current);
+    return current_diff > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+}
+
+bool DPS5015::hasVoltageMismatch() const {
+    // Returns true if DPS voltage doesn't match commanded voltage
+    float voltage_diff = fabs(_set_voltage - _commanded_voltage);
+    return voltage_diff > MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V;
+}
+
+bool DPS5015::hasOutputMismatch() const {
+    // Returns true if DPS output state doesn't match commanded state
+    return _output_on != _commanded_output;
+}
+
 bool DPS5015::validateStateBeforeWrite(float expected_current) const {
     // Pre-write validation: detect manual override before issuing new command
     // Returns true if safe to proceed, false if override detected

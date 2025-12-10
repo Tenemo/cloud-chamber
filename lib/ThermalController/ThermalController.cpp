@@ -489,8 +489,32 @@ void ThermalController::handleRampUp() {
 
     // If awaiting evaluation of a current increase, check if it helped
     if (_awaiting_evaluation) {
+        // First, wait minimum delay time
         if (now - _evaluation_start_time < CURRENT_EVALUATION_DELAY_MS) {
-            return; // Still waiting for system to stabilize
+            return; // Still waiting for minimum stabilization time
+        }
+
+        // THERMAL INERTIA COMPENSATION: Wait for hot side to stabilize
+        // The 420mm AIO water loop has ~3-5 min thermal equilibrium time.
+        // Don't evaluate cold side success until the hot side has absorbed
+        // the step-change in power (dT/dt approaches 0).
+        float hot_side_rate = fabs(calculateHotSideRate());
+        bool hot_stable =
+            (hot_side_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
+        bool max_wait_exceeded =
+            (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+
+        if (!hot_stable && !max_wait_exceeded) {
+            // Hot side still changing - water loop hasn't reached equilibrium
+            // Continue waiting (will check again on next update cycle)
+            return;
+        }
+
+        if (max_wait_exceeded && !hot_stable) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "TC: Hot rate %.2fK/m, eval anyway",
+                     hot_side_rate);
+            _logger.log(buf);
         }
 
         _awaiting_evaluation = false;
@@ -638,7 +662,20 @@ void ThermalController::handleSteadyState() {
 
     // If awaiting evaluation of an increase attempt
     if (_awaiting_evaluation) {
+        // First, wait minimum delay time
         if (now - _evaluation_start_time < CURRENT_EVALUATION_DELAY_MS) {
+            return;
+        }
+
+        // THERMAL INERTIA COMPENSATION: Wait for hot side to stabilize
+        float hot_side_rate = fabs(calculateHotSideRate());
+        bool hot_stable =
+            (hot_side_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
+        bool max_wait_exceeded =
+            (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+
+        if (!hot_stable && !max_wait_exceeded) {
+            // Hot side still changing - wait for equilibrium
             return;
         }
 
@@ -724,13 +761,23 @@ void ThermalController::handleDpsDisconnected() {
         return;
     }
 
-    // If one is connected, operate in degraded mode
-    if (psu0_ok || psu1_ok) {
+    // SYMMETRIC SHUTDOWN: If one PSU fails, shut down BOTH immediately
+    // Rationale: The mechanical stress of differential expansion on the
+    // cooling assembly (and the glass chamber on top) is too high risk.
+    // Running one TEC creates a thermal gradient across the plate that
+    // can damage seals, crack the vacuum chamber, or warp the cold plate.
+    // NO DEGRADED MODE - it's all or nothing for safety.
+    if (psu0_ok != psu1_ok) {
+        // One connected, one not - shut down the working one
         size_t working = psu0_ok ? 0 : 1;
-        if (_target_current[working] > DEGRADED_MODE_CURRENT) {
-            setChannelCurrent(working, DEGRADED_MODE_CURRENT);
+        if (_target_current[working] > 0.0f) {
+            _logger.log("TC: Symmetric shutdown - one PSU lost");
+            _target_current[working] = 0.0f;
+            _psus[working].setCurrent(0.0f);
+            _psus[working].setOutput(false);
         }
     }
+    // If neither is connected, both are already off - nothing to do
 }
 
 // ============================================================================
@@ -747,12 +794,41 @@ bool ThermalController::checkForManualOverride() {
         if (_psus[i].hasPendingWrites() || _psus[i].isInGracePeriod())
             continue;
 
+        // Check for any type of mismatch: current, voltage, or output state
+        // Current mismatch: user turned the current knob
+        // Voltage mismatch: user turned the voltage knob
+        // Output mismatch: user toggled output on/off
+        bool has_current_mismatch = _psus[i].hasCurrentMismatch();
+        bool has_voltage_mismatch = _psus[i].hasVoltageMismatch();
+        bool has_output_mismatch = _psus[i].hasOutputMismatch();
+
         // Require N consecutive mismatches before declaring override
         // This filters out transient read errors or timing glitches
+        // Note: getConsecutiveMismatches() tracks current only for backward
+        // compat but we extend detection to voltage/output for immediate
+        // response
         if (_psus[i].getConsecutiveMismatches() >=
             MANUAL_OVERRIDE_MISMATCH_COUNT) {
-            // Sustained mismatch detected - user manually changed the dial
-            _logger.log("TC: Manual override");
+            // Sustained current mismatch detected
+            _logger.log("TC: Manual override (I)");
+            transitionTo(ThermalState::MANUAL_OVERRIDE);
+            return true;
+        }
+
+        // For voltage and output: a single confirmed mismatch is enough
+        // because changing voltage or toggling output is an explicit user
+        // action
+        if (has_voltage_mismatch) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "TC: Manual override (V) %.1f!=%.1f",
+                     _psus[i].getSetVoltage(), _psus[i].getCommandedVoltage());
+            _logger.log(buf);
+            transitionTo(ThermalState::MANUAL_OVERRIDE);
+            return true;
+        }
+
+        if (has_output_mismatch) {
+            _logger.log("TC: Manual override (output toggled)");
             transitionTo(ThermalState::MANUAL_OVERRIDE);
             return true;
         }
@@ -1006,31 +1082,56 @@ bool ThermalController::checkPT100Plausibility() {
 // Control Actions
 // ============================================================================
 
-void ThermalController::setChannelCurrent(size_t channel, float current) {
-    if (channel >= 2)
-        return;
+void ThermalController::setAllCurrents(float current) {
+    // SYMMETRIC CONTROL: Both DPS must always be commanded together
+    // Never set individual channels - thermal gradient risk is too high
 
     current =
         fmax(MIN_CURRENT_PER_CHANNEL, fmin(current, MAX_CURRENT_PER_CHANNEL));
 
-    // Pre-write validation: detect manual override before commanding
-    // Skip validation if this is a forced command (e.g., emergency shutdown)
-    if (_psus[channel].isConnected() && !_shutdown_in_progress) {
-        if (!_psus[channel].validateStateBeforeWrite(current)) {
-            // DPS state doesn't match expectations - user touched the dial
-            _logger.log("TC: Override detected");
-            transitionTo(ThermalState::MANUAL_OVERRIDE);
-            return;
+    // Pre-write validation for BOTH DPS: detect manual override before
+    // commanding Skip validation during emergency shutdown (we must disable
+    // regardless)
+    if (!_shutdown_in_progress) {
+        for (size_t i = 0; i < 2; i++) {
+            if (!_psus[i].isConnected())
+                continue;
+
+            if (!_psus[i].validateStateBeforeWrite(current)) {
+                // DPS state doesn't match expectations - user touched the dial
+                char buf[32];
+                snprintf(buf, sizeof(buf), "TC: Override detected PSU%d",
+                         (int)i);
+                _logger.log(buf);
+                transitionTo(ThermalState::MANUAL_OVERRIDE);
+                return;
+            }
         }
     }
 
-    _target_current[channel] = current;
-    _psus[channel].setCurrent(current);
-}
+    // Update target currents for both channels
+    _target_current[0] = current;
+    _target_current[1] = current;
 
-void ThermalController::setAllCurrents(float current) {
-    setChannelCurrent(0, current);
-    setChannelCurrent(1, current);
+    // Send commands to both DPS
+    // Track write failures separately from manual override
+    bool write0_ok = true;
+    bool write1_ok = true;
+
+    if (_psus[0].isConnected()) {
+        write0_ok = _psus[0].setCurrent(current);
+    }
+    if (_psus[1].isConnected()) {
+        write1_ok = _psus[1].setCurrent(current);
+    }
+
+    // If write failed (queue full, not connected), treat as comm error
+    // This is different from manual override (user changed the knob)
+    if (!write0_ok || !write1_ok) {
+        _logger.log("TC: Write queue full", true);
+        // Don't transition to DPS_DISCONNECTED here - let the normal
+        // connection check handle it. Queue full is transient.
+    }
 }
 
 void ThermalController::enterThermalFault(const char *reason) {
@@ -1236,6 +1337,41 @@ float ThermalController::calculateCoolingRate() const {
             (_history_head + HISTORY_BUFFER_SIZE - n + i) % HISTORY_BUFFER_SIZE;
         float x = static_cast<float>(i);
         float y = _history[idx].cold_plate_temp;
+
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_xx += x * x;
+    }
+
+    float denom = n * sum_xx - sum_x * sum_x;
+    if (fabs(denom) < 0.0001f) {
+        return 0.0f;
+    }
+
+    // Slope in degrees per sample
+    float slope = (n * sum_xy - sum_x * sum_y) / denom;
+
+    // Convert to K/min (samples are 1 second apart)
+    return slope * 60.0f;
+}
+
+float ThermalController::calculateHotSideRate() const {
+    // Calculate hot side dT/dt for thermal inertia compensation
+    // Uses a configurable sample window (default 60s)
+    if (_history_count < HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES) {
+        return 99.0f; // Return high value if insufficient history
+                      // This will cause the stabilization check to wait
+    }
+
+    size_t n = HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES;
+    float sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+
+    for (size_t i = 0; i < n; i++) {
+        size_t idx =
+            (_history_head + HISTORY_BUFFER_SIZE - n + i) % HISTORY_BUFFER_SIZE;
+        float x = static_cast<float>(i);
+        float y = _history[idx].hot_plate_temp;
 
         sum_x += x;
         sum_y += y;

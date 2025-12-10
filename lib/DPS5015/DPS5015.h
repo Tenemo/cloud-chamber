@@ -94,6 +94,11 @@ class DPS5015 {
     bool hasPendingWrites() const { return _pending_writes > 0; }
     int getConsecutiveMismatches() const { return _consecutive_mismatches; }
 
+    // Mismatch detection for manual override (current, voltage, output)
+    bool hasCurrentMismatch() const;
+    bool hasVoltageMismatch() const;
+    bool hasOutputMismatch() const;
+
     // Pre-write validation: check if DPS state is consistent before commanding
     // Returns true if safe to write, false if manual override detected
     bool validateStateBeforeWrite(float expected_current) const;

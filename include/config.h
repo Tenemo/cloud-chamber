@@ -123,13 +123,13 @@ constexpr int LOG_AREA_LINES =
 
 // Voltage and current limits
 constexpr float TEC_VOLTAGE_SETPOINT = 16.0f; // Fixed voltage for cascade TECs
-constexpr float MAX_CURRENT_PER_CHANNEL = 10.6f; // Maximum current per DPS
+constexpr float MAX_CURRENT_PER_CHANNEL = 12.0f; // Maximum current per DPS
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
 constexpr float DEGRADED_MODE_CURRENT =
     5.0f;                              // Max current when one DPS disconnects
-constexpr float DPS_OCP_LIMIT = 11.0f; // Hardware Over Current Protection
-                                       // Failsafe in case ESP commands >10.6A
+constexpr float DPS_OCP_LIMIT = 12.5f; // Hardware Over Current Protection
+                                       // Failsafe in case ESP commands >12A
 constexpr float DPS_OVP_LIMIT =
     16.5f; // Hardware Over Voltage Protection
            // Slightly above setpoint to catch Modbus errors
@@ -172,6 +172,16 @@ constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
     0.15f; // Tolerance for override detection
 constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
     0.15f; // Tolerance for override detection
+
+// Hot-side stabilization (thermal inertia compensation)
+// The 420mm AIO water loop has ~3-5 minute thermal equilibrium time
+// Wait for hot side dT/dt to stabilize before evaluating cold plate success
+constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN =
+    0.3f; // Hot side dT/dt must be below this to be "stable"
+constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS =
+    300000; // 5 min max wait for stabilization (prevents infinite wait)
+constexpr unsigned long HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES =
+    60; // 60s window for hot side rate calculation
 constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS =
     3000; // Settling window: time for DPS to process command and for ESP
           // to read back new value before checking for override
