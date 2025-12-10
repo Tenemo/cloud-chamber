@@ -184,9 +184,6 @@ constexpr float STEP_COARSE_RATE_THRESHOLD =
 constexpr float STEP_MEDIUM_RATE_THRESHOLD =
     0.5f; // K/min - above this use medium
 
-// Legacy constant (use COARSE_STEP_A instead)
-constexpr float RAMP_CURRENT_STEP_A = COARSE_STEP_A;
-
 constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
     0.15f; // Tolerance for override detection
 constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
@@ -270,28 +267,8 @@ constexpr unsigned long NVS_METRICS_SAVE_INTERVAL_MS =
 constexpr unsigned long NVS_RUNTIME_SAVE_INTERVAL_MS =
     60000; // Save runtime every 1 minute (incremental)
 
-// ============================================================================
-// DPS Self-Test Configuration
-// ============================================================================
-
-// Self-test verifies DPS communication and output control on startup
-constexpr unsigned long DPS_SELFTEST_TIMEOUT_MS = 3000; // Max time per DPS test
-constexpr unsigned long DPS_SELFTEST_SETTLE_MS =
-    500;                                     // Time to wait after command
-constexpr float DPS_SELFTEST_VOLTAGE = 1.0f; // Safe test voltage
-constexpr float DPS_SELFTEST_CURRENT = 0.1f; // Safe test current (no load)
-
-// ============================================================================
-// Startup Timing Configuration
-// ============================================================================
-
-// Timing thresholds during STARTUP and INITIALIZING states
-constexpr unsigned long STARTUP_CONFIG_WINDOW_MS =
-    500; // Time window to send initial PSU configuration
-constexpr unsigned long STARTUP_CONFIG_SEND_MS =
-    50; // Only send config in first 50ms of window
-constexpr float HOT_RESET_CURRENT_THRESHOLD_A =
-    STARTUP_CURRENT; // Current threshold for hot reset detection
+// Hot reset detection threshold (uses STARTUP_CURRENT from above)
+constexpr float HOT_RESET_CURRENT_THRESHOLD_A = STARTUP_CURRENT;
 
 // ============================================================================
 // Sensor Validation Configuration
@@ -300,8 +277,5 @@ constexpr float HOT_RESET_CURRENT_THRESHOLD_A =
 // PT100 sensor error detection thresholds
 constexpr float PT100_ERROR_MIN_C = -100.0f; // Below this = sensor error
 constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
-
-// DPS voltage tolerance for self-test verification
-constexpr float DPS_SELFTEST_VOLTAGE_TOLERANCE = 0.2f;
 
 #endif

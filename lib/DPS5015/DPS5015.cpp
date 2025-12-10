@@ -239,8 +239,9 @@ void DPS5015::processWriteQueue() {
         _pending_writes--;
 }
 
-// Helper to clamp and convert float to uint16_t safely
-static uint16_t floatToUint16Clamped(float value, float scale, float maxVal) {
+// Helper to clamp float to range and convert to uint16_t safely
+// Also updates the input value to the clamped result
+static uint16_t clampAndConvert(float &value, float scale, float maxVal) {
     if (value < 0.0f)
         value = 0.0f;
     if (value > maxVal)
@@ -253,10 +254,10 @@ bool DPS5015::setVoltage(float voltage) {
         return false;
 
     // Clamp voltage to valid range (0-50V for DPS5015)
-    uint16_t value = floatToUint16Clamped(voltage, 100.0f, 50.0f);
+    float clamped = voltage;
+    uint16_t value = clampAndConvert(clamped, 100.0f, 50.0f);
     if (queueWrite(REG_SET_VOLTAGE, value)) {
-        _commanded_voltage =
-            voltage < 0.0f ? 0.0f : (voltage > 50.0f ? 50.0f : voltage);
+        _commanded_voltage = clamped;
         _last_command_time = millis();
         return true;
     }
@@ -268,10 +269,10 @@ bool DPS5015::setCurrent(float current) {
         return false;
 
     // Clamp current to valid range (0-15A for DPS5015)
-    uint16_t value = floatToUint16Clamped(current, 100.0f, 15.0f);
+    float clamped = current;
+    uint16_t value = clampAndConvert(clamped, 100.0f, 15.0f);
     if (queueWrite(REG_SET_CURRENT, value)) {
-        _commanded_current =
-            current < 0.0f ? 0.0f : (current > 15.0f ? 15.0f : current);
+        _commanded_current = clamped;
         _last_command_time = millis();
         return true;
     }
@@ -298,7 +299,8 @@ bool DPS5015::setOCP(float current) {
 
     // Clamp to valid OCP range (0-16A, slightly above max for protection
     // margin)
-    uint16_t value = floatToUint16Clamped(current, 100.0f, 16.0f);
+    float clamped = current;
+    uint16_t value = clampAndConvert(clamped, 100.0f, 16.0f);
     return queueWrite(REG_OCP, value);
 }
 
@@ -310,7 +312,8 @@ bool DPS5015::setOVP(float voltage) {
 
     // Clamp to valid OVP range (0-55V, slightly above max for protection
     // margin)
-    uint16_t value = floatToUint16Clamped(voltage, 100.0f, 55.0f);
+    float clamped = voltage;
+    uint16_t value = clampAndConvert(clamped, 100.0f, 55.0f);
     return queueWrite(REG_OVP, value);
 }
 
@@ -352,8 +355,8 @@ bool DPS5015::setCurrentImmediate(float current) {
         return false;
 
     // Clamp current to valid range (0-15A for DPS5015)
-    float clamped = current < 0.0f ? 0.0f : (current > 15.0f ? 15.0f : current);
-    uint16_t value = static_cast<uint16_t>(clamped * 100.0f);
+    float clamped = current;
+    uint16_t value = clampAndConvert(clamped, 100.0f, 15.0f);
 
     if (writeRegisterImmediate(REG_SET_CURRENT, value)) {
         _commanded_current = clamped;

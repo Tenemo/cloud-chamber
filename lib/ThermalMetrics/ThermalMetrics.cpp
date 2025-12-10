@@ -1,13 +1,13 @@
 /**
  * @file ThermalMetrics.cpp
- * @brief Implementation of NVS metrics persistence
+ * @brief Implementation of unified thermal tracking (history + NVS persistence)
  */
 
 #include "ThermalMetrics.h"
 #include <cmath>
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
-    : _logger(logger), _all_time_min_temp(100.0f),
+    : _logger(logger), _head(0), _count(0), _all_time_min_temp(100.0f),
       _all_time_optimal_current(0.0f), _total_runtime_seconds(0),
       _session_count(0), _session_start_time(0), _last_metrics_save_time(0),
       _last_runtime_save_time(0) {}
@@ -31,6 +31,98 @@ void ThermalMetrics::update() {
         saveToNvs(false);
     }
 }
+
+// =============================================================================
+// History Buffer Implementation
+// =============================================================================
+
+void ThermalMetrics::recordSample(const ThermalSample &sample) {
+    _buffer[_head] = sample;
+    _head = (_head + 1) % HISTORY_BUFFER_SIZE;
+    if (_count < HISTORY_BUFFER_SIZE) {
+        _count++;
+    }
+}
+
+bool ThermalMetrics::hasMinimumHistory(size_t min_samples) const {
+    return _count >= min_samples;
+}
+
+const ThermalSample *ThermalMetrics::getSample(size_t samples_ago) const {
+    if (samples_ago >= _count) {
+        return nullptr;
+    }
+    size_t idx =
+        (_head + HISTORY_BUFFER_SIZE - 1 - samples_ago) % HISTORY_BUFFER_SIZE;
+    return &_buffer[idx];
+}
+
+void ThermalMetrics::clearHistory() {
+    _head = 0;
+    _count = 0;
+}
+
+float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
+                                            size_t window_samples) const {
+    if (_count < window_samples) {
+        return RATE_INSUFFICIENT_HISTORY;
+    }
+
+    // Linear regression: y = mx + b
+    // We compute slope m using least squares
+    float sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+    size_t n = window_samples;
+
+    for (size_t i = 0; i < n; i++) {
+        size_t idx =
+            (_head + HISTORY_BUFFER_SIZE - n + i) % HISTORY_BUFFER_SIZE;
+        float x = static_cast<float>(i);
+        float y = use_hot_plate ? _buffer[idx].hot_plate_temp
+                                : _buffer[idx].cold_plate_temp;
+
+        sum_x += x;
+        sum_y += y;
+        sum_xy += x * y;
+        sum_xx += x * x;
+    }
+
+    float denom = n * sum_xx - sum_x * sum_x;
+    if (fabs(denom) < 0.0001f) {
+        return 0.0f;
+    }
+
+    // Slope in degrees per sample
+    float slope = (n * sum_xy - sum_x * sum_y) / denom;
+
+    // Convert to K/min based on actual sample interval
+    // slope is in degrees/sample, multiply by samples/minute
+    float samples_per_minute = 60000.0f / HISTORY_SAMPLE_INTERVAL_MS;
+    return slope * samples_per_minute;
+}
+
+float ThermalMetrics::getColdPlateRate() const {
+    return calculateSlopeKPerMin(false, COOLING_RATE_WINDOW_SAMPLES);
+}
+
+float ThermalMetrics::getHotPlateRate() const {
+    return calculateSlopeKPerMin(true, HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES);
+}
+
+bool ThermalMetrics::isHotSideStable(float max_rate_k_per_min,
+                                     size_t min_samples) const {
+    if (!hasMinimumHistory(min_samples))
+        return false;
+
+    float rate = getHotPlateRate();
+    if (rate == RATE_INSUFFICIENT_HISTORY)
+        return false;
+
+    return fabs(rate) <= max_rate_k_per_min;
+}
+
+// =============================================================================
+// NVS Persistence Implementation
+// =============================================================================
 
 void ThermalMetrics::recordNewMinimum(float temp, float current) {
     if (temp < _all_time_min_temp) {

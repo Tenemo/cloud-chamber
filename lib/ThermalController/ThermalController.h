@@ -6,8 +6,7 @@
  * -------------
  * The controller delegates responsibilities to specialized modules:
  * - DualPowerSupply: Symmetric control of two DPS5015 units
- * - ThermalHistory: Circular buffer and trend analysis
- * - ThermalMetrics: NVS persistence for long-term tracking
+ * - ThermalMetrics: Unified history buffer, trend analysis, and NVS persistence
  * - SafetyMonitor: Centralized safety checks
  * - CrashLog: SPIFFS persistence for crash diagnostics
  *
@@ -29,7 +28,6 @@
 #include "PT100.h"
 #include "SafetyMonitor.h"
 #include "ThermalConstants.h"
-#include "ThermalHistory.h"
 #include "ThermalMetrics.h"
 #include "config.h"
 #include <Arduino.h>
@@ -77,8 +75,6 @@ struct OptimizerState {
     float baseline_rate = 0.0f;    // Cooling rate at baseline
 
     // Step evaluation state
-    float temp_before_step = 100.0f;   // Alias for baseline_temp (legacy)
-    float rate_before_step = 0.0f;     // Alias for baseline_rate (legacy)
     bool awaiting_evaluation = false;  // Evaluation in progress
     unsigned long eval_start_time = 0; // When evaluation started
 
@@ -98,8 +94,6 @@ struct OptimizerState {
         baseline_current = 0.0f;
         baseline_temp = 100.0f;
         baseline_rate = 0.0f;
-        temp_before_step = 100.0f;
-        rate_before_step = 0.0f;
         awaiting_evaluation = false;
         eval_start_time = 0;
         best_temp_during_ramp = 100.0f;
@@ -137,7 +131,6 @@ class ThermalController {
 
     // Delegate modules
     DualPowerSupply _dps;
-    ThermalHistory _history;
     ThermalMetrics _metrics;
     SafetyMonitor _safety;
 
@@ -151,12 +144,13 @@ class ThermalController {
     OptimizerState _optimizer;
 
     // Tracking
+    // Session minimum temperature (reset each boot). Used for display/logging.
+    // Distinct from ThermalMetrics::_all_time_min_temp which persists to NVS.
     float _min_cold_temp_achieved;
     unsigned long _last_adjustment_time;
     unsigned long _steady_state_start_time;
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
-    unsigned long _last_imbalance_log_time;
 
     // Self-test state
     int _selftest_phase;
@@ -193,9 +187,31 @@ class ThermalController {
     bool runSafetyChecks();
 
     /**
+     * @brief Check if we're allowed to send PSU commands
+     *
+     * Centralizes the "am I allowed to command the DPS?" decision.
+     * Returns false when in states that should not modify PSU settings:
+     * - MANUAL_OVERRIDE: Human has taken control
+     * - THERMAL_FAULT: Emergency shutdown in progress
+     * - DPS_DISCONNECTED: No PSU communication
+     * - Shutdown in progress: Emergency ramp-down active
+     *
+     * @return true if PSU commands may be issued
+     */
+    bool canControlPower() const;
+
+    /**
      * @brief Evaluate the result of a current change
      */
     EvaluationResult evaluateCurrentChange();
+
+    /**
+     * @brief Process pending evaluation if one is active
+     * @param allow_transition If true, may trigger state transition on bounce
+     * @return true if evaluation was processed (IMPROVED, DEGRADED, or
+     * UNCHANGED) false if no evaluation pending or still WAITING
+     */
+    bool processEvaluationIfPending(bool allow_transition = false);
 
     /**
      * @brief Choose adaptive step size based on cooling rate and hot-side temp

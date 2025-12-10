@@ -1,12 +1,26 @@
 /**
  * @file ThermalMetrics.h
- * @brief NVS persistence for thermal control metrics
+ * @brief Unified thermal data tracking: history buffer, trend analysis, and NVS
+ * persistence
  *
- * Manages persistent storage of key metrics for long-term diagnostics:
- * - All-time minimum temperature achieved
- * - Optimal current that achieved that temperature
- * - Total accumulated runtime
- * - Session (boot) count
+ * This class combines two related concerns:
+ * 1. **Runtime History**: Circular buffer of temperature samples for trend
+ *    analysis and cooling rate calculations (volatile, lost on reset)
+ * 2. **Persistent Metrics**: NVS storage for long-term tracking of best
+ *    temperatures, optimal currents, and total runtime across sessions
+ *
+ * HISTORY BUFFER:
+ * ---------------
+ * - 300 samples at 1-second intervals = 5 minutes of history
+ * - Linear regression for cooling rate calculation (K/min)
+ * - Separate windows for cold plate (60 samples) and hot plate (10 samples)
+ *
+ * NVS PERSISTENCE:
+ * ----------------
+ * - All-time minimum temperature and corresponding current
+ * - Total runtime across all sessions (hours)
+ * - Session count
+ * - Periodic auto-save with space checking
  */
 
 #ifndef THERMAL_METRICS_H
@@ -18,61 +32,143 @@
 #include <Preferences.h>
 #include <nvs.h>
 
+// Special return value when insufficient history for rate calculation
+constexpr float RATE_INSUFFICIENT_HISTORY = -999.0f;
+
 /**
- * @brief NVS-backed metrics persistence
+ * @brief Single temperature sample with both plate readings
+ */
+struct ThermalSample {
+    float cold_plate_temp;
+    float hot_plate_temp;
+    unsigned long timestamp;
+};
+
+/**
+ * @brief Unified thermal data tracker
  *
- * Provides rate-limited writes to NVS to avoid flash wear while
- * maintaining important diagnostic data across power cycles.
+ * Handles both real-time trend analysis (circular buffer) and
+ * long-term persistence (NVS) in a single cohesive class.
  */
 class ThermalMetrics {
   public:
-    ThermalMetrics(Logger &logger);
+    explicit ThermalMetrics(Logger &logger);
 
     /**
-     * @brief Initialize and load metrics from NVS
-     * Call once during setup.
+     * @brief Initialize metrics system (load from NVS, increment session count)
      */
     void begin();
 
     /**
-     * @brief Periodic update - saves metrics if interval elapsed
-     * Call frequently from main loop.
+     * @brief Periodic update (save runtime, check metrics interval)
      */
     void update();
 
+    // =========================================================================
+    // History Buffer Interface
+    // =========================================================================
+
     /**
-     * @brief Record a new minimum temperature achievement
-     * @param temp The new minimum temperature
-     * @param current The current that achieved it
+     * @brief Add a temperature sample to the circular buffer
+     */
+    void recordSample(const ThermalSample &sample);
+
+    /**
+     * @brief Check if minimum sample count is available
+     */
+    bool hasMinimumHistory(size_t min_samples) const;
+
+    /**
+     * @brief Get a sample from history (0 = most recent)
+     * @return Pointer to sample, or nullptr if out of range
+     */
+    const ThermalSample *getSample(size_t samples_ago) const;
+
+    /**
+     * @brief Get cold plate cooling rate in K/min (negative = cooling)
+     * @return Rate, or RATE_INSUFFICIENT_HISTORY if not enough data
+     */
+    float getColdPlateRate() const;
+
+    /**
+     * @brief Get hot plate temperature rate in K/min
+     * @return Rate, or RATE_INSUFFICIENT_HISTORY if not enough data
+     */
+    float getHotPlateRate() const;
+
+    /**
+     * @brief Check if hot side temperature is stable
      *
-     * Forces an immediate NVS save if this is a new all-time best.
+     * Hot side is considered stable when its rate of change is below
+     * the threshold and we have enough history to make that determination.
+     *
+     * @param max_rate_k_per_min Maximum acceptable rate (K/min)
+     * @param min_samples Minimum history required for valid check
+     * @return true if stable, false if unstable or insufficient history
+     */
+    bool isHotSideStable(float max_rate_k_per_min,
+                         size_t min_samples = 60) const;
+
+    /**
+     * @brief Clear history buffer
+     * @note Annotated as potentially unused - kept for testing/reset scenarios
+     */
+    [[maybe_unused]] void clearHistory();
+
+    // =========================================================================
+    // NVS Persistence Interface
+    // =========================================================================
+
+    /**
+     * @brief Record a new minimum temperature (saves immediately if better)
      */
     void recordNewMinimum(float temp, float current);
 
     /**
-     * @brief Force save all metrics to NVS
+     * @brief Force immediate save to NVS
      */
     void forceSave();
 
-    // Getters
+    // =========================================================================
+    // Accessors
+    // =========================================================================
+
     float getAllTimeMinTemp() const { return _all_time_min_temp; }
     float getAllTimeOptimalCurrent() const { return _all_time_optimal_current; }
     unsigned long getTotalRuntimeSeconds() const {
         return _total_runtime_seconds;
     }
-    uint32_t getSessionCount() const { return _session_count; }
+    unsigned long getSessionCount() const { return _session_count; }
 
   private:
     Logger &_logger;
-    Preferences _prefs;
 
-    // Persisted values
+    // -------------------------------------------------------------------------
+    // History buffer (circular)
+    // -------------------------------------------------------------------------
+    ThermalSample _buffer[HISTORY_BUFFER_SIZE];
+    size_t _head;  // Next write position
+    size_t _count; // Number of valid samples (up to HISTORY_BUFFER_SIZE)
+
+    /**
+     * @brief Calculate temperature slope using linear regression
+     * @param use_hot_plate If true, use hot plate temps; else cold plate
+     * @param window_samples Number of samples to use for calculation
+     * @return Slope in K/min, or RATE_INSUFFICIENT_HISTORY
+     */
+    float calculateSlopeKPerMin(bool use_hot_plate,
+                                size_t window_samples) const;
+
+    // -------------------------------------------------------------------------
+    // NVS persistence state
+    // -------------------------------------------------------------------------
+    Preferences _prefs;
     float _all_time_min_temp;
     float _all_time_optimal_current;
     unsigned long _total_runtime_seconds;
-    uint32_t _session_count;
+    unsigned long _session_count;
 
-    // Timing
+    // Timing for periodic saves
     unsigned long _session_start_time;
     unsigned long _last_metrics_save_time;
     unsigned long _last_runtime_save_time;
@@ -87,24 +183,10 @@ class ThermalMetrics {
     // NVS space management
     static constexpr size_t NVS_MIN_FREE_ENTRIES = 10;
 
-    /**
-     * @brief Check if NVS has enough free space for writes
-     */
+    // NVS helpers
     bool checkNvsSpace();
-
-    /**
-     * @brief Load all metrics from NVS
-     */
     void loadFromNvs();
-
-    /**
-     * @brief Save metrics to NVS (respects rate limiting unless forced)
-     */
     void saveToNvs(bool force);
-
-    /**
-     * @brief Update and save runtime counter
-     */
     void updateRuntime();
 };
 

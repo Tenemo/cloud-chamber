@@ -82,6 +82,10 @@ static void initializeWatchdog() {
 static void initializeHardware() {
     logger.initializeDisplay();
 
+    // Mark session start in PSRAM log buffer for clear session boundaries
+    // This helps when reviewing dumps - each boot starts with this marker
+    logger.log("=== BOOT ===");
+
     // Initialize SPIFFS-based crash logging (before watchdog so we can log
     // reset reason)
     CrashLog::begin();

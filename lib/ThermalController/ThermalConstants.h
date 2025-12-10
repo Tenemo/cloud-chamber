@@ -81,6 +81,27 @@ constexpr unsigned long SHUTDOWN_STEP_MS = 500;
 
 // Imbalance logging rate limit
 constexpr unsigned long IMBALANCE_LOG_INTERVAL_MS = 60000;
+
+// DPS self-test timing
+constexpr unsigned long SELFTEST_TIMEOUT_MS = 3000; // Max time per DPS test
+constexpr unsigned long SELFTEST_SETTLE_MS = 500;   // Wait after each command
+
+// Startup configuration timing
+constexpr unsigned long STARTUP_CONFIG_WINDOW_MS =
+    500; // Window for initial PSU config
+constexpr unsigned long STARTUP_CONFIG_SEND_MS =
+    50; // Send config in first 50ms
 } // namespace Timing
+
+// =============================================================================
+// DPS Self-Test Constants (implementation details)
+// =============================================================================
+
+namespace SensorLimits {
+// DPS self-test values
+constexpr float SELFTEST_VOLTAGE = 1.0f; // Safe test voltage (no load)
+constexpr float SELFTEST_CURRENT = 0.1f; // Safe test current (no load)
+constexpr float SELFTEST_VOLTAGE_TOLERANCE = 0.2f; // Tolerance for verification
+} // namespace SensorLimits
 
 #endif // THERMAL_CONSTANTS_H
