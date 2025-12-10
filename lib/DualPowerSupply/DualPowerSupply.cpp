@@ -195,14 +195,9 @@ OverrideStatus DualPowerSupply::checkManualOverride() const {
         return OverrideStatus::NONE;
 
     // Check for any mismatch (current, voltage, or output state)
-    bool current_mismatch =
-        _psu0.hasCurrentMismatch() || _psu1.hasCurrentMismatch();
-    bool voltage_mismatch =
-        _psu0.hasVoltageMismatch() || _psu1.hasVoltageMismatch();
-    bool output_mismatch =
-        _psu0.hasOutputMismatch() || _psu1.hasOutputMismatch();
+    bool has_mismatch = _psu0.hasAnyMismatch() || _psu1.hasAnyMismatch();
 
-    if (current_mismatch || voltage_mismatch || output_mismatch) {
+    if (has_mismatch) {
         _consecutive_mismatches++;
 
         if (_consecutive_mismatches >= OVERRIDE_CONFIRM_COUNT) {
@@ -226,6 +221,10 @@ bool DualPowerSupply::areBothSettled() const {
         return false;
 
     return _psu0.isSettled() && _psu1.isSettled();
+}
+
+bool DualPowerSupply::isReadyForCommands() const {
+    return !_shutdown_in_progress && areBothSettled();
 }
 
 float DualPowerSupply::getAverageOutputCurrent() const {
@@ -357,25 +356,8 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
 // Self-Test
 // =============================================================================
 
-// Self-test phase constants (local to this file)
-namespace {
-constexpr int ST_PHASE_START = 0;
-constexpr int ST_PHASE_CHECK_SETTINGS = 1;
-constexpr int ST_PHASE_ENABLE_PSU0 = 2;
-constexpr int ST_PHASE_VERIFY_PSU0 = 3;
-constexpr int ST_PHASE_ENABLE_PSU1 = 4;
-constexpr int ST_PHASE_VERIFY_PSU1 = 5;
-constexpr int ST_PHASE_COMPLETE = 6;
-
-constexpr unsigned long ST_SETTLE_MS = 500;
-constexpr unsigned long ST_TIMEOUT_MS = 3000;
-constexpr float ST_VOLTAGE = 5.0f;
-constexpr float ST_CURRENT = 0.5f;
-constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
-} // namespace
-
 void DualPowerSupply::resetSelfTest() {
-    _selftest_phase = ST_PHASE_START;
+    _selftest_phase = static_cast<int>(SelfTestPhase::START);
     _selftest_phase_start = 0;
     _selftest_passed[0] = false;
     _selftest_passed[1] = false;
@@ -384,9 +366,10 @@ void DualPowerSupply::resetSelfTest() {
 SelfTestResult DualPowerSupply::runSelfTest() {
     unsigned long now = millis();
     unsigned long phase_elapsed = now - _selftest_phase_start;
+    auto phase = static_cast<SelfTestPhase>(_selftest_phase);
 
-    switch (_selftest_phase) {
-    case ST_PHASE_START:
+    switch (phase) {
+    case SelfTestPhase::START:
         _logger.log("DPS: Self-test start");
         _psu0.setVoltage(ST_VOLTAGE);
         _psu0.setCurrent(ST_CURRENT);
@@ -394,11 +377,11 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         _psu1.setVoltage(ST_VOLTAGE);
         _psu1.setCurrent(ST_CURRENT);
         _psu1.setOutput(false);
-        _selftest_phase = ST_PHASE_CHECK_SETTINGS;
+        _selftest_phase = static_cast<int>(SelfTestPhase::CHECK_SETTINGS);
         _selftest_phase_start = now;
         break;
 
-    case ST_PHASE_CHECK_SETTINGS:
+    case SelfTestPhase::CHECK_SETTINGS:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 
@@ -415,24 +398,24 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             return SelfTestResult::FAILED;
         }
 
-        _selftest_phase = ST_PHASE_ENABLE_PSU0;
+        _selftest_phase = static_cast<int>(SelfTestPhase::ENABLE_PSU0);
         _selftest_phase_start = now;
         break;
 
-    case ST_PHASE_ENABLE_PSU0:
+    case SelfTestPhase::ENABLE_PSU0:
         _psu0.setOutput(true);
-        _selftest_phase = ST_PHASE_VERIFY_PSU0;
+        _selftest_phase = static_cast<int>(SelfTestPhase::VERIFY_PSU0);
         _selftest_phase_start = now;
         break;
 
-    case ST_PHASE_VERIFY_PSU0:
+    case SelfTestPhase::VERIFY_PSU0:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 
         if (_psu0.isOutputOn()) {
             _selftest_passed[0] = true;
             _psu0.setOutput(false);
-            _selftest_phase = ST_PHASE_ENABLE_PSU1;
+            _selftest_phase = static_cast<int>(SelfTestPhase::ENABLE_PSU1);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {
             _logger.log("DPS: Self-test FAIL: DPS0 output");
@@ -441,22 +424,22 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         }
         break;
 
-    case ST_PHASE_ENABLE_PSU1:
+    case SelfTestPhase::ENABLE_PSU1:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
         _psu1.setOutput(true);
-        _selftest_phase = ST_PHASE_VERIFY_PSU1;
+        _selftest_phase = static_cast<int>(SelfTestPhase::VERIFY_PSU1);
         _selftest_phase_start = now;
         break;
 
-    case ST_PHASE_VERIFY_PSU1:
+    case SelfTestPhase::VERIFY_PSU1:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 
         if (_psu1.isOutputOn()) {
             _selftest_passed[1] = true;
             _psu1.setOutput(false);
-            _selftest_phase = ST_PHASE_COMPLETE;
+            _selftest_phase = static_cast<int>(SelfTestPhase::COMPLETE);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {
             _logger.log("DPS: Self-test FAIL: DPS1 output");
@@ -465,7 +448,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         }
         break;
 
-    case ST_PHASE_COMPLETE:
+    case SelfTestPhase::COMPLETE:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 

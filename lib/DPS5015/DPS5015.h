@@ -102,6 +102,16 @@ class DPS5015 {
     bool hasVoltageMismatch() const;
     bool hasOutputMismatch() const;
 
+    /**
+     * @brief Check if any mismatch exists between commanded and actual values
+     *
+     * Combines current, voltage, and output mismatch checks into one call.
+     * Use this for simplified manual override detection.
+     *
+     * @return true if any mismatch detected
+     */
+    bool hasAnyMismatch() const;
+
   private:
     Logger &_logger;
     HardwareSerial &_serial;

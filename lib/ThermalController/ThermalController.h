@@ -31,78 +31,8 @@
 #include "ThermalMetrics.h"
 #include <Arduino.h>
 
-// Controller state machine states
-enum class ThermalState {
-    INITIALIZING,    // Waiting for hardware to come online
-    SELF_TEST,       // Running DPS self-test
-    STARTUP,         // Soft-start with low current
-    RAMP_UP,         // Gradually increasing current to maximum
-    STEADY_STATE,    // Maintaining maximum safe operation
-    MANUAL_OVERRIDE, // Human has taken control
-    THERMAL_FAULT,   // Critical temperature exceeded
-    SENSOR_FAULT,    // Critical sensor failure
-    DPS_DISCONNECTED // Lost communication with PSU(s)
-};
-
-// Result of evaluating a current change
-enum class EvaluationResult { WAITING, IMPROVED, DEGRADED, UNCHANGED };
-
-/**
- * @brief Hill-climber optimizer state for current optimization
- *
- * Groups all variables related to finding the optimal TEC current.
- * This makes save/restore of optimizer state cleaner and reduces
- * clutter in the main controller class.
- *
- * Key concepts:
- * - optimal_current/temp_at_optimal: Session best (updated when truly better)
- * - baseline_current/temp: Point before the last step (for local revert)
- * - probe_direction: +1 = increasing current, -1 = decreasing
- * - current_step: Adaptive step size (coarse→medium→fine as we approach
- * optimum)
- * - consecutive_bounces: Tracks direction flips to shrink step size
- * - converged: True when both directions fail to improve (stop probing)
- */
-struct OptimizerState {
-    // Session best tracking
-    float optimal_current = 0.0f;   // Best current found so far this session
-    float temp_at_optimal = 100.0f; // Temperature achieved at optimal
-
-    // Baseline before last step (for local revert, not jump to global best)
-    float baseline_current = 0.0f; // Current before the last step
-    float baseline_temp = 100.0f;  // Cold plate temp at baseline
-    float baseline_rate = 0.0f;    // Cooling rate at baseline
-
-    // Step evaluation state
-    bool awaiting_evaluation = false;  // Evaluation in progress
-    unsigned long eval_start_time = 0; // When evaluation started
-
-    // Global best tracking during ramp (may differ from step-by-step optimal)
-    float best_temp_during_ramp = 100.0f; // Coldest temp seen during this ramp
-    float current_at_best_temp = 0.0f;    // Current that achieved best temp
-
-    // Adaptive step control
-    int8_t probe_direction = 1;      // +1 = increase current, -1 = decrease
-    float current_step = 0.5f;       // Current step size (adaptive)
-    uint8_t consecutive_bounces = 0; // Direction flips - shrink step after 2+
-    bool converged = false;          // True when both directions fail
-
-    void reset() {
-        optimal_current = 0.0f;
-        temp_at_optimal = 100.0f;
-        baseline_current = 0.0f;
-        baseline_temp = 100.0f;
-        baseline_rate = 0.0f;
-        awaiting_evaluation = false;
-        eval_start_time = 0;
-        best_temp_during_ramp = 100.0f;
-        current_at_best_temp = 0.0f;
-        probe_direction = 1;
-        current_step = 0.5f;
-        consecutive_bounces = 0;
-        converged = false;
-    }
-};
+// ThermalState enum is defined in SafetyMonitor.h (shared for context-aware
+// checks) EvaluationResult and OptimizerState are defined in ThermalMetrics.h
 
 class ThermalController {
   public:
@@ -136,13 +66,7 @@ class ThermalController {
     unsigned long _state_entry_time;
     unsigned long _last_sample_time;
 
-    // Hill-climber optimizer state
-    OptimizerState _optimizer;
-
-    // Tracking
-    // Session minimum temperature (reset each boot). Used for display/logging.
-    // Distinct from ThermalMetrics::_all_time_min_temp which persists to NVS.
-    float _min_cold_temp_achieved;
+    // Timing tracking
     unsigned long _last_adjustment_time;
     unsigned long _steady_state_start_time;
     unsigned long _ramp_start_time;
@@ -192,27 +116,12 @@ class ThermalController {
     bool canControlPower() const;
 
     /**
-     * @brief Evaluate the result of a current change
-     */
-    EvaluationResult evaluateCurrentChange();
-
-    /**
      * @brief Process pending evaluation if one is active
      * @param allow_transition If true, may trigger state transition on bounce
      * @return true if evaluation was processed (IMPROVED, DEGRADED, or
      * UNCHANGED) false if no evaluation pending or still WAITING
      */
     bool processEvaluationIfPending(bool allow_transition = false);
-
-    /**
-     * @brief Choose adaptive step size based on cooling rate and hot-side temp
-     *
-     * Uses larger steps when far from optimum (fast cooling rate) and
-     * smaller steps when near optimum (slow cooling rate or hot side warm).
-     *
-     * @return Step size in amps (COARSE_STEP_A, MEDIUM_STEP_A, or FINE_STEP_A)
-     */
-    float chooseStepSize() const;
 
     // =========================================================================
     // History and display

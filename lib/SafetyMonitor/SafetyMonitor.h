@@ -23,6 +23,19 @@
 #include "ThermalMetrics.h"
 #include <Arduino.h>
 
+// Forward declaration - must match ThermalController's enum
+enum class ThermalState {
+    INITIALIZING,
+    SELF_TEST,
+    STARTUP,
+    RAMP_UP,
+    STEADY_STATE,
+    MANUAL_OVERRIDE,
+    THERMAL_FAULT,
+    SENSOR_FAULT,
+    DPS_DISCONNECTED
+};
+
 /**
  * @brief Result of a safety check
  *
@@ -60,14 +73,19 @@ class SafetyMonitor {
      * @brief Run all safety checks in priority order
      *
      * Consolidates sensor health, sanity, thermal limits, DPS connection,
-     * and manual override checks. Does NOT include PT100 plausibility or
-     * cross-sensor validation (which have grace period logic).
+     * manual override, PT100 plausibility, and cross-sensor validation.
+     * Grace periods are applied internally based on state context.
      *
      * Order: sensor health → sensor sanity → thermal limits → DPS → override
+     *        → PT100 plausibility → cross-sensor validation
      *
+     * @param current_state Current thermal controller state
+     * @param ramp_start_time Time when RAMP_UP began (0 if not in RAMP_UP)
+     * @param avg_current Average current for plausibility check
      * @return SafetyResult with status and reason (if fault)
      */
-    SafetyResult checkAll();
+    SafetyResult checkAll(ThermalState current_state,
+                          unsigned long ramp_start_time, float avg_current);
 
     /**
      * @brief Get the reason string for the last fault
@@ -145,9 +163,6 @@ class SafetyMonitor {
 
     // Fault tracking
     char _last_fault_reason[48];
-
-    // DPS connection state tracking
-    bool _dps_was_connected;
 
     // Hot-side hysteresis
     bool _hot_side_in_warning;

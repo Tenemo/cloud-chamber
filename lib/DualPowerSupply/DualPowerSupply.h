@@ -215,6 +215,27 @@ class DualPowerSupply {
      */
     DPS5015 &getPsu(size_t channel) { return (channel == 0) ? _psu0 : _psu1; }
 
+    /**
+     * @brief Reset manual override counter
+     *
+     * Call this immediately after intentionally changing current to prevent
+     * false override detection. The counter tracks consecutive mismatches
+     * between commanded and actual values - an intentional change will cause
+     * a temporary mismatch that should not trigger override detection.
+     */
+    void resetOverrideCounter() { _consecutive_mismatches = 0; }
+
+    /**
+     * @brief Check if PSUs are ready for new commands
+     *
+     * Returns true when both PSUs are connected, settled (last commands
+     * processed), and not in emergency shutdown. Use before issuing new
+     * setpoints.
+     *
+     * @return true if safe to send new commands
+     */
+    bool isReadyForCommands() const;
+
     // =========================================================================
     // Channel Imbalance Detection
     // =========================================================================
@@ -307,6 +328,24 @@ class DualPowerSupply {
     // Override confirmation count
     static constexpr int OVERRIDE_CONFIRM_COUNT =
         MANUAL_OVERRIDE_MISMATCH_COUNT;
+
+    // Self-test phases
+    enum class SelfTestPhase {
+        START = 0,
+        CHECK_SETTINGS = 1,
+        ENABLE_PSU0 = 2,
+        VERIFY_PSU0 = 3,
+        ENABLE_PSU1 = 4,
+        VERIFY_PSU1 = 5,
+        COMPLETE = 6
+    };
+
+    // Self-test configuration
+    static constexpr unsigned long ST_SETTLE_MS = 500;
+    static constexpr unsigned long ST_TIMEOUT_MS = 3000;
+    static constexpr float ST_VOLTAGE = 5.0f;
+    static constexpr float ST_CURRENT = 0.5f;
+    static constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
 };
 
 #endif // DUAL_POWER_SUPPLY_H

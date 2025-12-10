@@ -9,8 +9,8 @@
 ThermalMetrics::ThermalMetrics(Logger &logger)
     : _logger(logger), _head(0), _count(0), _all_time_min_temp(100.0f),
       _all_time_optimal_current(0.0f), _total_runtime_seconds(0),
-      _session_count(0), _session_start_time(0), _last_metrics_save_time(0),
-      _last_runtime_save_time(0) {}
+      _session_count(0), _session_min_temp(100.0f), _session_start_time(0),
+      _last_metrics_save_time(0), _last_runtime_save_time(0) {}
 
 void ThermalMetrics::begin() {
     _session_start_time = millis();
@@ -113,6 +113,82 @@ bool ThermalMetrics::isHotSideStable(float max_rate_k_per_min,
         return false;
 
     return fabs(rate) <= max_rate_k_per_min;
+}
+
+// =============================================================================
+// Optimizer Analysis Implementation
+// =============================================================================
+
+EvaluationResult ThermalMetrics::evaluateEffect(float cold_temp) {
+    unsigned long now = millis();
+
+    // Minimum delay before evaluation
+    if (now - _optimizer.eval_start_time < CURRENT_EVALUATION_DELAY_MS)
+        return EvaluationResult::WAITING;
+
+    // Wait for hot-side stabilization
+    bool stable = isHotSideStable(HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
+    bool timeout =
+        (now - _optimizer.eval_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+
+    if (!stable && !timeout)
+        return EvaluationResult::WAITING;
+
+    // Compare against baseline
+    float rate = getColdPlateRate();
+    float rate_delta = rate - _optimizer.baseline_rate;
+
+    bool improved = (cold_temp < _optimizer.baseline_temp -
+                                     Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
+    bool degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
+    bool worsened = (cold_temp > _optimizer.baseline_temp +
+                                     OVERCURRENT_WARMING_THRESHOLD_C);
+
+    if (improved && !degraded)
+        return EvaluationResult::IMPROVED;
+    if (worsened || degraded)
+        return EvaluationResult::DEGRADED;
+    return EvaluationResult::UNCHANGED;
+}
+
+float ThermalMetrics::recommendStepSize(bool is_hot_side_warning) const {
+    // Choose adaptive step size based on cooling rate magnitude
+    // Use larger steps when far from optimum (fast cooling) for speed
+    // Use smaller steps when near optimum (slow cooling) for precision
+    //
+    // Note: If insufficient history, getColdPlateRate() returns
+    // RATE_INSUFFICIENT_HISTORY (-999). Taking fabs() gives a very large value,
+    // which correctly biases us towards COARSE_STEP_A during early ramp when
+    // we haven't collected enough samples yet. This is intentional: we want
+    // fast initial ramp before we have rate data.
+
+    float rate_magnitude = fabs(getColdPlateRate());
+
+    // Hot-side in warning zone: cap at medium step regardless of rate
+    if (is_hot_side_warning) {
+        // If we've bounced multiple times, use fine step
+        if (_optimizer.consecutive_bounces >= 2) {
+            return FINE_STEP_A;
+        }
+        return MEDIUM_STEP_A;
+    }
+
+    // If we've bounced multiple times, use finer steps
+    if (_optimizer.consecutive_bounces >= 2) {
+        return FINE_STEP_A;
+    }
+
+    // Select based on cooling rate magnitude
+    if (rate_magnitude > STEP_COARSE_RATE_THRESHOLD) {
+        // Fast cooling - far from optimum, use coarse steps
+        return COARSE_STEP_A;
+    } else if (rate_magnitude > STEP_MEDIUM_RATE_THRESHOLD) {
+        // Moderate cooling - approaching optimum
+        return MEDIUM_STEP_A;
+    } else {
+        // Slow cooling - near optimum, use fine steps
+        return FINE_STEP_A;
+    }
 }
 
 // =============================================================================
