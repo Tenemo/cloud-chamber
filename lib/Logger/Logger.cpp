@@ -63,17 +63,33 @@ void Logger::initializeDisplay() {
 
     // Allocate PSRAM circular log buffer
     // PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
-    size_t buffer_size = PSRAM_LOG_ENTRY_SIZE * PSRAM_LOG_BUFFER_ENTRIES;
-    _psram_log_buffer =
-        (char *)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
-    if (_psram_log_buffer != nullptr) {
-        _psram_available = true;
-        memset(_psram_log_buffer, 0, buffer_size);
-        Serial.printf("Logger: PSRAM log buffer allocated (%d bytes)\n",
-                      buffer_size);
-    } else {
+    size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+
+    Serial.printf("Logger: PSRAM total=%dKB, free=%dKB\n", psram_total / 1024,
+                  psram_free / 1024);
+
+    if (psram_free < PSRAM_LOG_BUFFER_SIZE) {
+        // Not enough PSRAM - try smaller buffer or skip
         _psram_available = false;
-        Serial.println("Logger: PSRAM unavailable, using serial only");
+        _psram_log_buffer = nullptr;
+        Serial.printf(
+            "Logger: Insufficient PSRAM (need %dKB), logging to serial only\n",
+            PSRAM_LOG_BUFFER_SIZE / 1024);
+    } else {
+        _psram_log_buffer =
+            (char *)heap_caps_malloc(PSRAM_LOG_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
+        if (_psram_log_buffer != nullptr) {
+            _psram_available = true;
+            memset(_psram_log_buffer, 0, PSRAM_LOG_BUFFER_SIZE);
+            Serial.printf(
+                "Logger: PSRAM log buffer allocated (%dKB, %d entries)\n",
+                PSRAM_LOG_BUFFER_SIZE / 1024, PSRAM_LOG_BUFFER_ENTRIES);
+        } else {
+            _psram_available = false;
+            Serial.println(
+                "Logger: PSRAM allocation failed, using serial only");
+        }
     }
 
     _backlight = LCD_BL;

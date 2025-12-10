@@ -91,9 +91,12 @@ constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
 // PSRAM circular log buffer configuration
 // PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
 // Buffer is lost on reset but can be dumped on demand for diagnostics
+// ESP32-S3 has 8MB PSRAM - we use 1MB for logging (~12,800 entries)
 constexpr size_t PSRAM_LOG_ENTRY_SIZE =
     80; // Max chars per log entry (with timestamp)
-constexpr size_t PSRAM_LOG_BUFFER_ENTRIES = 500; // ~40KB in PSRAM
+constexpr size_t PSRAM_LOG_BUFFER_SIZE = 1024 * 1024; // 1MB buffer
+constexpr size_t PSRAM_LOG_BUFFER_ENTRIES =
+    PSRAM_LOG_BUFFER_SIZE / PSRAM_LOG_ENTRY_SIZE; // ~12,800 entries
 
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
