@@ -57,7 +57,8 @@ DS18B20Sensor ds18b20_sensors[] = {
     {logger, dallasSensors, DS18B20_3_ADDRESS, "AMB_2"}};
 
 // DPS5015 power supplies (Serial1 and Serial2)
-DPS5015 psus[] = {{logger, "DC12", Serial1}, {logger, "DC34", Serial2}};
+DPS5015 psu0(logger, "DC12", Serial1);
+DPS5015 psu1(logger, "DC34", Serial2);
 
 // Thermal controller - coordinates sensors and PSUs
 ThermalController
@@ -65,8 +66,9 @@ ThermalController
                       pt100_sensor,       // Cold plate (PT100)
                       ds18b20_sensors[0], // Hot plate (first DS18B20)
                       &ds18b20_sensors[1],
-                      2,   // Ambient sensors (remaining DS18B20s)
-                      psus // PSU array
+                      2,    // Ambient sensors (remaining DS18B20s)
+                      psu0, // PSU 0 (channels 1-2)
+                      psu1  // PSU 1 (channels 3-4)
     );
 
 static void initializeWatchdog() {
@@ -97,8 +99,8 @@ static void initializeHardware() {
     pt100_sensor.begin();
 
     // Initialize PSUs (ThermalController will configure them)
-    psus[0].begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
-    psus[1].begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
+    psu0.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
+    psu1.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
 
     // Initialize thermal controller
     thermalController.begin();
@@ -115,8 +117,8 @@ void loop() {
     pt100_sensor.update();
     for (auto &sensor : ds18b20_sensors)
         sensor.update();
-    for (auto &psu : psus)
-        psu.update();
+    psu0.update();
+    psu1.update();
 
     // Run thermal control logic
     thermalController.update();

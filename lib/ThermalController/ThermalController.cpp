@@ -2,11 +2,10 @@
  * @file ThermalController.cpp
  * @brief Implementation of the thermal control system
  *
- * Refactored to use delegate modules:
- * - ThermalHistory for data buffering and rate calculations
- * - ThermalMetrics for NVS persistence
- * - SafetyMonitor for centralized safety checks
- * - CrashLog for persistent crash logging
+ * Refactored for clarity:
+ * - Safety checks run once at top of update(), not in each handler
+ * - All PSU control goes through DualPowerSupply wrapper
+ * - State handlers contain only state-specific logic
  */
 
 #include "ThermalController.h"
@@ -19,27 +18,27 @@
 ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
                                      DS18B20Sensor &hotPlate,
                                      DS18B20Sensor *ambientSensors,
-                                     size_t numAmbient, DPS5015 *psus)
+                                     size_t numAmbient, DPS5015 &psu0,
+                                     DPS5015 &psu1)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _ambient_sensors(ambientSensors), _num_ambient(numAmbient), _psus(psus),
-      _metrics(logger), _safety(logger, coldPlate, hotPlate, psus),
+      _ambient_sensors(ambientSensors), _num_ambient(numAmbient),
+      _dps(logger, psu0, psu1), _metrics(logger),
+      _safety(logger, coldPlate, hotPlate, psu0, psu1),
       _state(ThermalState::INITIALIZING),
       _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
-      _last_sample_time(0), _target_current{0.0f, 0.0f}, _optimal_current(0.0f),
-      _temp_at_optimal(100.0f), _temp_before_last_increase(100.0f),
-      _rate_before_last_increase(0.0f), _awaiting_evaluation(false),
-      _evaluation_start_time(0), _min_cold_temp_achieved(100.0f),
-      _last_adjustment_time(0), _steady_state_start_time(0),
-      _ramp_start_time(0), _sensor_fault_time(0), _shutdown_in_progress(false),
-      _shutdown_current(0.0f), _last_shutdown_step_time(0), _selftest_phase(0),
-      _selftest_phase_start(0), _selftest_passed{false, false},
-      _last_imbalance_log_time(0) {}
+      _last_sample_time(0), _optimal_current(0.0f), _temp_at_optimal(100.0f),
+      _temp_before_last_increase(100.0f), _rate_before_last_increase(0.0f),
+      _awaiting_evaluation(false), _evaluation_start_time(0),
+      _min_cold_temp_achieved(100.0f), _last_adjustment_time(0),
+      _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
+      _last_imbalance_log_time(0), _selftest_phase(0), _selftest_phase_start(0),
+      _selftest_passed{false, false} {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
     _last_sample_time = millis();
 
-    // Initialize delegate modules
+    _dps.begin();
     _metrics.begin();
     _safety.setHistory(&_history);
 
@@ -48,6 +47,7 @@ void ThermalController::begin() {
 }
 
 void ThermalController::registerDisplayLines() {
+    using namespace ThermalDisplay;
     _logger.registerTextLine(LINE_STATE, "State:", "INIT");
     _logger.registerLine(LINE_RATE, "dT/dt:", "K/m", 0.0f);
     _logger.registerLine(LINE_I1_SET, "I1 SET:", "A", 0.0f);
@@ -87,10 +87,6 @@ const char *ThermalController::getStateString() const {
 // Public Accessors
 // =============================================================================
 
-float ThermalController::getTargetCurrent(size_t channel) const {
-    return (channel < 2) ? _target_current[channel] : 0.0f;
-}
-
 unsigned long ThermalController::getSteadyStateUptime() const {
     if (_state == ThermalState::STEADY_STATE) {
         return millis() - _steady_state_start_time;
@@ -115,11 +111,27 @@ void ThermalController::update() {
         _last_sample_time = now;
     }
 
-    // Update metrics (handles NVS saves with rate limiting)
+    // Update delegate modules
+    _dps.update();
     _metrics.update();
-
-    // Update hot-side hysteresis tracking
     _safety.updateHysteresis();
+
+    // Continue emergency shutdown if in progress
+    if (_dps.isShutdownInProgress()) {
+        _dps.updateEmergencyShutdown();
+    }
+
+    // Run safety checks ONCE at top of loop (not in each handler)
+    // Skip for states that don't need normal safety checks
+    bool skip_safety = (_state == ThermalState::INITIALIZING ||
+                        _state == ThermalState::SELF_TEST ||
+                        _state == ThermalState::THERMAL_FAULT ||
+                        _state == ThermalState::DPS_DISCONNECTED);
+
+    if (!skip_safety && !runSafetyChecks()) {
+        updateDisplay();
+        return; // Safety check triggered state transition
+    }
 
     // Run state-specific handler
     switch (_state) {
@@ -156,6 +168,56 @@ void ThermalController::update() {
 }
 
 // =============================================================================
+// Safety Checks (run once per update, not in each handler)
+// =============================================================================
+
+bool ThermalController::runSafetyChecks() {
+    // Check thermal limits
+    SafetyStatus status = _safety.checkThermalLimits();
+    if (status == SafetyStatus::THERMAL_FAULT) {
+        enterThermalFault(_safety.getLastFaultReason());
+        return false;
+    }
+
+    // Check sensor health
+    status = _safety.checkSensorHealth();
+    if (status == SafetyStatus::SENSOR_FAULT) {
+        transitionTo(ThermalState::SENSOR_FAULT);
+        return false;
+    }
+
+    // Check DPS connection
+    status = _safety.checkDpsConnection();
+    if (status == SafetyStatus::DPS_DISCONNECTED) {
+        transitionTo(ThermalState::DPS_DISCONNECTED);
+        return false;
+    }
+
+    // Check manual override (via DualPowerSupply)
+    OverrideStatus override = _dps.checkManualOverride();
+    if (override == OverrideStatus::DETECTED) {
+        _logger.log("TC: Manual override detected");
+        transitionTo(ThermalState::MANUAL_OVERRIDE);
+        return false;
+    }
+
+    // State-specific optional checks
+    bool in_early_ramp = (_state == ThermalState::RAMP_UP &&
+                          (millis() - _ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS);
+
+    if (!in_early_ramp && _state != ThermalState::STARTUP) {
+        float avg_current = _dps.getTargetCurrent();
+        status = _safety.checkPT100Plausibility(avg_current, false);
+        if (status == SafetyStatus::THERMAL_FAULT) {
+            enterThermalFault(_safety.getLastFaultReason());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// =============================================================================
 // State Transitions
 // =============================================================================
 
@@ -181,7 +243,7 @@ void ThermalController::transitionTo(ThermalState newState) {
         _ramp_start_time = millis();
         break;
     case ThermalState::SELF_TEST:
-        _selftest_phase = 0;
+        _selftest_phase = SelfTest::PHASE_START;
         _selftest_phase_start = millis();
         _selftest_passed[0] = false;
         _selftest_passed[1] = false;
@@ -202,24 +264,10 @@ void ThermalController::enterThermalFault(const char *reason) {
 
     float hot_temp = _hot_plate.getTemperature();
 
-    // HARD CUT at critical temperature
     if (hot_temp >= HOT_SIDE_FAULT_C) {
-        _logger.log("TC: HARD CUT!");
-        CrashLog::logCritical("SHUTDOWN", "Hard cut - hot side critical");
-
-        if (!_psus[0].disableOutput()) {
-            _logger.log("CRIT: PSU0 shutdown FAIL!");
-        }
-        if (!_psus[1].disableOutput()) {
-            _logger.log("CRIT: PSU1 shutdown FAIL!");
-        }
-
-        _target_current[0] = 0;
-        _target_current[1] = 0;
-        _shutdown_in_progress = false;
+        _dps.hardShutdown();
     } else {
-        // Non-critical: controlled ramp-down
-        startEmergencyShutdown();
+        _dps.startEmergencyShutdown();
     }
 
     _state = ThermalState::THERMAL_FAULT;
@@ -227,79 +275,7 @@ void ThermalController::enterThermalFault(const char *reason) {
 }
 
 // =============================================================================
-// Safety Check Wrapper
-// =============================================================================
-
-bool ThermalController::runSafetyChecks(bool include_plausibility,
-                                        bool include_cross_check) {
-    SafetyStatus status = _safety.runAllChecks();
-
-    // Handle result based on status
-    switch (status) {
-    case SafetyStatus::OK:
-        break;
-
-    case SafetyStatus::THERMAL_FAULT:
-        enterThermalFault(_safety.getLastFaultReason());
-        return false;
-
-    case SafetyStatus::SENSOR_FAULT:
-        transitionTo(ThermalState::SENSOR_FAULT);
-        return false;
-
-    case SafetyStatus::DPS_DISCONNECTED:
-        transitionTo(ThermalState::DPS_DISCONNECTED);
-        return false;
-
-    case SafetyStatus::MANUAL_OVERRIDE:
-        _logger.log(_safety.getLastFaultReason());
-        transitionTo(ThermalState::MANUAL_OVERRIDE);
-        return false;
-
-    case SafetyStatus::WARNING:
-        // Warnings are logged but don't block
-        break;
-    }
-
-    // Additional optional checks
-    if (include_plausibility && !shouldSkipPlausibilityCheck()) {
-        float avg_current = (_target_current[0] + _target_current[1]) / 2.0f;
-        status = _safety.checkPT100Plausibility(avg_current, false);
-        if (status == SafetyStatus::THERMAL_FAULT) {
-            enterThermalFault(_safety.getLastFaultReason());
-            return false;
-        }
-    }
-
-    if (include_cross_check && !shouldSkipCrossCheck()) {
-        _safety.checkCrossSensorValidation(false);
-        // Cross-check is warning-only, doesn't block
-    }
-
-    return true;
-}
-
-bool ThermalController::shouldSkipPlausibilityCheck() const {
-    if (_state == ThermalState::STARTUP ||
-        _state == ThermalState::INITIALIZING ||
-        _state == ThermalState::SELF_TEST) {
-        return true;
-    }
-    if (_state == ThermalState::RAMP_UP) {
-        return (millis() - _ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS;
-    }
-    return false;
-}
-
-bool ThermalController::shouldSkipCrossCheck() const {
-    if (_state == ThermalState::RAMP_UP) {
-        return (millis() - _ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS;
-    }
-    return false;
-}
-
-// =============================================================================
-// State Handlers
+// State Handlers (simplified - no repeated safety checks)
 // =============================================================================
 
 void ThermalController::handleInitializing() {
@@ -307,58 +283,36 @@ void ThermalController::handleInitializing() {
 
     bool cold_plate_ok = !_cold_plate.isInError();
     bool hot_plate_ok = _hot_plate.isConnected();
-    bool psu0_ok = _psus[0].isConnected();
-    bool psu1_ok = _psus[1].isConnected();
+    bool both_psu_ok = _dps.areBothConnected();
 
     // Check for hot reset (DPS already running)
-    if (psu0_ok || psu1_ok) {
-        bool output0_on = _psus[0].isOutputOn();
-        bool output1_on = _psus[1].isOutputOn();
+    if (_dps.isEitherConnected() && _dps.isOutputOn()) {
+        float actual_current = _dps.getAverageOutputCurrent();
 
-        if (output0_on || output1_on) {
-            float actual_current_0 = _psus[0].getSetCurrent();
-            float actual_current_1 = _psus[1].getSetCurrent();
+        // Wait for Modbus read to complete
+        if (actual_current < Tolerance::MIN_CURRENT_THRESHOLD)
+            return;
 
-            // Wait for Modbus read to complete
-            if ((output0_on &&
-                 actual_current_0 < MODBUS_READ_COMPLETE_THRESHOLD_A) ||
-                (output1_on &&
-                 actual_current_1 < MODBUS_READ_COMPLETE_THRESHOLD_A)) {
-                return;
+        if (actual_current > HOT_RESET_CURRENT_THRESHOLD_A) {
+            _logger.log("TC: Hot reset detected");
+            CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
+
+            float adopted = fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
+            _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
+            _optimal_current = adopted;
+            _temp_at_optimal = _cold_plate.getTemperature();
+
+            if (adopted >= MAX_CURRENT_PER_CHANNEL - 0.5f) {
+                transitionTo(ThermalState::STEADY_STATE);
+            } else {
+                transitionTo(ThermalState::RAMP_UP);
             }
-
-            float max_actual = fmax(actual_current_0, actual_current_1);
-
-            if (max_actual > HOT_RESET_CURRENT_THRESHOLD_A) {
-                _logger.log("TC: Hot reset detected");
-                CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
-
-                char buf[48];
-                snprintf(buf, sizeof(buf), "TC: Adopting %.1fA", max_actual);
-                _logger.log(buf);
-
-                float adopted_current =
-                    fmin(max_actual, MAX_CURRENT_PER_CHANNEL);
-                _target_current[0] = adopted_current;
-                _target_current[1] = adopted_current;
-                _psus[0].configure(TEC_VOLTAGE_SETPOINT, adopted_current, true);
-                _psus[1].configure(TEC_VOLTAGE_SETPOINT, adopted_current, true);
-
-                _optimal_current = adopted_current;
-                _temp_at_optimal = _cold_plate.getTemperature();
-
-                if (adopted_current >= MAX_CURRENT_PER_CHANNEL - 0.5f) {
-                    transitionTo(ThermalState::STEADY_STATE);
-                } else {
-                    transitionTo(ThermalState::RAMP_UP);
-                }
-                return;
-            }
+            return;
         }
     }
 
     // All hardware ready?
-    if (cold_plate_ok && hot_plate_ok && psu0_ok && psu1_ok) {
+    if (cold_plate_ok && hot_plate_ok && both_psu_ok) {
         transitionTo(ThermalState::SELF_TEST);
         return;
     }
@@ -379,32 +333,37 @@ void ThermalController::handleSelfTest() {
     unsigned long now = millis();
     unsigned long phase_elapsed = now - _selftest_phase_start;
 
+    // Access raw PSUs for self-test (via safety monitor which has them)
+    DPS5015 &psu0 = _safety.getPsu(0);
+    DPS5015 &psu1 = _safety.getPsu(1);
+
     switch (_selftest_phase) {
-    case 0:
+    case SelfTest::PHASE_START:
         _logger.log("TC: Self-test start");
-        for (size_t i = 0; i < 2; i++) {
-            _psus[i].setVoltage(DPS_SELFTEST_VOLTAGE);
-            _psus[i].setCurrent(DPS_SELFTEST_CURRENT);
-            _psus[i].setOutput(false);
-        }
-        _selftest_phase = 1;
+        psu0.setVoltage(DPS_SELFTEST_VOLTAGE);
+        psu0.setCurrent(DPS_SELFTEST_CURRENT);
+        psu0.setOutput(false);
+        psu1.setVoltage(DPS_SELFTEST_VOLTAGE);
+        psu1.setCurrent(DPS_SELFTEST_CURRENT);
+        psu1.setOutput(false);
+        _selftest_phase = SelfTest::PHASE_CHECK_SETTINGS;
         _selftest_phase_start = now;
         break;
 
-    case 1:
+    case SelfTest::PHASE_CHECK_SETTINGS:
         if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
             return;
 
-        if (!_psus[0].isConnected() || !_psus[1].isConnected()) {
+        if (!_dps.areBothConnected()) {
             _logger.log("TC: Self-test FAIL: DPS offline");
             CrashLog::logCritical("SELFTEST_FAIL", "DPS offline");
             transitionTo(ThermalState::DPS_DISCONNECTED);
             return;
         }
 
-        if (fabs(_psus[0].getSetVoltage() - DPS_SELFTEST_VOLTAGE) >
+        if (fabs(psu0.getSetVoltage() - DPS_SELFTEST_VOLTAGE) >
                 DPS_SELFTEST_VOLTAGE_TOLERANCE ||
-            fabs(_psus[1].getSetVoltage() - DPS_SELFTEST_VOLTAGE) >
+            fabs(psu1.getSetVoltage() - DPS_SELFTEST_VOLTAGE) >
                 DPS_SELFTEST_VOLTAGE_TOLERANCE) {
             _logger.log("TC: Self-test FAIL: V mismatch");
             CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
@@ -412,24 +371,24 @@ void ThermalController::handleSelfTest() {
             return;
         }
 
-        _selftest_phase = 2;
+        _selftest_phase = SelfTest::PHASE_ENABLE_PSU0;
         _selftest_phase_start = now;
         break;
 
-    case 2:
-        _psus[0].setOutput(true);
-        _selftest_phase = 3;
+    case SelfTest::PHASE_ENABLE_PSU0:
+        psu0.setOutput(true);
+        _selftest_phase = SelfTest::PHASE_VERIFY_PSU0;
         _selftest_phase_start = now;
         break;
 
-    case 3:
+    case SelfTest::PHASE_VERIFY_PSU0:
         if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
             return;
 
-        if (_psus[0].isOutputOn()) {
+        if (psu0.isOutputOn()) {
             _selftest_passed[0] = true;
-            _psus[0].setOutput(false);
-            _selftest_phase = 4;
+            psu0.setOutput(false);
+            _selftest_phase = SelfTest::PHASE_ENABLE_PSU1;
             _selftest_phase_start = now;
         } else if (phase_elapsed > DPS_SELFTEST_TIMEOUT_MS) {
             _logger.log("TC: Self-test FAIL: DPS0 output");
@@ -438,23 +397,22 @@ void ThermalController::handleSelfTest() {
         }
         break;
 
-    case 4:
+    case SelfTest::PHASE_ENABLE_PSU1:
         if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
             return;
-
-        _psus[1].setOutput(true);
-        _selftest_phase = 5;
+        psu1.setOutput(true);
+        _selftest_phase = SelfTest::PHASE_VERIFY_PSU1;
         _selftest_phase_start = now;
         break;
 
-    case 5:
+    case SelfTest::PHASE_VERIFY_PSU1:
         if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
             return;
 
-        if (_psus[1].isOutputOn()) {
+        if (psu1.isOutputOn()) {
             _selftest_passed[1] = true;
-            _psus[1].setOutput(false);
-            _selftest_phase = 6;
+            psu1.setOutput(false);
+            _selftest_phase = SelfTest::PHASE_COMPLETE;
             _selftest_phase_start = now;
         } else if (phase_elapsed > DPS_SELFTEST_TIMEOUT_MS) {
             _logger.log("TC: Self-test FAIL: DPS1 output");
@@ -463,7 +421,7 @@ void ThermalController::handleSelfTest() {
         }
         break;
 
-    case 6:
+    case SelfTest::PHASE_COMPLETE:
         if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
             return;
 
@@ -493,22 +451,13 @@ void ThermalController::handleStartup() {
     // Configure PSUs at start of window
     if (elapsed < STARTUP_CONFIG_WINDOW_MS) {
         if (elapsed < STARTUP_CONFIG_SEND_MS) {
-            for (size_t i = 0; i < 2; i++) {
-                _psus[i].setVoltage(TEC_VOLTAGE_SETPOINT);
-                _psus[i].setCurrent(STARTUP_CURRENT);
-                _psus[i].setOutput(true);
-                _target_current[i] = STARTUP_CURRENT;
-            }
+            _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
             char buf[32];
-            snprintf(buf, sizeof(buf), "TC: Start %.1fA/ch", STARTUP_CURRENT);
+            snprintf(buf, sizeof(buf), "TC: Start %.1fA", STARTUP_CURRENT);
             _logger.log(buf);
         }
         return;
     }
-
-    // Run safety checks (no plausibility/cross-check during startup)
-    if (!runSafetyChecks(false, false))
-        return;
 
     // Hold for startup duration
     if (elapsed >= STARTUP_HOLD_DURATION_MS) {
@@ -517,9 +466,6 @@ void ThermalController::handleStartup() {
 }
 
 void ThermalController::handleRampUp() {
-    if (!runSafetyChecks())
-        return;
-
     unsigned long now = millis();
     float cold_temp = _cold_plate.getTemperature();
 
@@ -532,89 +478,62 @@ void ThermalController::handleRampUp() {
     if (_awaiting_evaluation) {
         EvaluationResult result = evaluateCurrentChange();
 
-        switch (result) {
-        case EvaluationResult::WAITING:
+        if (result == EvaluationResult::WAITING)
             return;
 
-        case EvaluationResult::IMPROVED:
-            _optimal_current = _target_current[0];
+        if (result == EvaluationResult::IMPROVED) {
+            _optimal_current = _dps.getTargetCurrent();
             _temp_at_optimal = cold_temp;
-            {
-                char buf[40];
-                snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC",
-                         _optimal_current, _temp_at_optimal);
-                _logger.log(buf, true);
-            }
-            _awaiting_evaluation = false;
-            break;
-
-        case EvaluationResult::DEGRADED: {
-            float previous = _target_current[0] - RAMP_CURRENT_STEP_A;
+            char buf[40];
+            snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC", _optimal_current,
+                     _temp_at_optimal);
+            _logger.log(buf, true);
+        } else if (result == EvaluationResult::DEGRADED) {
+            float previous =
+                _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
             previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
-
-            char buf[48];
-            snprintf(buf, sizeof(buf), "TC: Past opt, back %.1fA", previous);
-            _logger.log(buf);
-
-            setAllCurrents(previous);
+            _dps.setSymmetricCurrent(previous);
             _optimal_current = previous;
             _temp_at_optimal = _temp_before_last_increase;
             transitionTo(ThermalState::STEADY_STATE);
             return;
         }
-
-        case EvaluationResult::UNCHANGED:
-            _awaiting_evaluation = false;
-            break;
-        }
+        _awaiting_evaluation = false;
     }
 
     // Check termination conditions
-    bool at_max = (_target_current[0] >= MAX_CURRENT_PER_CHANNEL &&
-                   _target_current[1] >= MAX_CURRENT_PER_CHANNEL);
+    float current = _dps.getTargetCurrent();
+    bool at_max = (current >= MAX_CURRENT_PER_CHANNEL);
     bool hot_limited = _safety.isHotSideAlarm();
     bool cooling_stalled = false;
 
     if (_history.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2)) {
-        cooling_stalled =
-            (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
+        cooling_stalled = (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
     }
 
     if (at_max || hot_limited || cooling_stalled) {
-        if (at_max)
-            _logger.log("TC: At max current");
-        else if (hot_limited)
-            _logger.log("TC: Hot side limited");
-        else
-            _logger.log("TC: Cooling stalled");
-
-        _optimal_current = _target_current[0];
+        _optimal_current = current;
         _temp_at_optimal = cold_temp;
         transitionTo(ThermalState::STEADY_STATE);
         return;
     }
 
     // Time for adjustment?
-    if (now - _last_adjustment_time < RAMP_ADJUSTMENT_INTERVAL_MS) {
+    if (now - _last_adjustment_time < RAMP_ADJUSTMENT_INTERVAL_MS)
         return;
-    }
 
     // Calculate step size (reduced in warning zone)
-    float step = RAMP_CURRENT_STEP_A;
-    if (_safety.isHotSideWarning()) {
-        step = RAMP_CURRENT_STEP_A / 2.0f;
-    }
+    float step = _safety.isHotSideWarning() ? (RAMP_CURRENT_STEP_A / 2.0f)
+                                            : RAMP_CURRENT_STEP_A;
 
     // Record baseline before increase
     _temp_before_last_increase = cold_temp;
     _rate_before_last_increase = _history.getColdPlateRate();
 
     // Increase current
-    float new_current =
-        fmin(_target_current[0] + step, MAX_CURRENT_PER_CHANNEL);
-    setAllCurrents(new_current);
+    float new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
+    _dps.setSymmetricCurrent(new_current);
     _last_adjustment_time = now;
-
     _awaiting_evaluation = true;
     _evaluation_start_time = now;
 
@@ -624,9 +543,6 @@ void ThermalController::handleRampUp() {
 }
 
 void ThermalController::handleSteadyState() {
-    if (!runSafetyChecks())
-        return;
-
     unsigned long now = millis();
     float cold_temp = _cold_plate.getTemperature();
     float hot_temp = _hot_plate.getTemperature();
@@ -635,42 +551,36 @@ void ThermalController::handleSteadyState() {
     if (cold_temp < _min_cold_temp_achieved) {
         _min_cold_temp_achieved = cold_temp;
     }
-    _metrics.recordNewMinimum(cold_temp, _target_current[0]);
+    _metrics.recordNewMinimum(cold_temp, _dps.getTargetCurrent());
 
     // Evaluate pending change
     if (_awaiting_evaluation) {
         EvaluationResult result = evaluateCurrentChange();
-
-        switch (result) {
-        case EvaluationResult::WAITING:
+        if (result == EvaluationResult::WAITING)
             return;
 
-        case EvaluationResult::IMPROVED:
-            _optimal_current = _target_current[0];
+        if (result == EvaluationResult::IMPROVED) {
+            _optimal_current = _dps.getTargetCurrent();
             _temp_at_optimal = cold_temp;
             _logger.log("TC: New optimal", true);
-            _awaiting_evaluation = false;
-            break;
-
-        case EvaluationResult::DEGRADED:
-        case EvaluationResult::UNCHANGED:
-            setAllCurrents(_optimal_current);
-            _awaiting_evaluation = false;
-            break;
+        } else {
+            _dps.setSymmetricCurrent(_optimal_current);
         }
+        _awaiting_evaluation = false;
         return;
     }
 
     // Periodic optimization probe
-    if (hot_temp < HOT_SIDE_WARNING_C - 5.0f &&
-        _target_current[0] < MAX_CURRENT_PER_CHANNEL &&
-        now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS) {
+    float current = _dps.getTargetCurrent();
+    bool can_probe = (hot_temp < HOT_SIDE_WARNING_C - 5.0f) &&
+                     (current < MAX_CURRENT_PER_CHANNEL) &&
+                     (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
 
+    if (can_probe) {
         _temp_before_last_increase = cold_temp;
-        float new_current =
-            fmin(_target_current[0] + RAMP_CURRENT_STEP_A / 2.0f,
-                 MAX_CURRENT_PER_CHANNEL);
-        setAllCurrents(new_current);
+        float new_current = fmin(current + RAMP_CURRENT_STEP_A / 2.0f,
+                                 MAX_CURRENT_PER_CHANNEL);
+        _dps.setSymmetricCurrent(new_current);
         _last_adjustment_time = now;
         _awaiting_evaluation = true;
         _evaluation_start_time = now;
@@ -680,19 +590,20 @@ void ThermalController::handleSteadyState() {
 
 void ThermalController::handleManualOverride() {
     // Monitor only - no commands sent
-    // Still check thermal limits for safety
-    _safety.checkThermalLimits();
+    // Safety checks still run via runSafetyChecks()
 }
 
-void ThermalController::handleThermalFault() { updateEmergencyShutdown(); }
+void ThermalController::handleThermalFault() {
+    // Emergency shutdown is handled by DualPowerSupply
+    // Nothing else to do here
+}
 
 void ThermalController::handleSensorFault() {
     unsigned long elapsed = millis() - _sensor_fault_time;
 
     // Reduce to safe current
-    if (_target_current[0] > DEGRADED_MODE_CURRENT / 2 ||
-        _target_current[1] > DEGRADED_MODE_CURRENT / 2) {
-        setAllCurrents(DEGRADED_MODE_CURRENT / 2);
+    if (_dps.getTargetCurrent() > DEGRADED_MODE_CURRENT / 2) {
+        _dps.setSymmetricCurrent(DEGRADED_MODE_CURRENT / 2);
     }
 
     // Check recovery
@@ -712,100 +623,17 @@ void ThermalController::handleSensorFault() {
 }
 
 void ThermalController::handleDpsDisconnected() {
-    bool psu0_ok = _psus[0].isConnected();
-    bool psu1_ok = _psus[1].isConnected();
-
-    if (psu0_ok && psu1_ok) {
+    if (_dps.areBothConnected()) {
         _logger.log("TC: DPS reconnected");
         transitionTo(ThermalState::STARTUP);
         return;
     }
 
     // Symmetric shutdown: if one fails, shut down both
-    if (psu0_ok != psu1_ok) {
-        size_t working = psu0_ok ? 0 : 1;
-        if (_target_current[working] > 0.0f) {
-            _logger.log("TC: Symmetric shutdown");
-            CrashLog::logCritical("DPS_FAIL", "Symmetric shutdown");
-            _target_current[working] = 0.0f;
-            _psus[working].setCurrent(0.0f);
-            _psus[working].setOutput(false);
-        }
-    }
-}
-
-// =============================================================================
-// Control Actions
-// =============================================================================
-
-void ThermalController::setAllCurrents(float current) {
-    current =
-        fmax(MIN_CURRENT_PER_CHANNEL, fmin(current, MAX_CURRENT_PER_CHANNEL));
-
-    // Pre-write validation (skip during shutdown)
-    if (!_shutdown_in_progress) {
-        for (size_t i = 0; i < 2; i++) {
-            if (!_psus[i].isConnected())
-                continue;
-
-            if (!_psus[i].validateStateBeforeWrite(current)) {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "TC: Override PSU%d", (int)i);
-                _logger.log(buf);
-                transitionTo(ThermalState::MANUAL_OVERRIDE);
-                return;
-            }
-        }
-    }
-
-    _target_current[0] = current;
-    _target_current[1] = current;
-
-    if (_psus[0].isConnected()) {
-        _psus[0].setCurrent(current);
-    }
-    if (_psus[1].isConnected()) {
-        _psus[1].setCurrent(current);
-    }
-}
-
-void ThermalController::startEmergencyShutdown() {
-    if (_shutdown_in_progress)
-        return;
-
-    _logger.log("TC: Emergency shutdown");
-    CrashLog::logCritical("SHUTDOWN", "Emergency ramp-down");
-
-    _shutdown_in_progress = true;
-    _shutdown_current = fmax(_target_current[0], _target_current[1]);
-    _last_shutdown_step_time = millis();
-}
-
-void ThermalController::updateEmergencyShutdown() {
-    if (!_shutdown_in_progress)
-        return;
-
-    unsigned long now = millis();
-    if (now - _last_shutdown_step_time < EMERGENCY_SHUTDOWN_STEP_MS)
-        return;
-
-    _last_shutdown_step_time = now;
-
-    float step = EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
-                 (EMERGENCY_SHUTDOWN_STEP_MS / 1000.0f);
-    _shutdown_current -= step;
-
-    if (_shutdown_current <= 0.1f) {
-        _psus[0].disableOutput();
-        _psus[1].disableOutput();
-        _target_current[0] = 0;
-        _target_current[1] = 0;
-        _shutdown_in_progress = false;
-        _logger.log("TC: Shutdown complete");
-        CrashLog::logCritical("SHUTDOWN", "Complete");
-    } else {
-        _psus[0].setCurrentImmediate(_shutdown_current);
-        _psus[1].setCurrentImmediate(_shutdown_current);
+    if (_dps.isAsymmetricFailure()) {
+        _logger.log("TC: Symmetric shutdown");
+        CrashLog::logCritical("DPS_FAIL", "Symmetric shutdown");
+        _dps.disableOutput();
     }
 }
 
@@ -817,44 +645,30 @@ EvaluationResult ThermalController::evaluateCurrentChange() {
     unsigned long now = millis();
 
     // Minimum delay
-    if (now - _evaluation_start_time < CURRENT_EVALUATION_DELAY_MS) {
+    if (now - _evaluation_start_time < CURRENT_EVALUATION_DELAY_MS)
         return EvaluationResult::WAITING;
-    }
 
     // Wait for hot-side stabilization
-    float hot_side_rate = fabs(_history.getHotPlateRate());
-    bool hot_stable =
-        (hot_side_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
-    bool max_wait_exceeded =
-        (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+    float hot_rate = fabs(_history.getHotPlateRate());
+    bool stable = (hot_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
+    bool timeout = (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
 
-    if (!hot_stable && !max_wait_exceeded) {
+    if (!stable && !timeout)
         return EvaluationResult::WAITING;
-    }
-
-    if (max_wait_exceeded && !hot_stable) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "TC: Hot rate %.2fK/m, eval anyway",
-                 hot_side_rate);
-        _logger.log(buf);
-    }
 
     float cold_temp = _cold_plate.getTemperature();
-    float cooling_rate = _history.getColdPlateRate();
-    float rate_delta = cooling_rate - _rate_before_last_increase;
+    float rate = _history.getColdPlateRate();
+    float rate_delta = rate - _rate_before_last_increase;
 
-    bool temp_improved = (cold_temp < _temp_before_last_increase - 0.1f);
-    bool rate_degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
-    bool temp_worsened = (cold_temp > _temp_before_last_increase +
-                                          OVERCURRENT_WARMING_THRESHOLD_C);
+    bool improved = (cold_temp < _temp_before_last_increase - Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
+    bool degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
+    bool worsened = (cold_temp > _temp_before_last_increase + OVERCURRENT_WARMING_THRESHOLD_C);
 
-    if (temp_improved && !rate_degraded) {
+    if (improved && !degraded)
         return EvaluationResult::IMPROVED;
-    } else if (temp_worsened || rate_degraded) {
+    if (worsened || degraded)
         return EvaluationResult::DEGRADED;
-    } else {
-        return EvaluationResult::UNCHANGED;
-    }
+    return EvaluationResult::UNCHANGED;
 }
 
 // =============================================================================
@@ -867,49 +681,39 @@ void ThermalController::recordSample() {
     sample.cold_plate_temp = _cold_plate.getTemperature();
     sample.hot_plate_temp = _hot_plate.getTemperature();
     sample.ambient_temp = getAmbientTemperature();
-    sample.current_setpoint_ch1 = _target_current[0];
-    sample.current_setpoint_ch2 = _target_current[1];
-    sample.actual_current_ch1 = _psus[0].getOutputCurrent();
-    sample.actual_current_ch2 = _psus[1].getOutputCurrent();
-    sample.power_ch1 = _psus[0].getOutputPower();
-    sample.power_ch2 = _psus[1].getOutputPower();
+    sample.current_setpoint_ch1 = _dps.getTargetCurrent();
+    sample.current_setpoint_ch2 = _dps.getTargetCurrent();
+    sample.actual_current_ch1 = _dps.getOutputCurrent(0);
+    sample.actual_current_ch2 = _dps.getOutputCurrent(1);
+    sample.power_ch1 = _dps.getTotalPower() / 2.0f; // Approximate per-channel
+    sample.power_ch2 = _dps.getTotalPower() / 2.0f;
 
     _history.recordSample(sample);
     checkChannelImbalance();
 }
 
 float ThermalController::getAmbientTemperature() const {
-    if (_num_ambient == 0 || _ambient_sensors == nullptr) {
+    if (_num_ambient == 0 || _ambient_sensors == nullptr)
         return 25.0f;
-    }
 
     for (size_t i = 0; i < _num_ambient; i++) {
         if (_ambient_sensors[i].isConnected()) {
             return _ambient_sensors[i].getTemperature();
         }
     }
-
     return 25.0f;
 }
 
 void ThermalController::checkChannelImbalance() {
-    if (!_psus[0].isConnected() || !_psus[1].isConnected())
-        return;
-
-    if (fabs(_target_current[0] - _target_current[1]) > 0.1f)
+    if (!_dps.areBothConnected())
         return;
 
     unsigned long now = millis();
-    if (now - _last_imbalance_log_time < IMBALANCE_LOG_INTERVAL_MS)
+    if (now - _last_imbalance_log_time < Timing::IMBALANCE_LOG_INTERVAL_MS)
         return;
 
-    float i1 = _psus[0].getOutputCurrent();
-    float i2 = _psus[1].getOutputCurrent();
-    float p1 = _psus[0].getOutputPower();
-    float p2 = _psus[1].getOutputPower();
-
-    float current_diff = fabs(i1 - i2);
-    float power_diff = fabs(p1 - p2);
+    float current_diff = _dps.getCurrentImbalance();
+    float power_diff = _dps.getPowerImbalance();
 
     if (current_diff > CHANNEL_CURRENT_IMBALANCE_A ||
         power_diff > CHANNEL_POWER_IMBALANCE_W) {
@@ -926,8 +730,9 @@ void ThermalController::checkChannelImbalance() {
 // =============================================================================
 
 void ThermalController::updateDisplay() {
+    using namespace ThermalDisplay;
     _logger.updateLineText(LINE_STATE, getStateString());
     _logger.updateLine(LINE_RATE, _history.getColdPlateRate());
-    _logger.updateLine(LINE_I1_SET, _target_current[0]);
-    _logger.updateLine(LINE_I2_SET, _target_current[1]);
+    _logger.updateLine(LINE_I1_SET, _dps.getTargetCurrent());
+    _logger.updateLine(LINE_I2_SET, _dps.getTargetCurrent());
 }
