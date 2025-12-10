@@ -13,9 +13,8 @@
  * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
  * - DPS5015: Programmable power supply control via Modbus RTU
  * - ThermalController: Smart control system coordinating all components
- *   - ThermalHistory: Circular buffer for temperature history and trend
- * analysis
- *   - ThermalMetrics: NVS persistence for long-term metrics
+ *   - ThermalMetrics: History buffer, trend analysis, optimizer state, NVS
+ * persistence
  *   - SafetyMonitor: Centralized safety checks with consistent error handling
  *
  * All modules self-manage their update timing and display registration.
