@@ -19,7 +19,7 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
                                      DS18B20Sensor &hotPlate, DPS5015 &psu0,
                                      DPS5015 &psu1)
     : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate),
-      _dps(logger, psu0, psu1), _metrics(logger),
+      _dps(logger, psu0, psu1), _metrics(logger), _optimizer(logger),
       _safety(logger, coldPlate, hotPlate, _dps),
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
@@ -111,17 +111,8 @@ void ThermalController::update() {
     }
 
     // Run safety checks ONCE at top of loop (not in each handler)
-    // Skip for certain states:
-    // - INITIALIZING: Hardware not ready yet, sensors may not be valid
-    // - SELF_TEST: Running DPS verification, not operational
-    // - THERMAL_FAULT: Already in fault state, shutdown in progress
-    // - DPS_DISCONNECTED: No PSU communication, can't check or control
-    bool skip_safety = (_state == ThermalState::INITIALIZING ||
-                        _state == ThermalState::SELF_TEST ||
-                        _state == ThermalState::THERMAL_FAULT ||
-                        _state == ThermalState::DPS_DISCONNECTED);
-
-    if (!skip_safety && !runSafetyChecks()) {
+    // Skip for non-operational states (hardware not ready or already faulted)
+    if (isOperationalState() && !runSafetyChecks()) {
         updateDisplay();
         return; // Safety check triggered state transition
     }
@@ -166,8 +157,10 @@ void ThermalController::update() {
 
 bool ThermalController::runSafetyChecks() {
     // All safety checks including grace period logic are now in SafetyMonitor
-    SafetyResult result =
-        _safety.checkAll(_state, _ramp_start_time, _dps.getTargetCurrent());
+    // Use actual average current (not target) for physics-based plausibility
+    // check
+    SafetyResult result = _safety.checkAll(_state, _ramp_start_time,
+                                           _dps.getAverageOutputCurrent());
 
     switch (result.status) {
     case SafetyStatus::SENSOR_FAULT:
@@ -198,6 +191,18 @@ bool ThermalController::runSafetyChecks() {
 // =============================================================================
 // Control Permission Check
 // =============================================================================
+
+bool ThermalController::isOperationalState() const {
+    // States where safety checks should NOT run:
+    // - INITIALIZING: Hardware not ready yet, sensors may not be valid
+    // - SELF_TEST: Running DPS verification, not operational
+    // - THERMAL_FAULT: Already in fault state, shutdown in progress
+    // - DPS_DISCONNECTED: No PSU communication, can't check or control
+    return _state != ThermalState::INITIALIZING &&
+           _state != ThermalState::SELF_TEST &&
+           _state != ThermalState::THERMAL_FAULT &&
+           _state != ThermalState::DPS_DISCONNECTED;
+}
 
 bool ThermalController::canControlPower() const {
     // Centralized check for "am I allowed to send PSU commands?"
@@ -249,7 +254,7 @@ void ThermalController::transitionTo(ThermalState newState) {
     case ThermalState::MANUAL_OVERRIDE:
         // Human has taken control - clear optimizer state to avoid stale data
         // affecting any future automatic control (after power cycle)
-        _metrics.optimizer().reset();
+        _optimizer.reset();
         break;
     default:
         break;
@@ -291,7 +296,7 @@ void ThermalController::handleInitializing() {
 
         // Seed the optimizer with current state as starting best point
         float current_temp = _cold_plate.getTemperature();
-        _metrics.optimizer().updateBest(adopted, current_temp);
+        _optimizer.seedWithCurrent(adopted, current_temp);
 
         if (adopted >= HOT_RESET_NEAR_MAX_A) {
             transitionTo(ThermalState::STEADY_STATE);
@@ -361,26 +366,20 @@ void ThermalController::handleStartup() {
 }
 
 void ThermalController::handleRampUp() {
-    unsigned long now = millis();
-    float cold_temp = _cold_plate.getTemperature();
-    float current = _dps.getTargetCurrent();
-    OptimizerState &opt = _metrics.optimizer();
+    ThermalSnapshot snapshot = buildSnapshot();
+    float current = snapshot.current_setpoint;
 
-    // Evaluate pending current change (with transition on bounce)
-    if (tryCompleteEvaluation(true)) {
-        if (_state != ThermalState::RAMP_UP)
-            return; // Transitioned to STEADY_STATE
-    }
+    // Check termination conditions via optimizer
+    bool has_enough_history =
+        _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2);
 
-    // Check termination conditions
-    if (shouldExitRamp(current)) {
-        opt.optimal_current = current;
-        opt.temp_at_optimal = cold_temp;
+    if (_optimizer.shouldExitRamp(snapshot, has_enough_history)) {
+        _optimizer.updateBest(current, snapshot.cold_temp);
 
         if (_safety.isHotSideAlarm() ||
-            (fabs(_metrics.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C &&
-             _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2))) {
-            opt.probe_direction = -1; // Start by trying to decrease
+            (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C &&
+             has_enough_history)) {
+            _optimizer.setProbeDirection(-1); // Start by trying to decrease
             _logger.logf(true, "TC: Limit/stall at %.1fA, fine-tuning",
                          current);
         }
@@ -389,139 +388,63 @@ void ThermalController::handleRampUp() {
         return;
     }
 
-    // Time for adjustment?
-    if (!_metrics.isTimeForAdjustment(_last_adjustment_time,
-                                      RAMP_ADJUSTMENT_INTERVAL_MS))
-        return;
+    // Let optimizer decide what to do
+    bool psus_ready = canControlPower() && _dps.areBothSettled();
+    ThermalOptimizationDecision decision =
+        _optimizer.update(snapshot, ThermalControlPhase::RAMP_UP,
+                          _last_adjustment_time, RAMP_ADJUSTMENT_INTERVAL_MS,
+                          psus_ready);
 
-    // Before changing current, verify PSUs are settled and we're allowed
-    if (!canControlPower())
-        return;
-
-    if (!_dps.areBothSettled()) {
-        // PSUs haven't processed last command yet - wait
-        return;
+    // Log if optimizer has a message
+    if (decision.log_message) {
+        _logger.log(decision.log_message, true);
     }
 
-    // Choose adaptive step size based on cooling rate (delegated to
-    // ThermalMetrics)
-    float step = _metrics.recommendStepSize(_safety.isHotSideWarning());
-    opt.current_step = step;
-
-    // Record baseline before step (for local revert if needed)
-    opt.baseline_current = current;
-    opt.baseline_temp = cold_temp;
-    opt.baseline_rate = _metrics.getColdPlateRate();
-
-    // Increase current (ramp is always upward)
-    float new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
-    _dps.setSymmetricCurrent(new_current);
-    _dps.resetOverrideCounter(); // We just caused a mismatch intentionally
-    _last_adjustment_time = now;
-    opt.awaiting_evaluation = true;
-    opt.eval_start_time = now;
-
-    _logger.logf(true, "TC: Ramp %.1fA (+%.2fA)", new_current, step);
-}
-
-bool ThermalController::shouldExitRamp(float current) const {
-    // At maximum current
-    if (current >= MAX_CURRENT_PER_CHANNEL)
-        return true;
-
-    // Hot side limiting
-    if (_safety.isHotSideAlarm())
-        return true;
-
-    // Cooling stalled (only if we have enough history)
-    if (_metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2)) {
-        if (fabs(_metrics.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C)
-            return true;
+    // Execute current change if requested
+    if (decision.change_current) {
+        _dps.setSymmetricCurrent(decision.new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot.now;
     }
 
-    return false;
+    // Handle revert on degraded evaluation
+    if (decision.evaluation_complete && decision.should_transition) {
+        transitionTo(ThermalState::STEADY_STATE);
+    }
 }
 
 void ThermalController::handleSteadyState() {
-    unsigned long now = millis();
-    float cold_temp = _cold_plate.getTemperature();
-    float hot_temp = _hot_plate.getTemperature();
-    float current = _dps.getTargetCurrent();
-    OptimizerState &opt = _metrics.optimizer();
+    ThermalSnapshot snapshot = buildSnapshot();
 
     // Record new minimum for NVS persistence
-    _metrics.recordNewMinimum(cold_temp, current);
+    _metrics.recordNewMinimum(snapshot.cold_temp, snapshot.current_setpoint);
 
-    // Evaluate pending change
-    if (tryCompleteEvaluation(false)) {
-        return; // Evaluation processed, wait for next cycle
-    }
-
-    // Periodic optimization probe (bidirectional to find true optimum)
-    bool can_probe = _metrics.isTimeForAdjustment(
-        _last_adjustment_time, STEADY_STATE_RECHECK_INTERVAL_MS);
-
-    if (can_probe) {
-        // Before changing current, verify PSUs are settled and we're allowed
-        if (!canControlPower())
-            return;
-
-        if (!_dps.areBothSettled()) {
-            // PSUs haven't processed last command yet - wait
-            return;
-        }
-
-        // Reset converged state at each recheck interval - conditions may have
-        // changed
-        if (opt.converged) {
-            opt.converged = false;
-            opt.consecutive_bounces = 0;
+    // Reset converged state at recheck interval
+    if (_optimizer.isConverged()) {
+        if (_metrics.isTimeForAdjustment(_last_adjustment_time,
+                                         STEADY_STATE_RECHECK_INTERVAL_MS)) {
+            _optimizer.clearConverged();
             _logger.log("TC: Recheck, probing again", true);
         }
+    }
 
-        // Choose adaptive step size (delegated to ThermalMetrics)
-        float step = _metrics.recommendStepSize(_safety.isHotSideWarning());
-        opt.current_step = step;
+    // Let optimizer decide what to do
+    bool psus_ready = canControlPower() && _dps.areBothSettled();
+    ThermalOptimizationDecision decision =
+        _optimizer.update(snapshot, ThermalControlPhase::STEADY_STATE,
+                          _last_adjustment_time,
+                          STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
 
-        // Record baseline before step
-        opt.baseline_current = current;
-        opt.baseline_temp = cold_temp;
-        opt.baseline_rate = _metrics.getColdPlateRate();
+    // Log if optimizer has a message
+    if (decision.log_message) {
+        _logger.log(decision.log_message, true);
+    }
 
-        // Calculate target current based on probe direction
-        float new_current;
-        bool can_step = false;
-
-        if (opt.probe_direction > 0) {
-            // Try increasing (if we have room and thermal headroom)
-            if (current < MAX_CURRENT_PER_CHANNEL &&
-                hot_temp < HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
-                new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
-                can_step = true;
-            }
-        } else {
-            // Try decreasing (if we have room)
-            if (current > STARTUP_CURRENT + step) {
-                new_current = current - step;
-                can_step = true;
-            }
-        }
-
-        if (can_step) {
-            _dps.setSymmetricCurrent(new_current);
-            _dps.resetOverrideCounter(); // We just caused a mismatch
-                                         // intentionally
-            _last_adjustment_time = now;
-            opt.awaiting_evaluation = true;
-            opt.eval_start_time = now;
-
-            const char *dir_str = (opt.probe_direction > 0) ? "up" : "down";
-            _logger.logf(true, "TC: Probe %s %.1fA (%+.2fA)", dir_str,
-                         new_current, new_current - current);
-
-            // Flip direction for next probe (alternate by default)
-            opt.probe_direction *= -1;
-        }
+    // Execute current change if requested
+    if (decision.change_current) {
+        _dps.setSymmetricCurrent(decision.new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot.now;
     }
 }
 
@@ -590,32 +513,20 @@ void ThermalController::handleDpsDisconnected() {
 }
 
 // =============================================================================
-// Shared Evaluation Logic
+// Optimizer Support
 // =============================================================================
 
-bool ThermalController::tryCompleteEvaluation(bool may_transition) {
-    float cold_temp = _cold_plate.getTemperature();
-    float current = _dps.getTargetCurrent();
-
-    // Delegate evaluation to ThermalMetrics
-    EvaluationAction action =
-        _metrics.processEvaluation(cold_temp, current, may_transition, _logger);
-
-    if (action.result == EvaluationResult::WAITING)
-        return false;
-
-    // Handle revert if needed
-    if (action.result == EvaluationResult::DEGRADED) {
-        _dps.setSymmetricCurrent(action.revert_current);
-        _dps.resetOverrideCounter(); // Intentional change - reset counter
-
-        // Transition to steady state if bounced during ramp
-        if (action.should_transition && _state == ThermalState::RAMP_UP) {
-            transitionTo(ThermalState::STEADY_STATE);
-        }
-    }
-
-    return true;
+ThermalSnapshot ThermalController::buildSnapshot() const {
+    return ThermalSnapshot{
+        _cold_plate.getTemperature(),
+        _hot_plate.getTemperature(),
+        _metrics.getColdPlateRate(),
+        _metrics.getHotPlateRate(),
+        _dps.getTargetCurrent(),
+        _safety.isHotSideWarning(),
+        _safety.isHotSideAlarm(),
+        _metrics.isHotSideStable(HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN),
+        millis()};
 }
 
 // =============================================================================

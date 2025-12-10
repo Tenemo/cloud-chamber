@@ -29,11 +29,11 @@
 #include "SafetyMonitor.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
+#include "ThermalOptimizer.h"
 #include "ThermalTypes.h"
 #include <Arduino.h>
 
-// ThermalState enum is defined in SafetyMonitor.h (shared for context-aware
-// checks) EvaluationResult and OptimizerState are defined in ThermalMetrics.h
+// ThermalState enum is defined in ThermalTypes.h (shared for context-aware checks)
 
 class ThermalController {
   public:
@@ -59,6 +59,7 @@ class ThermalController {
     // Delegate modules
     DualPowerSupply _dps;
     ThermalMetrics _metrics;
+    ThermalOptimizer _optimizer;
     SafetyMonitor _safety;
 
     // State machine
@@ -87,16 +88,6 @@ class ThermalController {
     void handleSensorFault();
     void handleDpsDisconnected();
 
-    /**
-     * @brief Check if ramp-up should terminate
-     *
-     * Returns true if any termination condition is met:
-     * - At maximum current
-     * - Hot side in alarm zone
-     * - Cooling has stalled
-     */
-    bool shouldExitRamp(float current) const;
-
     // =========================================================================
     // State transitions
     // =========================================================================
@@ -114,6 +105,22 @@ class ThermalController {
     bool runSafetyChecks();
 
     /**
+     * @brief Check if controller is in an operational state
+     *
+     * Returns true for states where safety checks should run:
+     * STARTUP, RAMP_UP, STEADY_STATE, MANUAL_OVERRIDE, SENSOR_FAULT
+     *
+     * Returns false for:
+     * - INITIALIZING: Hardware not ready yet, sensors may not be valid
+     * - SELF_TEST: Running DPS verification, not operational
+     * - THERMAL_FAULT: Already in fault state, shutdown in progress
+     * - DPS_DISCONNECTED: No PSU communication, can't check or control
+     *
+     * @return true if in operational state requiring safety monitoring
+     */
+    bool isOperationalState() const;
+
+    /**
      * @brief Check if we're allowed to send PSU commands
      *
      * Centralizes the "am I allowed to command the DPS?" decision.
@@ -128,16 +135,9 @@ class ThermalController {
     bool canControlPower() const;
 
     /**
-     * @brief Try to complete a pending evaluation
-     *
-     * If an evaluation is in progress and ready, processes it and
-     * takes appropriate action (accept improvement or revert).
-     *
-     * @param may_transition If true, may trigger state transition on bounce
-     * @return true if evaluation completed (result available),
-     *         false if no evaluation pending or still waiting
+     * @brief Build a snapshot of current thermal state for optimizer
      */
-    bool tryCompleteEvaluation(bool may_transition = false);
+    ThermalSnapshot buildSnapshot() const;
 
     // =========================================================================
     // History and display
