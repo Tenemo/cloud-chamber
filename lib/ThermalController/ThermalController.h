@@ -143,6 +143,9 @@ class ThermalController {
     bool _hot_side_in_warning;
     bool _hot_side_in_alarm;
 
+    // Channel imbalance tracking
+    unsigned long _last_imbalance_log_time;
+
     // Display line IDs
     static constexpr const char *LINE_STATE = "TC_STATE";
     static constexpr const char *LINE_RATE = "TC_RATE";
@@ -182,6 +185,7 @@ class ThermalController {
     float calculateCoolingRate() const;
     ThermalTrend analyzeTrend() const;
     float getAmbientTemperature() const;
+    void checkChannelImbalance();
 
     // Display updates
     void registerDisplayLines();

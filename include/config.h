@@ -127,7 +127,7 @@ constexpr float MAX_CURRENT_PER_CHANNEL = 10.6f; // Maximum current per DPS
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
 constexpr float DEGRADED_MODE_CURRENT =
-    5.0f; // Max current when one DPS disconnects
+    5.0f;                              // Max current when one DPS disconnects
 constexpr float DPS_OCP_LIMIT = 11.0f; // Hardware Over Current Protection
                                        // Failsafe in case ESP commands >10.6A
 
@@ -172,10 +172,21 @@ constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
 constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS =
     3000; // Settling window: time for DPS to process command and for ESP
           // to read back new value before checking for override
+constexpr int MANUAL_OVERRIDE_MISMATCH_COUNT =
+    3; // Consecutive read cycles showing mismatch before declaring override
+       // At 500ms update interval, this is 1.5 seconds of sustained mismatch
 constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC =
     2.0f; // Emergency shutdown ramp
 constexpr unsigned long EMERGENCY_SHUTDOWN_STEP_MS =
     500; // Time between ramp-down steps (non-blocking)
+
+// Channel imbalance detection
+constexpr float CHANNEL_CURRENT_IMBALANCE_A =
+    1.0f; // Log warning if |I1-I2| exceeds this when both commanded equal
+constexpr float CHANNEL_POWER_IMBALANCE_W =
+    5.0f; // Log warning if |P1-P2| exceeds this when both commanded equal
+constexpr unsigned long IMBALANCE_LOG_INTERVAL_MS =
+    60000; // Only log imbalance once per minute to avoid spam
 
 // History buffer
 constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz
