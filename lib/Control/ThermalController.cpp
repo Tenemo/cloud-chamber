@@ -390,10 +390,9 @@ void ThermalController::handleRampUp() {
 
     // Let optimizer decide what to do
     bool psus_ready = canControlPower() && _dps.areBothSettled();
-    ThermalOptimizationDecision decision =
-        _optimizer.update(snapshot, ThermalControlPhase::RAMP_UP,
-                          _last_adjustment_time, RAMP_ADJUSTMENT_INTERVAL_MS,
-                          psus_ready);
+    ThermalOptimizationDecision decision = _optimizer.update(
+        snapshot, ThermalControlPhase::RAMP_UP, _last_adjustment_time,
+        RAMP_ADJUSTMENT_INTERVAL_MS, psus_ready);
 
     // Log if optimizer has a message
     if (decision.log_message) {
@@ -430,10 +429,9 @@ void ThermalController::handleSteadyState() {
 
     // Let optimizer decide what to do
     bool psus_ready = canControlPower() && _dps.areBothSettled();
-    ThermalOptimizationDecision decision =
-        _optimizer.update(snapshot, ThermalControlPhase::STEADY_STATE,
-                          _last_adjustment_time,
-                          STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
+    ThermalOptimizationDecision decision = _optimizer.update(
+        snapshot, ThermalControlPhase::STEADY_STATE, _last_adjustment_time,
+        STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
 
     // Log if optimizer has a message
     if (decision.log_message) {

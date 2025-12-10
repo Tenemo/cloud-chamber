@@ -36,18 +36,18 @@
  * @brief Control phase for optimizer decisions
  */
 enum class ThermalControlPhase {
-    RAMP_UP,      // Monotonic upward search
-    STEADY_STATE  // Bidirectional fine-tuning
+    RAMP_UP,     // Monotonic upward search
+    STEADY_STATE // Bidirectional fine-tuning
 };
 
 /**
  * @brief Result of evaluating a current change
  */
 enum class ThermalEvaluationResult {
-    WAITING,   // Not enough time/data yet
-    IMPROVED,  // Temperature improved
-    DEGRADED,  // Temperature worsened or rate degraded
-    UNCHANGED  // No significant change
+    WAITING,  // Not enough time/data yet
+    IMPROVED, // Temperature improved
+    DEGRADED, // Temperature worsened or rate degraded
+    UNCHANGED // No significant change
 };
 
 /**
@@ -226,8 +226,9 @@ class ThermalOptimizer {
      * @param phase Control phase
      * @return Decision with evaluation results
      */
-    ThermalOptimizationDecision processEvaluation(
-        const ThermalSnapshot &snapshot, ThermalControlPhase phase);
+    ThermalOptimizationDecision
+    processEvaluation(const ThermalSnapshot &snapshot,
+                      ThermalControlPhase phase);
 
     /**
      * @brief Calculate adaptive step size based on conditions
@@ -244,7 +245,8 @@ class ThermalOptimizer {
      * @param snapshot Current system state
      * @return Decision with new current, or no change if conditions not met
      */
-    ThermalOptimizationDecision attemptRampStep(const ThermalSnapshot &snapshot);
+    ThermalOptimizationDecision
+    attemptRampStep(const ThermalSnapshot &snapshot);
 
     /**
      * @brief Attempt a current probe in STEADY_STATE mode
@@ -252,8 +254,8 @@ class ThermalOptimizer {
      * @param snapshot Current system state
      * @return Decision with new current, or no change if conditions not met
      */
-    ThermalOptimizationDecision attemptSteadyProbe(
-        const ThermalSnapshot &snapshot);
+    ThermalOptimizationDecision
+    attemptSteadyProbe(const ThermalSnapshot &snapshot);
 };
 
 #endif // THERMAL_OPTIMIZER_H

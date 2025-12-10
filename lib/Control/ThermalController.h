@@ -33,7 +33,8 @@
 #include "ThermalTypes.h"
 #include <Arduino.h>
 
-// ThermalState enum is defined in ThermalTypes.h (shared for context-aware checks)
+// ThermalState enum is defined in ThermalTypes.h (shared for context-aware
+// checks)
 
 class ThermalController {
   public:

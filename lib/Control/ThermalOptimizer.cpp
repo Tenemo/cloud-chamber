@@ -44,8 +44,8 @@ ThermalOptimizationDecision ThermalOptimizer::update(
     unsigned long last_adjustment_time, unsigned long adjustment_interval_ms,
     bool psus_ready) {
 
-    ThermalOptimizationDecision no_change = {
-        false, 0.0f, false, false, false, nullptr};
+    ThermalOptimizationDecision no_change = {false, 0.0f,  false,
+                                             false, false, nullptr};
 
     // First, check for pending evaluation
     if (_awaiting_evaluation) {
@@ -97,8 +97,8 @@ bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
 // Evaluation Logic
 // =============================================================================
 
-ThermalEvaluationResult ThermalOptimizer::evaluateEffect(
-    const ThermalSnapshot &snapshot) {
+ThermalEvaluationResult
+ThermalOptimizer::evaluateEffect(const ThermalSnapshot &snapshot) {
 
     // Minimum delay before evaluation
     if (snapshot.now - _eval_start_time < CURRENT_EVALUATION_DELAY_MS)
@@ -127,11 +127,12 @@ ThermalEvaluationResult ThermalOptimizer::evaluateEffect(
     return ThermalEvaluationResult::UNCHANGED;
 }
 
-ThermalOptimizationDecision ThermalOptimizer::processEvaluation(
-    const ThermalSnapshot &snapshot, ThermalControlPhase phase) {
+ThermalOptimizationDecision
+ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
+                                    ThermalControlPhase phase) {
 
-    ThermalOptimizationDecision decision = {
-        false, 0.0f, false, false, false, nullptr};
+    ThermalOptimizationDecision decision = {false, 0.0f,  false,
+                                            false, false, nullptr};
 
     ThermalEvaluationResult result = evaluateEffect(snapshot);
     if (result == ThermalEvaluationResult::WAITING) {
@@ -218,8 +219,9 @@ float ThermalOptimizer::calculateStepSize(float cooling_rate,
     }
 
     // Select based on cooling rate magnitude
-    // Note: If insufficient history, rate may be large (RATE_INSUFFICIENT_HISTORY)
-    // which correctly biases towards COARSE_STEP_A during early ramp
+    // Note: If insufficient history, rate may be large
+    // (RATE_INSUFFICIENT_HISTORY) which correctly biases towards COARSE_STEP_A
+    // during early ramp
     if (rate_magnitude > STEP_COARSE_RATE_THRESHOLD) {
         return COARSE_STEP_A;
     } else if (rate_magnitude > STEP_MEDIUM_RATE_THRESHOLD) {
@@ -233,14 +235,15 @@ float ThermalOptimizer::calculateStepSize(float cooling_rate,
 // RAMP_UP Mode
 // =============================================================================
 
-ThermalOptimizationDecision ThermalOptimizer::attemptRampStep(
-    const ThermalSnapshot &snapshot) {
+ThermalOptimizationDecision
+ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
 
-    ThermalOptimizationDecision decision = {
-        false, 0.0f, false, false, false, nullptr};
+    ThermalOptimizationDecision decision = {false, 0.0f,  false,
+                                            false, false, nullptr};
 
     float current = snapshot.current_setpoint;
-    float step = calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
+    float step =
+        calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
     _current_step = step;
 
     // Record baseline before step
@@ -268,14 +271,15 @@ ThermalOptimizationDecision ThermalOptimizer::attemptRampStep(
 // STEADY_STATE Mode
 // =============================================================================
 
-ThermalOptimizationDecision ThermalOptimizer::attemptSteadyProbe(
-    const ThermalSnapshot &snapshot) {
+ThermalOptimizationDecision
+ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
 
-    ThermalOptimizationDecision decision = {
-        false, 0.0f, false, false, false, nullptr};
+    ThermalOptimizationDecision decision = {false, 0.0f,  false,
+                                            false, false, nullptr};
 
     float current = snapshot.current_setpoint;
-    float step = calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
+    float step =
+        calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
     _current_step = step;
 
     // Record baseline before step
@@ -290,7 +294,8 @@ ThermalOptimizationDecision ThermalOptimizer::attemptSteadyProbe(
     if (_probe_direction > 0) {
         // Try increasing (if we have room and thermal headroom)
         if (current < MAX_CURRENT_PER_CHANNEL &&
-            snapshot.hot_temp < HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
+            snapshot.hot_temp <
+                HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
             new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
             can_step = true;
         }
@@ -315,7 +320,8 @@ ThermalOptimizationDecision ThermalOptimizer::attemptSteadyProbe(
     // Flip direction for next probe (alternate by default)
     _probe_direction *= -1;
 
-    const char *dir_str = (_probe_direction < 0) ? "up" : "down"; // Already flipped
+    const char *dir_str =
+        (_probe_direction < 0) ? "up" : "down"; // Already flipped
     snprintf(_log_buffer, sizeof(_log_buffer), "TC: Probe %s %.1fA (%+.2fA)",
              dir_str, new_current, new_current - current);
     decision.log_message = _log_buffer;
