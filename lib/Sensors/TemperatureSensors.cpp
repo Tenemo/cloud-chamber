@@ -8,8 +8,8 @@
 
 TemperatureSensors::TemperatureSensors(Logger &logger)
     : _logger(logger), _oneWire(PIN_DS18B20), _dallasSensors(&_oneWire),
-      _pt100(logger, "Aluminum"),
-      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Copper") {}
+      _pt100(logger, "Cold plate"),
+      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Hot plate") {}
 
 void TemperatureSensors::begin() {
     _dallasSensors.begin();
@@ -17,7 +17,7 @@ void TemperatureSensors::begin() {
     _hotPlate.begin();
     _pt100.begin();
 
-    _logger.log("Sensors: init");
+    _logger.log("Sensors initialized.");
 }
 
 void TemperatureSensors::update() {
