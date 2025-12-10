@@ -202,8 +202,9 @@ bool ThermalController::runSafetyChecks() {
     }
 
     // State-specific optional checks
-    bool in_early_ramp = (_state == ThermalState::RAMP_UP &&
-                          (millis() - _ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS);
+    bool in_early_ramp =
+        (_state == ThermalState::RAMP_UP &&
+         (millis() - _ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS);
 
     if (!in_early_ramp && _state != ThermalState::STARTUP) {
         float avg_current = _dps.getTargetCurrent();
@@ -213,6 +214,12 @@ bool ThermalController::runSafetyChecks() {
             return false;
         }
     }
+
+    // Cross-sensor validation (cold plate must be colder than hot plate)
+    bool in_cross_check_grace =
+        (_state == ThermalState::RAMP_UP &&
+         (millis() - _ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS);
+    _safety.checkCrossSensorValidation(in_cross_check_grace);
 
     return true;
 }
@@ -333,9 +340,9 @@ void ThermalController::handleSelfTest() {
     unsigned long now = millis();
     unsigned long phase_elapsed = now - _selftest_phase_start;
 
-    // Access raw PSUs for self-test (via safety monitor which has them)
-    DPS5015 &psu0 = _safety.getPsu(0);
-    DPS5015 &psu1 = _safety.getPsu(1);
+    // Access raw PSUs for self-test
+    DPS5015 &psu0 = _dps.getPsu(0);
+    DPS5015 &psu1 = _dps.getPsu(1);
 
     switch (_selftest_phase) {
     case SelfTest::PHASE_START:
@@ -489,8 +496,7 @@ void ThermalController::handleRampUp() {
                      _temp_at_optimal);
             _logger.log(buf, true);
         } else if (result == EvaluationResult::DEGRADED) {
-            float previous =
-                _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
+            float previous = _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
             previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
             _dps.setSymmetricCurrent(previous);
             _optimal_current = previous;
@@ -508,7 +514,8 @@ void ThermalController::handleRampUp() {
     bool cooling_stalled = false;
 
     if (_history.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2)) {
-        cooling_stalled = (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
+        cooling_stalled =
+            (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
     }
 
     if (at_max || hot_limited || cooling_stalled) {
@@ -572,14 +579,15 @@ void ThermalController::handleSteadyState() {
 
     // Periodic optimization probe
     float current = _dps.getTargetCurrent();
-    bool can_probe = (hot_temp < HOT_SIDE_WARNING_C - 5.0f) &&
-                     (current < MAX_CURRENT_PER_CHANNEL) &&
-                     (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
+    bool can_probe =
+        (hot_temp < HOT_SIDE_WARNING_C - 5.0f) &&
+        (current < MAX_CURRENT_PER_CHANNEL) &&
+        (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
 
     if (can_probe) {
         _temp_before_last_increase = cold_temp;
-        float new_current = fmin(current + RAMP_CURRENT_STEP_A / 2.0f,
-                                 MAX_CURRENT_PER_CHANNEL);
+        float new_current =
+            fmin(current + RAMP_CURRENT_STEP_A / 2.0f, MAX_CURRENT_PER_CHANNEL);
         _dps.setSymmetricCurrent(new_current);
         _last_adjustment_time = now;
         _awaiting_evaluation = true;
@@ -651,7 +659,8 @@ EvaluationResult ThermalController::evaluateCurrentChange() {
     // Wait for hot-side stabilization
     float hot_rate = fabs(_history.getHotPlateRate());
     bool stable = (hot_rate < HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN);
-    bool timeout = (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+    bool timeout =
+        (now - _evaluation_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
 
     if (!stable && !timeout)
         return EvaluationResult::WAITING;
@@ -660,9 +669,11 @@ EvaluationResult ThermalController::evaluateCurrentChange() {
     float rate = _history.getColdPlateRate();
     float rate_delta = rate - _rate_before_last_increase;
 
-    bool improved = (cold_temp < _temp_before_last_increase - Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
+    bool improved = (cold_temp < _temp_before_last_increase -
+                                     Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
     bool degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
-    bool worsened = (cold_temp > _temp_before_last_increase + OVERCURRENT_WARMING_THRESHOLD_C);
+    bool worsened = (cold_temp > _temp_before_last_increase +
+                                     OVERCURRENT_WARMING_THRESHOLD_C);
 
     if (improved && !degraded)
         return EvaluationResult::IMPROVED;

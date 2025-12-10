@@ -24,33 +24,6 @@ SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {
     return status;
 }
 
-SafetyStatus SafetyMonitor::runAllChecks() {
-    // Run checks in priority order (most critical first)
-    SafetyStatus status;
-
-    status = checkThermalLimits();
-    if (status != SafetyStatus::OK)
-        return status;
-
-    status = checkSensorHealth();
-    if (status != SafetyStatus::OK)
-        return status;
-
-    status = checkSensorSanity();
-    if (status != SafetyStatus::OK)
-        return status;
-
-    status = checkDpsConnection();
-    if (status != SafetyStatus::OK)
-        return status;
-
-    status = checkManualOverride();
-    if (status != SafetyStatus::OK)
-        return status;
-
-    return SafetyStatus::OK;
-}
-
 void SafetyMonitor::updateHysteresis() {
     float hot_temp = _hot_plate.getTemperature();
 
@@ -231,41 +204,6 @@ SafetyStatus SafetyMonitor::checkDpsConnection() {
     // Detect disconnection
     if ((was0 && !psu0_ok) || (was1 && !psu1_ok)) {
         return setFault(SafetyStatus::DPS_DISCONNECTED, "DPS disconnected");
-    }
-
-    return SafetyStatus::OK;
-}
-
-SafetyStatus SafetyMonitor::checkManualOverride() {
-    DPS5015 *psus[2] = {&_psu0, &_psu1};
-
-    for (size_t i = 0; i < 2; i++) {
-        if (!psus[i]->isConnected())
-            continue;
-
-        // Skip check if there are pending writes or we're in grace period
-        if (psus[i]->hasPendingWrites() || psus[i]->isInGracePeriod())
-            continue;
-
-        // Check for sustained current mismatch
-        if (psus[i]->getConsecutiveMismatches() >=
-            MANUAL_OVERRIDE_MISMATCH_COUNT) {
-            return setFault(SafetyStatus::MANUAL_OVERRIDE,
-                            "Manual override (I)");
-        }
-
-        // Voltage mismatch (immediate)
-        if (psus[i]->hasVoltageMismatch()) {
-            char buf[48];
-            snprintf(buf, sizeof(buf), "Manual override (V) %.1f!=%.1f",
-                     psus[i]->getSetVoltage(), psus[i]->getCommandedVoltage());
-            return setFault(SafetyStatus::MANUAL_OVERRIDE, buf);
-        }
-
-        // Output state mismatch (immediate)
-        if (psus[i]->hasOutputMismatch()) {
-            return setFault(SafetyStatus::MANUAL_OVERRIDE, "Output toggled");
-        }
     }
 
     return SafetyStatus::OK;
