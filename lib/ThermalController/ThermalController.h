@@ -56,6 +56,10 @@ enum class EvaluationResult { WAITING, IMPROVED, DEGRADED, UNCHANGED };
  * Groups all variables related to finding the optimal TEC current.
  * This makes save/restore of optimizer state cleaner and reduces
  * clutter in the main controller class.
+ *
+ * Tracks both step-by-step evaluation AND the global best point seen
+ * during the entire ramp. When degradation is detected, we return to
+ * the global best, not just one step back.
  */
 struct OptimizerState {
     float optimal_current = 0.0f;      // Best current found so far
@@ -65,6 +69,13 @@ struct OptimizerState {
     bool awaiting_evaluation = false;  // Evaluation in progress
     unsigned long eval_start_time = 0; // When evaluation started
 
+    // Global best tracking during ramp (may differ from step-by-step optimal)
+    float best_temp_during_ramp = 100.0f; // Coldest temp seen during this ramp
+    float current_at_best_temp = 0.0f;    // Current that achieved best temp
+
+    // Steady-state probe direction (alternates to find true optimum)
+    bool last_probe_was_increase = true; // Toggle between up/down probes
+
     void reset() {
         optimal_current = 0.0f;
         temp_at_optimal = 100.0f;
@@ -72,6 +83,9 @@ struct OptimizerState {
         rate_before_step = 0.0f;
         awaiting_evaluation = false;
         eval_start_time = 0;
+        best_temp_during_ramp = 100.0f;
+        current_at_best_temp = 0.0f;
+        last_probe_was_increase = true;
     }
 };
 

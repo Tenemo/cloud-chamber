@@ -250,6 +250,9 @@ void ThermalController::transitionTo(ThermalState newState) {
         break;
     case ThermalState::RAMP_UP:
         _ramp_start_time = millis();
+        // Initialize global best tracking for this ramp
+        _optimizer.best_temp_during_ramp = _cold_plate.getTemperature();
+        _optimizer.current_at_best_temp = _dps.getTargetCurrent();
         break;
     case ThermalState::SELF_TEST:
         _selftest_phase = SelfTest::PHASE_START;
@@ -474,9 +477,15 @@ void ThermalController::handleRampUp() {
     unsigned long now = millis();
     float cold_temp = _cold_plate.getTemperature();
 
-    // Track minimum temperature
+    // Track minimum temperature (session record)
     if (cold_temp < _min_cold_temp_achieved) {
         _min_cold_temp_achieved = cold_temp;
+    }
+
+    // Track global best during this ramp (for returning to true optimum)
+    if (cold_temp < _optimizer.best_temp_during_ramp) {
+        _optimizer.best_temp_during_ramp = cold_temp;
+        _optimizer.current_at_best_temp = _dps.getTargetCurrent();
     }
 
     // Evaluate pending current change
@@ -493,11 +502,19 @@ void ThermalController::handleRampUp() {
                          _optimizer.optimal_current,
                          _optimizer.temp_at_optimal);
         } else if (result == EvaluationResult::DEGRADED) {
-            float previous = _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
-            previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
-            _dps.setSymmetricCurrent(previous);
-            _optimizer.optimal_current = previous;
-            _optimizer.temp_at_optimal = _optimizer.temp_before_step;
+            // Return to global best, not just one step back
+            float best_current = _optimizer.current_at_best_temp;
+            if (best_current < MIN_CURRENT_PER_CHANNEL) {
+                best_current = _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
+            }
+            best_current = fmax(best_current, MIN_CURRENT_PER_CHANNEL);
+
+            _dps.setSymmetricCurrent(best_current);
+            _optimizer.optimal_current = best_current;
+            _optimizer.temp_at_optimal = _optimizer.best_temp_during_ramp;
+
+            _logger.logf(true, "TC: Degraded, back to best %.1fA (%.1fC)",
+                         best_current, _optimizer.best_temp_during_ramp);
             transitionTo(ThermalState::STEADY_STATE);
             return;
         }
@@ -515,15 +532,19 @@ void ThermalController::handleRampUp() {
             (fabs(_history.getColdPlateRate()) < COOLING_STALL_THRESHOLD_C);
     }
 
-    // Hot limited or cooling stalled indicates overshoot - back off
+    // Hot limited or cooling stalled - return to global best
     if (hot_limited || cooling_stalled) {
-        float previous = current - RAMP_CURRENT_STEP_A;
-        previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
-        _dps.setSymmetricCurrent(previous);
-        _optimizer.optimal_current = previous;
-        _optimizer.temp_at_optimal = _optimizer.temp_before_step;
+        float best_current = _optimizer.current_at_best_temp;
+        if (best_current < MIN_CURRENT_PER_CHANNEL) {
+            best_current = current - RAMP_CURRENT_STEP_A;
+        }
+        best_current = fmax(best_current, MIN_CURRENT_PER_CHANNEL);
 
-        _logger.logf(true, "TC: Limit hit, back to %.1fA", previous);
+        _dps.setSymmetricCurrent(best_current);
+        _optimizer.optimal_current = best_current;
+        _optimizer.temp_at_optimal = _optimizer.best_temp_during_ramp;
+
+        _logger.logf(true, "TC: Limit hit, back to best %.1fA", best_current);
 
         transitionTo(ThermalState::STEADY_STATE);
         return;
@@ -587,23 +608,43 @@ void ThermalController::handleSteadyState() {
         return;
     }
 
-    // Periodic optimization probe
+    // Periodic optimization probe (bidirectional to find true optimum)
     float current = _dps.getTargetCurrent();
     bool can_probe =
-        (hot_temp < HOT_SIDE_WARNING_C - 5.0f) &&
-        (current < MAX_CURRENT_PER_CHANNEL) &&
         (now - _last_adjustment_time >= STEADY_STATE_RECHECK_INTERVAL_MS);
 
     if (can_probe) {
         _optimizer.temp_before_step = cold_temp;
         _optimizer.rate_before_step = _history.getColdPlateRate();
-        float new_current =
-            fmin(current + RAMP_CURRENT_STEP_A / 2.0f, MAX_CURRENT_PER_CHANNEL);
-        _dps.setSymmetricCurrent(new_current);
-        _last_adjustment_time = now;
-        _optimizer.awaiting_evaluation = true;
-        _optimizer.eval_start_time = now;
-        _logger.log("TC: Steady probe", true);
+
+        // Alternate between increasing and decreasing current
+        float new_current;
+        float step = RAMP_CURRENT_STEP_A / 2.0f;
+
+        if (_optimizer.last_probe_was_increase) {
+            // Try decreasing (if we have room)
+            if (current > STARTUP_CURRENT + step) {
+                new_current = current - step;
+                _optimizer.last_probe_was_increase = false;
+                _dps.setSymmetricCurrent(new_current);
+                _last_adjustment_time = now;
+                _optimizer.awaiting_evaluation = true;
+                _optimizer.eval_start_time = now;
+                _logger.log("TC: Probe down", true);
+            }
+        } else {
+            // Try increasing (if we have room and thermal headroom)
+            if (current < MAX_CURRENT_PER_CHANNEL &&
+                hot_temp < HOT_SIDE_WARNING_C - 5.0f) {
+                new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
+                _optimizer.last_probe_was_increase = true;
+                _dps.setSymmetricCurrent(new_current);
+                _last_adjustment_time = now;
+                _optimizer.awaiting_evaluation = true;
+                _optimizer.eval_start_time = now;
+                _logger.log("TC: Probe up", true);
+            }
+        }
     }
 }
 
