@@ -72,6 +72,10 @@ class DS18B20Sensor {
     // Shared state for coordinating bus-wide conversions
     static unsigned long _shared_conversion_start_time;
     static bool _shared_conversion_pending;
+    static uint32_t _shared_conversion_id; // Increments each conversion cycle
+
+    // Per-instance tracking of which conversion was last read
+    uint32_t _last_read_conversion_id;
 };
 
 #endif // DS18B20_H

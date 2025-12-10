@@ -88,6 +88,13 @@ constexpr size_t MAX_LINE_LABEL_LEN = 12; // e.g., "DC12 V:", "State:"
 constexpr size_t MAX_LINE_VALUE_LEN = 16; // e.g., "12.34 V", "INIT..."
 constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
 
+// PSRAM circular log buffer configuration
+// PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
+// Buffer is lost on reset but can be dumped on demand for diagnostics
+constexpr size_t PSRAM_LOG_ENTRY_SIZE =
+    80; // Max chars per log entry (with timestamp)
+constexpr size_t PSRAM_LOG_BUFFER_ENTRIES = 500; // ~40KB in PSRAM
+
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
     char label[MAX_LINE_LABEL_LEN];      // display label (e.g., "Temp:")
@@ -130,6 +137,10 @@ class Logger {
     // Live log output (to screen and serial, or serial only)
     void log(const char *message, bool serialOnly = false);
 
+    // PSRAM log buffer access (for diagnostics)
+    void dumpLogBuffer(); // Dump entire log buffer to Serial
+    size_t getLogBufferCount() const { return _psram_log_count; }
+
   private:
     void clearValueArea(int y);
     void drawLineLabel(const char *label, int slot);
@@ -164,6 +175,13 @@ class Logger {
     void drawLogArea();
     void drawSeparatorLine();
     void updateSpinner();
+    void addToLogBuffer(const char *message); // Add to PSRAM circular buffer
+
+    // PSRAM circular log buffer
+    char *_psram_log_buffer; // Allocated in PSRAM
+    size_t _psram_log_head;  // Next write position
+    size_t _psram_log_count; // Total entries (up to max)
+    bool _psram_available;   // True if PSRAM allocation succeeded
 };
 
 #endif // LOGGER_H

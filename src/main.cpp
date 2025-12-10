@@ -17,7 +17,12 @@
  *
  * SAFETY:
  * - Task Watchdog Timer (WDT) enabled - resets if loop() takes >10 seconds
- * - Clean shutdown flag stored in NVS - detects crash recovery on boot
+ *
+ * SHUTDOWN:
+ * - Normal shutdown is via physical OFF switch (power cut)
+ * - DPS5015 units always start in OFF state after power cycle
+ * - No software-initiated clean shutdown needed
+ * - "Unclean shutdown" detection removed as all shutdowns are power cuts
  */
 
 #include "DPS5015.h"
@@ -27,13 +32,7 @@
 #include "ThermalController.h"
 #include "config.h"
 #include <Arduino.h>
-#include <Preferences.h>
 #include <esp_task_wdt.h>
-
-// NVS storage for crash detection
-Preferences preferences;
-static constexpr const char *NVS_NAMESPACE = "cloud_chamber";
-static constexpr const char *NVS_KEY_CLEAN_SHUTDOWN = "clean_shutdown";
 
 Logger logger;
 
@@ -64,19 +63,6 @@ ThermalController
                       psus // PSU array
     );
 
-static bool checkCleanShutdown() {
-    preferences.begin(NVS_NAMESPACE, true); // Read-only
-    bool was_clean = preferences.getBool(NVS_KEY_CLEAN_SHUTDOWN, true);
-    preferences.end();
-    return was_clean;
-}
-
-static void markShutdownState(bool clean) {
-    preferences.begin(NVS_NAMESPACE, false); // Read-write
-    preferences.putBool(NVS_KEY_CLEAN_SHUTDOWN, clean);
-    preferences.end();
-}
-
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
     // This will reset the ESP32 if loop() hangs for longer than timeout
@@ -87,16 +73,6 @@ static void initializeWatchdog() {
 
 static void initializeHardware() {
     logger.initializeDisplay();
-
-    // Check for crash recovery
-    if (!checkCleanShutdown()) {
-        logger.log("WARN: Crash recovery!");
-        // ThermalController will detect DPS running and shut down safely
-    }
-
-    // Mark as "not clean" until we properly shut down
-    // (If we crash, next boot will see this)
-    markShutdownState(false);
 
     // Initialize watchdog
     initializeWatchdog();

@@ -6,6 +6,13 @@ The `ThermalController` is a smart thermal control system for cloud chamber TEC 
 
 The system uses a **hierarchical state machine with safety-first design**, automatically optimizing current to find the minimum achievable cold plate temperature while protecting hardware from thermal damage.
 
+**Key Features:**
+
+- Cross-sensor validation (cold plate must be colder than hot plate)
+- NVS metrics persistence (tracks all-time best temperature and runtime)
+- DPS self-test on startup (verifies communication and output control)
+- Impossible value detection (sanity checks on sensor readings)
+
 ---
 
 ## Hardware Configuration
@@ -47,9 +54,9 @@ The controller operates as a finite state machine with the following states:
                     ┌──────────────────────────────────────────────┐
                     │                                              │
                     ▼                                              │
-┌─────────────┐   ┌─────────┐   ┌─────────┐   ┌──────────────┐    │
-│ INITIALIZING│──▶│ STARTUP │──▶│ RAMP_UP │──▶│ STEADY_STATE │────┤
-└─────────────┘   └─────────┘   └─────────┘   └──────────────┘    │
+┌─────────────┐   ┌───────────┐   ┌─────────┐   ┌─────────┐   ┌──────────────┐    │
+│ INITIALIZING│──▶│ SELF_TEST │──▶│ STARTUP │──▶│ RAMP_UP │──▶│ STEADY_STATE │────┤
+└─────────────┘   └───────────┘   └─────────┘   └─────────┘   └──────────────┘    │
        │               │             │               │             │
        │               │             │               │             │
        ▼               ▼             ▼               ▼             │
@@ -73,12 +80,28 @@ The controller operates as a finite state machine with the following states:
 - **Entry condition**: System startup
 - **Actions**:
   - Check PT100, DS18B20, and both DPS5015 connections
+  - Load persisted metrics from NVS (runtime, best temperature, session count)
   - **Hot reset detection**: If DPS is already running at >2A, adopt the current to avoid thermal shock
   - Timeout after 30 seconds to fault state
 - **Exit conditions**:
-  - All hardware ready → STARTUP
-  - Hot reset with high current → RAMP_UP or STEADY_STATE
+  - All hardware ready → SELF_TEST
+  - Hot reset with high current → RAMP_UP or STEADY_STATE (skips self-test)
   - Timeout → SENSOR_FAULT or DPS_DISCONNECTED
+
+#### SELF_TEST
+
+- **Purpose**: Verify DPS communication and output control before operation
+- **Duration**: ~3-5 seconds typically
+- **Phases**:
+  1. Configure both DPS to safe test voltage (1V) and current (0.1A) with output OFF
+  2. Verify settings were applied correctly
+  3. Enable output on DPS0, verify it turned on, disable it
+  4. Enable output on DPS1, verify it turned on, disable it
+  5. All tests passed → proceed to STARTUP
+- **Exit conditions**:
+  - All tests pass → STARTUP
+  - Any test fails → DPS_DISCONNECTED
+  - Timeout → DPS_DISCONNECTED
 
 #### STARTUP
 
@@ -87,7 +110,7 @@ The controller operates as a finite state machine with the following states:
 - **Actions**:
   - Set both channels to `STARTUP_CURRENT` (2.0A)
   - Enable outputs with fixed voltage (16V)
-  - Run all safety checks
+  - Run all safety checks including sensor sanity validation
 - **Exit conditions**:
   - Duration elapsed → RAMP_UP
   - Safety fault → appropriate fault state
@@ -105,6 +128,7 @@ The controller operates as a finite state machine with the following states:
      - No (or warming detected) → Back off to previous current, enter STEADY_STATE
 - **Derivative control**: Also monitors cooling _rate_ - if rate degrades significantly even though absolute temperature looks OK, it backs off early
 - **Hot side limiting**: Step size halved when in warning zone (55-65°C), ramping stops at alarm zone (≥65°C)
+- **Cross-sensor validation**: After 2-minute grace period, warns if cold plate is not colder than hot plate
 - **Exit conditions**:
   - Reached `MAX_CURRENT_PER_CHANNEL` → STEADY_STATE
   - Hot side limiting → STEADY_STATE
@@ -116,8 +140,9 @@ The controller operates as a finite state machine with the following states:
 - **Purpose**: Maintain optimal operation, periodically probe for improvement
 - **Actions**:
   - Hold current at optimal level
-  - Track minimum achieved cold plate temperature
+  - Track minimum achieved cold plate temperature (session and all-time)
   - Every 15 minutes, if conditions favorable, try a small current bump
+  - Persist all-time best temperature to NVS when new record achieved
 - **Periodic probing**: If hot side has headroom (<50°C) and not at max current, attempt a half-step increase and evaluate after 60 seconds
 - **Exit conditions**:
   - Safety fault → appropriate fault state
@@ -439,13 +464,16 @@ void loop() {
 
 ### Common Issues
 
-| Symptom                    | Possible Cause          | Solution                             |
-| -------------------------- | ----------------------- | ------------------------------------ |
-| Stays in INITIALIZING      | Hardware not responding | Check wiring, sensor addresses       |
-| Frequent MANUAL_OVERRIDE   | Noisy Modbus, EMI       | Add ferrite cores, check grounding   |
-| Never reaches STEADY_STATE | Hot side limiting       | Improve heat rejection (fans, flow)  |
-| Thermal runaway            | Insufficient cooling    | Reduce max current, improve heatsink |
-| Channel imbalance logs     | TEC degradation         | Replace TECs or adjust mounting      |
+| Symptom                    | Possible Cause          | Solution                                     |
+| -------------------------- | ----------------------- | -------------------------------------------- |
+| Stays in INITIALIZING      | Hardware not responding | Check wiring, sensor addresses               |
+| Stays in SELF_TEST         | DPS not responding      | Check Modbus wiring, baud rate               |
+| Frequent MANUAL_OVERRIDE   | Noisy Modbus, EMI       | Add ferrite cores, check grounding           |
+| Never reaches STEADY_STATE | Hot side limiting       | Improve heat rejection (fans, flow)          |
+| Thermal runaway            | Insufficient cooling    | Reduce max current, improve heatsink         |
+| Channel imbalance logs     | TEC degradation         | Replace TECs or adjust mounting              |
+| "Cold>=Hot" warnings       | Sensors swapped/faulty  | Check sensor wiring and placement            |
+| "FAULT: impossible" error  | Sensor reading invalid  | Check sensor connections, replace if damaged |
 
 ### Debug Information
 
@@ -454,3 +482,103 @@ Monitor these for diagnostics:
 - Serial output for state transitions and events
 - Display shows state, cooling rate, commanded currents
 - History buffer contains 5-minute trend data
+- NVS metrics show all-time best temperature and total runtime
+
+---
+
+## Cross-Sensor Validation
+
+The controller validates that sensor readings make physical sense:
+
+### Cross-Check (Cold vs Hot)
+
+After a 2-minute grace period in RAMP_UP state, the controller warns if the cold plate is not at least 2°C colder than the hot plate. This could indicate:
+
+- Sensors are swapped or misconfigured
+- A sensor is reading incorrectly
+- TECs are not cooling (failed or reversed polarity)
+- Insufficient thermal paste or mounting pressure
+
+This is a **warning, not a fault** - the condition might be transient during thermal equilibration.
+
+### Sanity Limits
+
+The controller faults immediately if sensor readings are physically impossible:
+
+| Sensor     | Min Valid | Max Valid | Rationale                         |
+| ---------- | --------- | --------- | --------------------------------- |
+| Cold Plate | -60°C     | 80°C      | PT100 limit / shouldn't be hot    |
+| Hot Plate  | -20°C     | 100°C     | Shouldn't freeze / way past fault |
+
+These indicate sensor malfunction rather than thermal issues.
+
+---
+
+## NVS Metrics Persistence
+
+The controller persists key metrics to flash (NVS) for long-term diagnostics:
+
+### Stored Metrics
+
+| Key        | Type  | Description                         |
+| ---------- | ----- | ----------------------------------- |
+| `min_t`    | float | All-time minimum cold plate temp    |
+| `opt_i`    | float | Current that achieved best temp     |
+| `runtime`  | ulong | Total accumulated runtime (seconds) |
+| `sessions` | ulong | Number of boot cycles               |
+
+### Write Strategy (Flash Wear Prevention)
+
+NVS flash has limited write cycles (~100,000). The controller minimizes writes:
+
+- **Runtime**: Saved every 1 minute (incremental accumulation)
+- **Temperature/Current**: Saved every 5 minutes (only if changed)
+- **Force save**: When new all-time minimum temperature achieved
+
+At these intervals, the flash will last:
+
+- Runtime writes: 100,000 ÷ (60 writes/hour) = 1,666 hours = 69 days continuous
+- But NVS internally deduplicates unchanged values, so actual wear is much lower
+- Realistic expectation: Years of operation
+
+### Metrics Display on Startup
+
+On boot, the controller logs:
+
+```
+TC: Best=-32.5C@8.5A
+TC: Runtime=156h23m #47
+```
+
+This shows the best temperature ever achieved, the current that achieved it, total runtime, and session count.
+
+---
+
+## DPS Self-Test
+
+On startup (after INITIALIZING, before STARTUP), the controller runs a self-test sequence to verify DPS communication and output control:
+
+### Test Phases
+
+1. **Configure**: Set both DPS to safe test values (1V, 0.1A, output OFF)
+2. **Verify settings**: Confirm voltage setting was applied
+3. **Test DPS0 output**: Enable output, verify it turned on, disable
+4. **Test DPS1 output**: Enable output, verify it turned on, disable
+5. **Complete**: All tests passed, proceed to STARTUP
+
+### Failure Handling
+
+If any phase fails or times out (3 seconds per DPS), the controller transitions to DPS_DISCONNECTED state.
+
+### Hot Reset Bypass
+
+Self-test is **skipped** on hot reset (when DPS is already running at >2A). This avoids disrupting an already-running system that might be recovering from a watchdog reset.
+
+### Configuration
+
+| Parameter                 | Value | Description                 |
+| ------------------------- | ----- | --------------------------- |
+| `DPS_SELFTEST_TIMEOUT_MS` | 3000  | Max time per phase          |
+| `DPS_SELFTEST_SETTLE_MS`  | 500   | Wait after each command     |
+| `DPS_SELFTEST_VOLTAGE`    | 1.0V  | Safe test voltage (no load) |
+| `DPS_SELFTEST_CURRENT`    | 0.1A  | Safe test current (no load) |
