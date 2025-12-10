@@ -1,5 +1,6 @@
 #include "DPS5015.h"
 #include "config.h"
+#include <cmath>
 
 DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
                  uint8_t slaveAddress)
@@ -19,8 +20,11 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
         return; // prevent re-initialization
 
+    // Use config baud rate if default (0) passed, otherwise use specified
+    unsigned long actual_baud = (baud == 0) ? MODBUS_BAUD_RATE : baud;
+
     // Initialize Serial for Modbus communication
-    _serial.begin(baud, SERIAL_8N1, rxPin, txPin);
+    _serial.begin(actual_baud, SERIAL_8N1, rxPin, txPin);
     delay(100); // Allow UART hardware to stabilize after configuration
 
     // Register placeholder display line for initial state
@@ -243,6 +247,16 @@ bool DPS5015::setOutput(bool on) {
     return false;
 }
 
+bool DPS5015::setOCP(float current) {
+    // Set hardware Over Current Protection limit
+    // This is a failsafe that triggers if software commands an invalid current
+    if (!_connected && _ever_connected)
+        return false;
+
+    uint16_t value = static_cast<uint16_t>(current * 100.0f);
+    return queueWrite(REG_OCP, value);
+}
+
 void DPS5015::configure(float voltage, float current, bool outputOn) {
     _pending_config.voltage = voltage;
     _pending_config.current = current;
@@ -313,6 +327,40 @@ bool DPS5015::isInGracePeriod() const {
     return (millis() - _last_command_time) < MANUAL_OVERRIDE_GRACE_MS;
 }
 
+bool DPS5015::isSettled() const {
+    // Returns true if DPS state matches what we last commanded
+    // Used to verify DPS has processed our commands before sending new ones
+    if (_last_command_time == 0)
+        return true; // No commands sent yet, consider settled
+
+    // If in grace period, not yet settled
+    if (isInGracePeriod())
+        return false;
+
+    // Check if current matches commanded value (within tolerance)
+    float current_diff = fabs(_set_current - _commanded_current);
+    return current_diff < MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+}
+
+bool DPS5015::validateStateBeforeWrite(float expected_current) const {
+    // Pre-write validation: detect manual override before issuing new command
+    // Returns true if safe to proceed, false if override detected
+    //
+    // Logic:
+    // - If DPS current matches our last command -> user hasn't touched it
+    // - If DPS current matches new target -> already at target (OK)
+    // - If DPS current matches neither -> user changed it manually (ABORT)
+
+    // Allow tolerance for comparison
+    const float tol = MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+
+    bool matches_commanded = fabs(_set_current - _commanded_current) < tol;
+    bool matches_target = fabs(_set_current - expected_current) < tol;
+
+    // Safe if matches either commanded or target
+    return matches_commanded || matches_target;
+}
+
 void DPS5015::applyPendingConfig() {
     if (!_pending_config.has_config)
         return;
@@ -324,6 +372,10 @@ void DPS5015::applyPendingConfig() {
 
     // Queue all the configuration writes
     queueWrite(REG_LOCK, 0); // Unlock first
+
+    // Set hardware OCP as failsafe (in case ESP commands invalid current)
+    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
+
     queueWrite(REG_SET_VOLTAGE,
                static_cast<uint16_t>(_pending_config.voltage * 100.0f));
     queueWrite(REG_SET_CURRENT,
@@ -384,10 +436,10 @@ bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
     uint8_t response[64];
     for (size_t i = 0; i < expected_length && i < sizeof(response); i++) {
         // Wait briefly for each byte if not immediately available
-        // 10ms timeout per byte - at 9600 baud, one byte takes ~1ms
+        // Timeout per byte - at 9600 baud, one byte takes ~1ms
         unsigned long start = millis();
         while (!_serial.available()) {
-            if (millis() - start > 10) {
+            if (millis() - start > MODBUS_BYTE_TIMEOUT_MS) {
                 return false; // Byte timeout
             }
         }
@@ -452,7 +504,7 @@ bool DPS5015::checkWriteResponse() {
     for (size_t i = 0; i < 8; i++) {
         unsigned long start = millis();
         while (!_serial.available()) {
-            if (millis() - start > 10) {
+            if (millis() - start > MODBUS_BYTE_TIMEOUT_MS) {
                 return false; // Byte timeout
             }
         }

@@ -16,6 +16,7 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _previous_state(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_update_time(0), _target_current{0.0f, 0.0f}, _optimal_current(0.0f),
       _temp_at_optimal(100.0f), _temp_before_last_increase(100.0f),
+      _rate_before_last_increase(0.0f),
       _awaiting_evaluation(false), _evaluation_start_time(0),
       _min_cold_temp_achieved(100.0f), _last_adjustment_time(0),
       _cooling_rate(0.0f), _steady_state_start_time(0), _history_head(0),
@@ -155,16 +156,48 @@ void ThermalController::handleInitializing() {
     bool psu0_ok = _psus[0].isConnected();
     bool psu1_ok = _psus[1].isConnected();
 
-    // Check for DPS units already running (possible watchdog reset)
+    // Check for DPS units already running (possible watchdog reset / crash)
     if (psu0_ok || psu1_ok) {
         bool output0_on = _psus[0].isOutputOn();
         bool output1_on = _psus[1].isOutputOn();
 
         if (output0_on || output1_on) {
-            // DPS is running - assume manual operation or watchdog reset
-            _logger.log("TC: DPS active at boot");
-            // Conservative: shut down and restart cleanly
-            emergencyShutdown();
+            // DPS is running - read actual current to avoid thermal shock
+            float actual_current_0 = _psus[0].getSetCurrent();
+            float actual_current_1 = _psus[1].getSetCurrent();
+            float max_actual = fmax(actual_current_0, actual_current_1);
+
+            if (max_actual > STARTUP_CURRENT) {
+                // System was running at higher current - adopt it to avoid
+                // thermal shock from sudden current drop
+                _logger.log("TC: Hot reset detected");
+
+                char buf[48];
+                snprintf(buf, sizeof(buf), "TC: Adopting %.1fA", max_actual);
+                _logger.log(buf);
+
+                // Set target current to actual (clamped to max)
+                float adopted_current = fmin(max_actual, MAX_CURRENT_PER_CHANNEL);
+                _target_current[0] = adopted_current;
+                _target_current[1] = adopted_current;
+                _psus[0].configure(TEC_VOLTAGE_SETPOINT, adopted_current, true);
+                _psus[1].configure(TEC_VOLTAGE_SETPOINT, adopted_current, true);
+
+                // Track for optimal current detection
+                _optimal_current = adopted_current;
+                _temp_at_optimal = _cold_plate.getTemperature();
+
+                // Skip STARTUP, go directly to RAMP_UP or STEADY_STATE
+                if (adopted_current >= MAX_CURRENT_PER_CHANNEL - 0.5f) {
+                    transitionTo(ThermalState::STEADY_STATE);
+                } else {
+                    transitionTo(ThermalState::RAMP_UP);
+                }
+                return;
+            } else {
+                // Low current - safe to restart normally but log it
+                _logger.log("TC: DPS active, low I");
+            }
         }
     }
 
@@ -263,27 +296,44 @@ void ThermalController::handleRampUp() {
 
         _awaiting_evaluation = false;
 
-        // Compare current temp to temp before the increase
-        if (cold_temp < _temp_before_last_increase - 0.1f) {
-            // Temperature improved - this current is better
+        // DERIVATIVE CONTROL: Check both absolute temperature AND cooling rate
+        // The cooling rate is more responsive than absolute temperature due to
+        // thermal inertia of the water cooling loop
+
+        float rate_delta = _cooling_rate - _rate_before_last_increase;
+        // Note: cooling_rate is negative when cooling (K/min)
+        // If rate becomes less negative (or positive), cooling has slowed
+
+        bool temp_improved = (cold_temp < _temp_before_last_increase - 0.1f);
+        bool rate_degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
+        bool temp_worsened =
+            (cold_temp > _temp_before_last_increase + OVERCURRENT_WARMING_THRESHOLD_C);
+
+        if (temp_improved && !rate_degraded) {
+            // Temperature improved and rate didn't degrade - this current is
+            // better
             _optimal_current = _target_current[0];
             _temp_at_optimal = cold_temp;
             char buf[40];
             snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC", _optimal_current,
                      _temp_at_optimal);
             _logger.log(buf, true);
-        } else if (cold_temp > _temp_before_last_increase +
-                                   OVERCURRENT_WARMING_THRESHOLD_C) {
-            // Temperature got WORSE - we've passed the optimal point
-            // Back off to the previous (better) current
+        } else if (temp_worsened || rate_degraded) {
+            // Temperature got WORSE or cooling rate degraded significantly
+            // This indicates we've passed the inflection point
             float previous_current = _target_current[0] - RAMP_CURRENT_STEP_A;
             if (previous_current < MIN_CURRENT_PER_CHANNEL) {
                 previous_current = MIN_CURRENT_PER_CHANNEL;
             }
 
             char buf[48];
-            snprintf(buf, sizeof(buf), "TC: Past opt, back to %.1fA",
-                     previous_current);
+            if (rate_degraded && !temp_worsened) {
+                snprintf(buf, sizeof(buf), "TC: Rate deg, back %.1fA",
+                         previous_current);
+            } else {
+                snprintf(buf, sizeof(buf), "TC: Past opt, back %.1fA",
+                         previous_current);
+            }
             _logger.log(buf);
 
             setAllCurrents(previous_current);
@@ -294,7 +344,7 @@ void ThermalController::handleRampUp() {
             transitionTo(ThermalState::STEADY_STATE);
             return;
         }
-        // else: temperature about the same, continue ramping
+        // else: temperature about the same and rate stable, continue ramping
     }
 
     // Check if we've reached max current on both channels
@@ -336,8 +386,9 @@ void ThermalController::handleRampUp() {
         step = RAMP_CURRENT_STEP_A / 2.0f; // Half step when in warning zone
     }
 
-    // Record temperature before increase for later comparison
+    // Record temperature AND cooling rate before increase for later comparison
     _temp_before_last_increase = cold_temp;
+    _rate_before_last_increase = _cooling_rate;
 
     // Increase current on both channels equally
     float new_current =
@@ -480,20 +531,15 @@ bool ThermalController::checkForManualOverride() {
         if (!_psus[i].isConnected())
             continue;
 
-        // Skip check if we recently sent a command (race condition window)
+        // Skip check if we recently sent a command (settling window)
+        // This prevents false positives during Modbus propagation delay
         if (_psus[i].isInGracePeriod())
             continue;
 
-        float cmd_voltage = _psus[i].getCommandedVoltage();
-        float cmd_current = _psus[i].getCommandedCurrent();
-        float actual_voltage = _psus[i].getSetVoltage();
-        float actual_current = _psus[i].getSetCurrent();
-
-        // Check if setpoints differ from commanded values
-        if (fabs(actual_voltage - cmd_voltage) >
-                MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V ||
-            fabs(actual_current - cmd_current) >
-                MANUAL_OVERRIDE_CURRENT_TOLERANCE_A) {
+        // Check if DPS is settled (current matches what we commanded)
+        if (!_psus[i].isSettled()) {
+            // Current doesn't match commanded after grace period
+            // This indicates user manually changed the dial
             _logger.log("TC: Manual override");
             transitionTo(ThermalState::MANUAL_OVERRIDE);
             return true;
@@ -572,6 +618,18 @@ void ThermalController::setChannelCurrent(size_t channel, float current) {
 
     current =
         fmax(MIN_CURRENT_PER_CHANNEL, fmin(current, MAX_CURRENT_PER_CHANNEL));
+
+    // Pre-write validation: detect manual override before commanding
+    // Skip validation if this is a forced command (e.g., emergency shutdown)
+    if (_psus[channel].isConnected() && !_shutdown_in_progress) {
+        if (!_psus[channel].validateStateBeforeWrite(current)) {
+            // DPS state doesn't match expectations - user touched the dial
+            _logger.log("TC: Override detected");
+            transitionTo(ThermalState::MANUAL_OVERRIDE);
+            return;
+        }
+    }
+
     _target_current[channel] = current;
     _psus[channel].setCurrent(current);
 }
@@ -586,8 +644,22 @@ void ThermalController::enterThermalFault(const char *reason) {
     snprintf(buf, sizeof(buf), "TC FAULT: %s", reason);
     _logger.log(buf);
 
-    // Start non-blocking shutdown
-    startEmergencyShutdown();
+    // Check if this is a critical fault requiring HARD CUT
+    // At HOT_SIDE_FAULT_C, thermal shock is preferable to component damage
+    float hot_temp = _hot_plate.getTemperature();
+    if (hot_temp >= HOT_SIDE_FAULT_C) {
+        // HARD CUT - immediate output disable, no ramp
+        _logger.log("TC: HARD CUT!");
+        _psus[0].disableOutput();
+        _psus[1].disableOutput();
+        _target_current[0] = 0;
+        _target_current[1] = 0;
+        _shutdown_in_progress = false; // No ramp needed
+    } else {
+        // Non-critical fault - use controlled ramp-down
+        startEmergencyShutdown();
+    }
+
     _state = ThermalState::THERMAL_FAULT;
     _state_entry_time = millis();
 }
