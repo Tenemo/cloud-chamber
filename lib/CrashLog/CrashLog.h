@@ -5,6 +5,26 @@
  * Saves critical events to flash for post-mortem diagnostics.
  * Unlike PSRAM, this data survives power cycles and resets.
  *
+ * WHEN TO USE THIS vs Logger:
+ * ---------------------------
+ * Use CrashLog ONLY for events where you need to know what happened
+ * after a power cycle or reset:
+ * - Thermal faults (HOT_SIDE_FAULT)
+ * - Emergency shutdowns (startEmergencyShutdown, hardShutdown)
+ * - Sensor failures that may have caused a reset
+ * - Self-test failures
+ * - Watchdog or brownout reset detection
+ * - Any safety-critical state transition
+ *
+ * Use Logger for everything else:
+ * - Normal state transitions
+ * - Debug information
+ * - Optimization decisions
+ * - Display updates
+ *
+ * CrashLog writes to SPIFFS flash which has limited write cycles.
+ * Logger writes to PSRAM which is volatile but unlimited writes.
+ *
  * USAGE:
  * ------
  * 1. Initialize once during setup:

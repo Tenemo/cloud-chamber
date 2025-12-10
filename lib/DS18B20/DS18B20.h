@@ -67,7 +67,25 @@ class DS18B20Sensor {
 
     static constexpr float TEMP_ERROR_VALUE = -127.0f;
 
-    // Shared state for coordinating bus-wide conversions
+    // -------------------------------------------------------------------------
+    // Shared Conversion Coordination
+    // -------------------------------------------------------------------------
+    // All DS18B20 sensors share a single OneWire bus. Temperature conversion
+    // takes 750ms (12-bit mode) and affects all sensors simultaneously. To
+    // avoid redundant conversions and ensure consistent readings:
+    //
+    // 1. _shared_conversion_id increments each time requestTemperatures() is
+    //    called (by whichever sensor instance triggers first)
+    // 2. Each instance tracks _last_read_conversion_id to know if it has
+    //    already read from the current conversion cycle
+    // 3. If a sensor's last_read_id matches shared_id, it skips reading
+    //    (already has current data)
+    // 4. _shared_conversion_pending and _shared_conversion_start_time gate
+    //    the conversion timing so we wait for 750ms before reading
+    //
+    // This allows multiple sensors to share one bus efficiently without
+    // polling more often than necessary or returning stale data.
+    // -------------------------------------------------------------------------
     static unsigned long _shared_conversion_start_time;
     static bool _shared_conversion_pending;
     static uint32_t _shared_conversion_id; // Increments each conversion cycle

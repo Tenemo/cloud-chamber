@@ -44,12 +44,20 @@
 constexpr float RATE_INSUFFICIENT_HISTORY = -999.0f;
 
 /**
- * @brief Single temperature sample with both plate readings
+ * @brief Single sample with temperatures and power data
+ *
+ * Records both plate temperatures plus DPS current/power for complete
+ * historical analysis. This allows the optimizer to correlate temperature
+ * trends with power consumption and detect efficiency changes.
  */
 struct ThermalSample {
-    float cold_plate_temp;
-    float hot_plate_temp;
-    unsigned long timestamp;
+    float cold_plate_temp;   // Cold plate (PT100) in Celsius
+    float hot_plate_temp;    // Hot plate (DS18B20) in Celsius
+    float set_current;       // Commanded current per channel (A)
+    float voltage[2];        // Output voltage per channel (V)
+    float current[2];        // Actual output current per channel (A)
+    float power[2];          // Output power per channel (W)
+    unsigned long timestamp; // millis() when sample was taken
 };
 
 /**

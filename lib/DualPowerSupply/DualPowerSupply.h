@@ -61,7 +61,6 @@ class DualPowerSupply {
     DualPowerSupply(Logger &logger, DPS5015 &psu0, DPS5015 &psu1);
 
     void begin();
-    void update();
 
     // =========================================================================
     // Symmetric Control
@@ -192,6 +191,16 @@ class DualPowerSupply {
      * @brief Get actual current from specific channel
      */
     float getOutputCurrent(size_t channel) const;
+
+    /**
+     * @brief Get actual voltage from specific channel
+     */
+    float getOutputVoltage(size_t channel) const;
+
+    /**
+     * @brief Get actual power from specific channel
+     */
+    float getOutputPower(size_t channel) const;
 
     /**
      * @brief Get set current from specific channel (what DPS reports)

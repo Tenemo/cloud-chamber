@@ -22,11 +22,6 @@ void DualPowerSupply::begin() {
     // Nothing special needed - PSUs are initialized separately
 }
 
-void DualPowerSupply::update() {
-    // Currently no periodic updates needed
-    // PSU update() is called separately in main loop
-}
-
 // =============================================================================
 // Symmetric Control
 // =============================================================================
@@ -257,6 +252,22 @@ float DualPowerSupply::getOutputCurrent(size_t channel) const {
         return _psu0.getOutputCurrent();
     if (channel == 1)
         return _psu1.getOutputCurrent();
+    return 0.0f;
+}
+
+float DualPowerSupply::getOutputVoltage(size_t channel) const {
+    if (channel == 0)
+        return _psu0.getOutputVoltage();
+    if (channel == 1)
+        return _psu1.getOutputVoltage();
+    return 0.0f;
+}
+
+float DualPowerSupply::getOutputPower(size_t channel) const {
+    if (channel == 0)
+        return _psu0.getOutputPower();
+    if (channel == 1)
+        return _psu1.getOutputPower();
     return 0.0f;
 }
 
