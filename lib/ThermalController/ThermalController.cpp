@@ -48,8 +48,7 @@ void ThermalController::registerDisplayLines() {
     using namespace ThermalDisplay;
     _logger.registerTextLine(LINE_STATE, "State:", "INIT");
     _logger.registerLine(LINE_RATE, "dT/dt:", "K/m", 0.0f);
-    _logger.registerLine(LINE_I1_SET, "I1 SET:", "A", 0.0f);
-    _logger.registerLine(LINE_I2_SET, "I2 SET:", "A", 0.0f);
+    _logger.registerLine(LINE_CURRENT, "I Set:", "A", 0.0f);
 }
 
 // =============================================================================
@@ -170,15 +169,8 @@ void ThermalController::update() {
 // =============================================================================
 
 bool ThermalController::runSafetyChecks() {
-    // Check thermal limits
-    SafetyStatus status = _safety.checkThermalLimits();
-    if (status == SafetyStatus::THERMAL_FAULT) {
-        enterThermalFault(_safety.getLastFaultReason());
-        return false;
-    }
-
-    // Check sensor health
-    status = _safety.checkSensorHealth();
+    // Check sensor health FIRST (other checks assume sensors are valid)
+    SafetyStatus status = _safety.checkSensorHealth();
     if (status == SafetyStatus::SENSOR_FAULT) {
         transitionTo(ThermalState::SENSOR_FAULT);
         return false;
@@ -188,6 +180,13 @@ bool ThermalController::runSafetyChecks() {
     status = _safety.checkSensorSanity();
     if (status == SafetyStatus::SENSOR_FAULT) {
         transitionTo(ThermalState::SENSOR_FAULT);
+        return false;
+    }
+
+    // Check thermal limits (assumes sensors are valid from checks above)
+    status = _safety.checkThermalLimits();
+    if (status == SafetyStatus::THERMAL_FAULT) {
+        enterThermalFault(_safety.getLastFaultReason());
         return false;
     }
 
@@ -241,9 +240,7 @@ void ThermalController::transitionTo(ThermalState newState) {
     _state = newState;
     _state_entry_time = millis();
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "TC: -> %s", getStateString());
-    _logger.log(buf);
+    _logger.logf("TC: -> %s", getStateString());
 
     // State entry actions
     switch (newState) {
@@ -269,9 +266,7 @@ void ThermalController::transitionTo(ThermalState newState) {
 }
 
 void ThermalController::enterThermalFault(const char *reason) {
-    char buf[48];
-    snprintf(buf, sizeof(buf), "TC FAULT: %s", reason);
-    _logger.log(buf);
+    _logger.logf("TC FAULT: %s", reason);
     CrashLog::logCritical("THERMAL_FAULT", reason);
 
     float hot_temp = _hot_plate.getTemperature();
@@ -464,9 +459,7 @@ void ThermalController::handleStartup() {
     if (elapsed < STARTUP_CONFIG_WINDOW_MS) {
         if (elapsed < STARTUP_CONFIG_SEND_MS) {
             _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
-            char buf[32];
-            snprintf(buf, sizeof(buf), "TC: Start %.1fA", STARTUP_CURRENT);
-            _logger.log(buf);
+            _logger.logf("TC: Start %.1fA", STARTUP_CURRENT);
         }
         return;
     }
@@ -496,10 +489,9 @@ void ThermalController::handleRampUp() {
         if (result == EvaluationResult::IMPROVED) {
             _optimizer.optimal_current = _dps.getTargetCurrent();
             _optimizer.temp_at_optimal = cold_temp;
-            char buf[40];
-            snprintf(buf, sizeof(buf), "TC: Opt %.1fA=%.1fC",
-                     _optimizer.optimal_current, _optimizer.temp_at_optimal);
-            _logger.log(buf, true);
+            _logger.logf(true, "TC: Opt %.1fA=%.1fC",
+                         _optimizer.optimal_current,
+                         _optimizer.temp_at_optimal);
         } else if (result == EvaluationResult::DEGRADED) {
             float previous = _dps.getTargetCurrent() - RAMP_CURRENT_STEP_A;
             previous = fmax(previous, MIN_CURRENT_PER_CHANNEL);
@@ -531,9 +523,7 @@ void ThermalController::handleRampUp() {
         _optimizer.optimal_current = previous;
         _optimizer.temp_at_optimal = _optimizer.temp_before_step;
 
-        char buf[48];
-        snprintf(buf, sizeof(buf), "TC: Limit hit, back to %.1fA", previous);
-        _logger.log(buf, true);
+        _logger.logf(true, "TC: Limit hit, back to %.1fA", previous);
 
         transitionTo(ThermalState::STEADY_STATE);
         return;
@@ -566,9 +556,7 @@ void ThermalController::handleRampUp() {
     _optimizer.awaiting_evaluation = true;
     _optimizer.eval_start_time = now;
 
-    char buf[32];
-    snprintf(buf, sizeof(buf), "TC: Ramp %.1fA", new_current);
-    _logger.log(buf, true);
+    _logger.logf(true, "TC: Ramp %.1fA", new_current);
 }
 
 void ThermalController::handleSteadyState() {
@@ -620,13 +608,15 @@ void ThermalController::handleSteadyState() {
 }
 
 void ThermalController::handleManualOverride() {
-    // Monitor only - no commands sent
-    // Safety checks still run via runSafetyChecks()
+    // Intentionally empty - we stop sending commands when user takes control.
+    // Safety checks still run via runSafetyChecks() at top of update().
+    // This state is permanent until power cycle.
 }
 
 void ThermalController::handleThermalFault() {
-    // Emergency shutdown is handled by DualPowerSupply
-    // Nothing else to do here
+    // Intentionally empty - emergency shutdown is handled by DualPowerSupply.
+    // This state is latched (requires power cycle to exit) to ensure
+    // the system stays off after a thermal event until human inspection.
 }
 
 void ThermalController::handleSensorFault() {
@@ -748,10 +738,7 @@ void ThermalController::checkChannelImbalance() {
 
     if (current_diff > CHANNEL_CURRENT_IMBALANCE_A ||
         power_diff > CHANNEL_POWER_IMBALANCE_W) {
-        char buf[48];
-        snprintf(buf, sizeof(buf), "IMBAL: dI=%.1fA dP=%.0fW", current_diff,
-                 power_diff);
-        _logger.log(buf);
+        _logger.logf("IMBAL: dI=%.1fA dP=%.0fW", current_diff, power_diff);
         _last_imbalance_log_time = now;
     }
 }
@@ -764,6 +751,5 @@ void ThermalController::updateDisplay() {
     using namespace ThermalDisplay;
     _logger.updateLineText(LINE_STATE, getStateString());
     _logger.updateLine(LINE_RATE, _history.getColdPlateRate());
-    _logger.updateLine(LINE_I1_SET, _dps.getTargetCurrent());
-    _logger.updateLine(LINE_I2_SET, _dps.getTargetCurrent());
+    _logger.updateLine(LINE_CURRENT, _dps.getTargetCurrent());
 }

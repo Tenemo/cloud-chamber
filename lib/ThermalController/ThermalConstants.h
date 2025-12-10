@@ -38,8 +38,8 @@ static_assert(HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES <= HISTORY_BUFFER_SIZE,
 namespace ThermalDisplay {
 constexpr const char *LINE_STATE = "TC_STATE";
 constexpr const char *LINE_RATE = "TC_RATE";
-constexpr const char *LINE_I1_SET = "TC_I1";
-constexpr const char *LINE_I2_SET = "TC_I2";
+constexpr const char *LINE_CURRENT =
+    "TC_I"; // Single line - both channels use same current
 } // namespace ThermalDisplay
 
 // =============================================================================

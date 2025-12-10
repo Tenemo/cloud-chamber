@@ -495,13 +495,13 @@ Monitor these for diagnostics:
 - Display shows state, cooling rate, commanded currents
 - History buffer contains 5-minute trend data
 - NVS metrics show all-time best temperature and total runtime
-- **PSRAM log buffer** contains last 500 log entries with timestamps (see below)
+- **PSRAM log buffer** contains ~12,800 log entries with timestamps (see below)
 
 ---
 
 ## PSRAM Log Buffer
 
-The Logger maintains a circular buffer in PSRAM (volatile memory with unlimited writes) that stores the last 500 log entries with timestamps. This is invaluable for post-mortem diagnostics after an issue occurs.
+The Logger maintains a circular buffer in PSRAM (volatile memory with unlimited writes) that stores ~12,800 log entries with timestamps. This is invaluable for post-mortem diagnostics after an issue occurs.
 
 ### Characteristics
 

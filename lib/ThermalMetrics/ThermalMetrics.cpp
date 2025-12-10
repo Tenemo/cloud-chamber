@@ -37,9 +37,7 @@ void ThermalMetrics::recordNewMinimum(float temp, float current) {
         _all_time_min_temp = temp;
         _all_time_optimal_current = current;
 
-        char buf[48];
-        snprintf(buf, sizeof(buf), "NVS: New best=%.1fC@%.1fA", temp, current);
-        _logger.log(buf, true);
+        _logger.logf(true, "NVS: New best=%.1fC@%.1fA", temp, current);
 
         saveToNvs(true); // Force save for new records
     }
@@ -60,10 +58,8 @@ bool ThermalMetrics::checkNvsSpace() {
         static unsigned long last_warning = 0;
         unsigned long now = millis();
         if (now - last_warning > 60000) {
-            char buf[48];
-            snprintf(buf, sizeof(buf), "NVS: Low space! %d free",
-                     (int)nvs_stats.free_entries);
-            _logger.log(buf);
+            _logger.logf("NVS: Low space! %d free",
+                         (int)nvs_stats.free_entries);
             last_warning = now;
         }
         return false;
@@ -121,16 +117,12 @@ void ThermalMetrics::loadFromNvs() {
     }
 
     // Log loaded values
-    char buf[64];
-    snprintf(buf, sizeof(buf), "TC: Best=%.1fC@%.1fA", _all_time_min_temp,
-             _all_time_optimal_current);
-    _logger.log(buf);
+    _logger.logf("TC: Best=%.1fC@%.1fA", _all_time_min_temp,
+                 _all_time_optimal_current);
 
     unsigned long hours = _total_runtime_seconds / 3600;
     unsigned long mins = (_total_runtime_seconds % 3600) / 60;
-    snprintf(buf, sizeof(buf), "TC: Runtime=%luh%lum #%lu", hours, mins,
-             _session_count);
-    _logger.log(buf);
+    _logger.logf("TC: Runtime=%luh%lum #%lu", hours, mins, _session_count);
 }
 
 void ThermalMetrics::saveToNvs(bool force) {

@@ -15,7 +15,7 @@ void PT100Sensor::begin() {
     // Check initial reading to see if sensor is connected
     delay(100); // allow sensor to stabilize
     float temp_c = _rtd.temperature(RNOMINAL, RREF);
-    bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
+    bool has_error = (temp_c < PT100_ERROR_MIN_C || temp_c > PT100_ERROR_MAX_C);
 
     char labelBuf[16];
     Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
@@ -46,7 +46,7 @@ void PT100Sensor::update() {
     float temp_c = _rtd.temperature(RNOMINAL, RREF);
 
     // Check for error conditions (invalid reading or sensor fault)
-    bool has_error = (temp_c < -100.0f || temp_c > 500.0f);
+    bool has_error = (temp_c < PT100_ERROR_MIN_C || temp_c > PT100_ERROR_MAX_C);
 
     if (has_error) {
         if (!_in_error_state) {
@@ -86,10 +86,8 @@ void PT100Sensor::update() {
             unsigned int hours = (total_secs / 3600) % 24;
             unsigned int mins = (total_secs / 60) % 60;
             unsigned int secs = total_secs % 60;
-            char buf[48];
-            snprintf(buf, sizeof(buf), "[%02u:%02u:%02u] PT100: %.2f C", hours,
-                     mins, secs, temp_c);
-            _logger.log(buf, true);
+            _logger.logf(true, "[%02u:%02u:%02u] PT100: %.2f C", hours, mins,
+                         secs, temp_c);
         }
     }
 }

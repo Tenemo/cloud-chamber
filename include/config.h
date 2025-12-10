@@ -92,6 +92,8 @@ constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     800; // 12-bit resolution needs 750ms conversion
+constexpr unsigned long DS18B20_CONVERSION_TIME_MS =
+    750; // 12-bit resolution conversion time
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
 constexpr int MODBUS_MAX_RETRIES = 3; // Consecutive failures before error state
 
@@ -146,10 +148,6 @@ constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS =
     20000; // 20s between ramp steps
 constexpr unsigned long CURRENT_EVALUATION_DELAY_MS =
     60000; // 60s to evaluate current change
-constexpr unsigned long OPTIMIZATION_EVALUATION_WINDOW_MS =
-    90000; // 90s evaluation window
-constexpr unsigned long OPTIMIZATION_REFINEMENT_INTERVAL_MS =
-    60000; // 60s refinement steps
 constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
     900000; // 15min recheck
 constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
@@ -292,8 +290,5 @@ constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
 
 // DPS voltage tolerance for self-test verification
 constexpr float DPS_SELFTEST_VOLTAGE_TOLERANCE = 0.2f;
-
-// Minimum trend analysis history (samples at 1Hz)
-constexpr size_t MIN_TREND_HISTORY_SAMPLES = 60;
 
 #endif

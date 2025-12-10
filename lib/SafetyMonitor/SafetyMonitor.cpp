@@ -45,11 +45,9 @@ void SafetyMonitor::updateHysteresis() {
 }
 
 SafetyStatus SafetyMonitor::checkThermalLimits() {
-    // Hot-side sensor fault is an immediate safety concern
-    if (!_hot_plate.isConnected()) {
-        return setFault(SafetyStatus::THERMAL_FAULT, "HOT SENSOR LOST");
-    }
-
+    // Note: Sensor connectivity is checked by checkSensorHealth() which runs
+    // first This function assumes hot_plate is connected and focuses on
+    // temperature limits
     float hot_temp = _hot_plate.getTemperature();
 
     // Critical hot side fault
@@ -131,10 +129,7 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current,
 
     // If cold plate is extremely cold, hot side MUST be significantly warm
     if (hot_temp < PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "PT100 implausible! C=%.1f H=%.1f",
-                 cold_temp, hot_temp);
-        _logger.log(buf);
+        _logger.logf("PT100 implausible! C=%.1f H=%.1f", cold_temp, hot_temp);
 
         // Check if current draw supports the cold temperature claim
         float expected_min_delta =
@@ -164,16 +159,11 @@ SafetyStatus SafetyMonitor::checkCrossSensorValidation(bool skip_check) {
     if (cold_temp >= hot_temp - SENSOR_CROSS_CHECK_MARGIN_C) {
         if (!_cross_check_warning_active) {
             _cross_check_warning_active = true;
-            char buf[48];
-            snprintf(buf, sizeof(buf), "WARN: Cold>=Hot! C=%.1f H=%.1f",
-                     cold_temp, hot_temp);
-            _logger.log(buf);
+            _logger.logf("WARN: Cold>=Hot! C=%.1f H=%.1f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         } else if (now - _last_cross_check_log_time >=
                    SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
-            char buf[48];
-            snprintf(buf, sizeof(buf), "WARN: Cold>=Hot C=%.1f H=%.1f",
-                     cold_temp, hot_temp);
+            _logger.logf("WARN: Cold>=Hot C=%.1f H=%.1f", cold_temp, hot_temp);
             _logger.log(buf);
             _last_cross_check_log_time = now;
         }
