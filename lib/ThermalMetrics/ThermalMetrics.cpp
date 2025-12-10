@@ -151,6 +151,66 @@ EvaluationResult ThermalMetrics::evaluateEffect(float cold_temp) {
     return EvaluationResult::UNCHANGED;
 }
 
+EvaluationAction ThermalMetrics::processEvaluation(float cold_temp,
+                                                   float current,
+                                                   bool allow_transition,
+                                                   Logger &logger) {
+    EvaluationAction action = {EvaluationResult::WAITING, 0.0f, false, false};
+
+    if (!_optimizer.awaiting_evaluation)
+        return action;
+
+    EvaluationResult result = evaluateEffect(cold_temp);
+    if (result == EvaluationResult::WAITING)
+        return action;
+
+    action.result = result;
+
+    if (result == EvaluationResult::IMPROVED) {
+        // Accept new current as session best
+        _optimizer.optimal_current = current;
+        _optimizer.temp_at_optimal = cold_temp;
+        _optimizer.consecutive_bounces = 0;
+        _optimizer.converged = false;
+        logger.logf(true, "TC: Opt %.1fA=%.1fC", current, cold_temp);
+    } else if (result == EvaluationResult::DEGRADED) {
+        // Revert to baseline (local), not global best
+        float revert_current = _optimizer.baseline_current;
+        if (revert_current < MIN_CURRENT_PER_CHANNEL) {
+            revert_current = _optimizer.optimal_current;
+        }
+        revert_current = Clamp::current(revert_current);
+
+        action.revert_current = revert_current;
+        _optimizer.optimal_current = revert_current;
+        _optimizer.temp_at_optimal = _optimizer.baseline_temp;
+
+        // Bounce: flip direction and track
+        _optimizer.probe_direction *= -1;
+        _optimizer.consecutive_bounces++;
+
+        // Check for convergence (tried both directions)
+        if (_optimizer.consecutive_bounces >= 2) {
+            _optimizer.converged = true;
+            action.converged = true;
+            logger.logf(true, "TC: Converged at %.1fA (%.1fC)",
+                        _optimizer.optimal_current, _optimizer.temp_at_optimal);
+        } else {
+            logger.logf(true, "TC: Revert %.1fA (bounce #%d)", revert_current,
+                        _optimizer.consecutive_bounces);
+        }
+
+        // Signal transition to steady state if bounced during ramp
+        if (allow_transition) {
+            action.should_transition = true;
+        }
+    }
+    // UNCHANGED: no action needed
+
+    _optimizer.awaiting_evaluation = false;
+    return action;
+}
+
 float ThermalMetrics::recommendStepSize(bool is_hot_side_warning) const {
     // Choose adaptive step size based on cooling rate magnitude
     // Use larger steps when far from optimum (fast cooling) for speed

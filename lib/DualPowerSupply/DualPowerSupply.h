@@ -234,17 +234,6 @@ class DualPowerSupply {
      */
     void resetOverrideCounter() { _consecutive_mismatches = 0; }
 
-    /**
-     * @brief Check if PSUs are ready for new commands
-     *
-     * Returns true when both PSUs are connected, settled (last commands
-     * processed), and not in emergency shutdown. Use before issuing new
-     * setpoints.
-     *
-     * @return true if safe to send new commands
-     */
-    bool isReadyForCommands() const;
-
     // =========================================================================
     // Channel Imbalance Detection
     // =========================================================================
@@ -352,8 +341,8 @@ class DualPowerSupply {
     // Self-test configuration
     static constexpr unsigned long ST_SETTLE_MS = 500;
     static constexpr unsigned long ST_TIMEOUT_MS = 3000;
-    static constexpr float ST_VOLTAGE = 5.0f;
-    static constexpr float ST_CURRENT = 0.5f;
+    static constexpr float ST_VOLTAGE = 1.0f; // Safe test voltage (no load)
+    static constexpr float ST_CURRENT = 0.1f; // Safe test current (no load)
     static constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
 };
 

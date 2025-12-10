@@ -62,7 +62,8 @@ class ThermalController {
 
     // State machine
     ThermalState _state;
-    ThermalState _previous_state;
+    ThermalState
+        _state_before_fault; // State to return to after sensor fault recovery
     unsigned long _state_entry_time;
     unsigned long _last_sample_time;
 
@@ -84,6 +85,16 @@ class ThermalController {
     void handleThermalFault();
     void handleSensorFault();
     void handleDpsDisconnected();
+
+    /**
+     * @brief Check if ramp-up should terminate
+     *
+     * Returns true if any termination condition is met:
+     * - At maximum current
+     * - Hot side in alarm zone
+     * - Cooling has stalled
+     */
+    bool shouldExitRamp(float current) const;
 
     // =========================================================================
     // State transitions

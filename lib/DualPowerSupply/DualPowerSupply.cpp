@@ -28,8 +28,7 @@ void DualPowerSupply::begin() {
 
 bool DualPowerSupply::setSymmetricCurrent(float current) {
     // Clamp to valid range
-    current =
-        fmax(MIN_CURRENT_PER_CHANNEL, fmin(current, MAX_CURRENT_PER_CHANNEL));
+    current = Clamp::current(current);
 
     _target_current = current;
 
@@ -216,10 +215,6 @@ bool DualPowerSupply::areBothSettled() const {
         return false;
 
     return _psu0.isSettled() && _psu1.isSettled();
-}
-
-bool DualPowerSupply::isReadyForCommands() const {
-    return !_shutdown_in_progress && areBothSettled();
 }
 
 float DualPowerSupply::getAverageOutputCurrent() const {

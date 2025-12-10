@@ -18,8 +18,10 @@ SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
 SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
                                      unsigned long ramp_start_time,
                                      float avg_current) {
-    // Priority order: sensor health → sanity → thermal → DPS → override
+    // Update hysteresis state before running checks
+    updateHysteresis();
 
+    // Priority order: sensor health → sanity → thermal → DPS → override
     SafetyStatus status = checkSensorHealth();
     if (status != SafetyStatus::OK)
         return {status, _last_fault_reason};

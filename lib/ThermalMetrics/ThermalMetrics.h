@@ -71,23 +71,28 @@ enum class EvaluationResult {
 };
 
 /**
+ * @brief Action to take after evaluation
+ *
+ * Returned by processEvaluation() to tell the controller what to do.
+ * This moves the evaluation logic into ThermalMetrics while keeping
+ * the actual PSU control in ThermalController.
+ */
+struct EvaluationAction {
+    EvaluationResult result;
+    float revert_current; // Current to revert to (valid if result == DEGRADED)
+    bool should_transition; // True if controller should transition to
+                            // STEADY_STATE
+    bool converged;         // True if optimizer has converged
+};
+
+/**
  * @brief Hill-climber optimizer state for current optimization
  *
  * Groups all variables related to finding the optimal TEC current.
- * This makes save/restore of optimizer state cleaner and reduces
- * clutter in the controller class.
- *
- * Key concepts:
- * - optimal_current/temp_at_optimal: Session best (updated when truly better)
- * - baseline_current/temp: Point before the last step (for local revert)
- * - probe_direction: +1 = increasing current, -1 = decreasing
- * - current_step: Adaptive step size (coarse→medium→fine as we approach
- * optimum)
- * - consecutive_bounces: Tracks direction flips to shrink step size
- * - converged: True when both directions fail to improve (stop probing)
+ * Simplified to track just session best and step evaluation state.
  */
 struct OptimizerState {
-    // Session best tracking
+    // Session best tracking (the known-good point)
     float optimal_current = 0.0f;   // Best current found so far this session
     float temp_at_optimal = 100.0f; // Temperature achieved at optimal
 
@@ -99,10 +104,6 @@ struct OptimizerState {
     // Step evaluation state
     bool awaiting_evaluation = false;  // Evaluation in progress
     unsigned long eval_start_time = 0; // When evaluation started
-
-    // Global best tracking during ramp (may differ from step-by-step optimal)
-    float best_temp_during_ramp = 100.0f; // Coldest temp seen during this ramp
-    float current_at_best_temp = 0.0f;    // Current that achieved best temp
 
     // Adaptive step control
     int8_t probe_direction = 1;      // +1 = increase current, -1 = decrease
@@ -118,8 +119,6 @@ struct OptimizerState {
         baseline_rate = 0.0f;
         awaiting_evaluation = false;
         eval_start_time = 0;
-        best_temp_during_ramp = 100.0f;
-        current_at_best_temp = 0.0f;
         probe_direction = 1;
         current_step = 0.5f;
         consecutive_bounces = 0;
@@ -135,8 +134,6 @@ struct OptimizerState {
     void updateBest(float current, float temp) {
         optimal_current = current;
         temp_at_optimal = temp;
-        best_temp_during_ramp = temp;
-        current_at_best_temp = current;
     }
 };
 
@@ -270,6 +267,22 @@ class ThermalMetrics {
      * @return WAITING if not ready, IMPROVED/DEGRADED/UNCHANGED once evaluated
      */
     EvaluationResult evaluateEffect(float cold_temp);
+
+    /**
+     * @brief Process a pending evaluation and decide what action to take
+     *
+     * This consolidates the evaluation logic that was in ThermalController.
+     * It evaluates the current change, updates optimizer state, and returns
+     * the action the controller should take.
+     *
+     * @param cold_temp Current cold plate temperature
+     * @param current Current current setpoint
+     * @param allow_transition If true, can return should_transition=true
+     * @param logger Logger for status messages
+     * @return EvaluationAction describing what to do
+     */
+    EvaluationAction processEvaluation(float cold_temp, float current,
+                                       bool allow_transition, Logger &logger);
 
     /**
      * @brief Recommend adaptive step size based on cooling rate and conditions
