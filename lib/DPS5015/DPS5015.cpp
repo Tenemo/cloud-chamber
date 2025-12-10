@@ -279,6 +279,16 @@ bool DPS5015::setOCP(float current) {
     return queueWrite(REG_OCP, value);
 }
 
+bool DPS5015::setOVP(float voltage) {
+    // Set hardware Over Voltage Protection limit
+    // Failsafe against Modbus errors commanding excessive voltage
+    if (!_connected && _ever_connected)
+        return false;
+
+    uint16_t value = static_cast<uint16_t>(voltage * 100.0f);
+    return queueWrite(REG_OVP, value);
+}
+
 void DPS5015::configure(float voltage, float current, bool outputOn) {
     _pending_config.voltage = voltage;
     _pending_config.current = current;
@@ -393,7 +403,10 @@ void DPS5015::applyPendingConfig() {
     // Queue all the configuration writes
     queueWrite(REG_LOCK, 0); // Unlock first
 
-    // Set hardware OCP as failsafe (in case ESP commands invalid current)
+    // Set hardware protection limits as failsafes
+    // OVP: Protect against Modbus errors commanding excessive voltage
+    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
+    // OCP: Protect against software commanding excessive current
     queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
 
     queueWrite(REG_SET_VOLTAGE,

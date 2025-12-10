@@ -24,12 +24,22 @@ ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
       _dps_was_connected{false, false}, _shutdown_in_progress(false),
       _shutdown_current(0.0f), _last_shutdown_step_time(0),
       _hot_side_in_warning(false), _hot_side_in_alarm(false),
-      _last_imbalance_log_time(0) {}
+      _last_imbalance_log_time(0), _ramp_start_time(0),
+      _last_cross_check_log_time(0), _cross_check_warning_active(false),
+      _last_metrics_save_time(0), _last_runtime_save_time(0),
+      _session_start_time(0), _total_runtime_seconds(0),
+      _all_time_min_temp(100.0f), _all_time_optimal_current(0.0f),
+      _session_count(0), _selftest_phase(0), _selftest_phase_start(0),
+      _selftest_passed{false, false} {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
     _last_update_time = millis();
     _last_sample_time = millis();
+    _session_start_time = millis();
+
+    // Load persisted metrics from NVS
+    loadMetricsFromNvs();
 
     registerDisplayLines();
     _logger.log("ThermalCtrl: init");
@@ -46,6 +56,8 @@ const char *ThermalController::getStateString() const {
     switch (_state) {
     case ThermalState::INITIALIZING:
         return "INIT";
+    case ThermalState::SELF_TEST:
+        return "TEST";
     case ThermalState::STARTUP:
         return "START";
     case ThermalState::RAMP_UP:
@@ -89,10 +101,17 @@ void ThermalController::update() {
         _cooling_rate = calculateCoolingRate();
     }
 
+    // Update runtime counter and save metrics periodically
+    updateRuntimeCounter();
+    saveMetricsToNvs();
+
     // Run state-specific handler
     switch (_state) {
     case ThermalState::INITIALIZING:
         handleInitializing();
+        break;
+    case ThermalState::SELF_TEST:
+        handleSelfTest();
         break;
     case ThermalState::STARTUP:
         handleStartup();
@@ -139,6 +158,15 @@ void ThermalController::transitionTo(ThermalState newState) {
         _steady_state_start_time = millis();
         _min_cold_temp_achieved = _cold_plate.getTemperature();
         break;
+    case ThermalState::RAMP_UP:
+        _ramp_start_time = millis();
+        break;
+    case ThermalState::SELF_TEST:
+        _selftest_phase = 0;
+        _selftest_phase_start = millis();
+        _selftest_passed[0] = false;
+        _selftest_passed[1] = false;
+        break;
     default:
         break;
     }
@@ -164,8 +192,21 @@ void ThermalController::handleInitializing() {
 
         if (output0_on || output1_on) {
             // DPS is running - read actual current to avoid thermal shock
+            // IMPORTANT: Verify the read was successful (not default 0)
+            // The first Modbus read may not have completed yet
             float actual_current_0 = _psus[0].getSetCurrent();
             float actual_current_1 = _psus[1].getSetCurrent();
+
+            // Validate that we got real readings (not uninitialized 0)
+            // If DPS output is ON but current reads as 0, the Modbus read
+            // hasn't completed yet - wait for next cycle
+            if ((output0_on && actual_current_0 < 0.01f) ||
+                (output1_on && actual_current_1 < 0.01f)) {
+                // Modbus read incomplete - wait for next update cycle
+                // This prevents adopting 0A when DPS is actually running
+                return;
+            }
+
             float max_actual = fmax(actual_current_0, actual_current_1);
 
             if (max_actual > STARTUP_CURRENT) {
@@ -189,7 +230,8 @@ void ThermalController::handleInitializing() {
                 _optimal_current = adopted_current;
                 _temp_at_optimal = _cold_plate.getTemperature();
 
-                // Skip STARTUP, go directly to RAMP_UP or STEADY_STATE
+                // Skip self-test and STARTUP on hot reset
+                // Go directly to RAMP_UP or STEADY_STATE
                 if (adopted_current >= MAX_CURRENT_PER_CHANNEL - 0.5f) {
                     transitionTo(ThermalState::STEADY_STATE);
                 } else {
@@ -205,7 +247,8 @@ void ThermalController::handleInitializing() {
 
     // All critical sensors and PSUs ready?
     if (cold_plate_ok && hot_plate_ok && psu0_ok && psu1_ok) {
-        transitionTo(ThermalState::STARTUP);
+        // Run self-test before starting normal operation
+        transitionTo(ThermalState::SELF_TEST);
         return;
     }
 
@@ -222,18 +265,22 @@ void ThermalController::handleInitializing() {
 void ThermalController::handleStartup() {
     unsigned long elapsed = millis() - _state_entry_time;
 
-    // First 100ms: Configure PSUs (only runs once on state entry)
-    // This timing ensures the transition has completed before sending commands
-    if (elapsed < 100) {
-        for (size_t i = 0; i < 2; i++) {
-            _psus[i].setVoltage(TEC_VOLTAGE_SETPOINT);
-            _psus[i].setCurrent(STARTUP_CURRENT);
-            _psus[i].setOutput(true);
-            _target_current[i] = STARTUP_CURRENT;
+    // Phase 1: Configure PSUs (first 500ms)
+    // Extended from 100ms to ensure queue is processed before safety checks
+    // With 6 commands per PSU and 500ms Modbus timeout, need adequate time
+    if (elapsed < 500) {
+        // Only configure once at the start (when elapsed is very small)
+        if (elapsed < 50) {
+            for (size_t i = 0; i < 2; i++) {
+                _psus[i].setVoltage(TEC_VOLTAGE_SETPOINT);
+                _psus[i].setCurrent(STARTUP_CURRENT);
+                _psus[i].setOutput(true);
+                _target_current[i] = STARTUP_CURRENT;
+            }
+            char buf[32];
+            snprintf(buf, sizeof(buf), "TC: Start %.1fA/ch", STARTUP_CURRENT);
+            _logger.log(buf);
         }
-        char buf[32];
-        snprintf(buf, sizeof(buf), "TC: Start %.1fA/ch", STARTUP_CURRENT);
-        _logger.log(buf);
         return;
     }
 
@@ -241,6 +288,8 @@ void ThermalController::handleStartup() {
     if (!checkThermalLimits())
         return;
     if (!checkSensorHealth())
+        return;
+    if (!checkSensorSanity())
         return;
     if (!checkDpsConnection())
         return;
@@ -253,12 +302,160 @@ void ThermalController::handleStartup() {
     }
 }
 
+/**
+ * @brief Handle DPS self-test state
+ *
+ * Self-test phases:
+ * 0: Start - set both DPS to safe test voltage/current, output OFF
+ * 1: Verify settings applied
+ * 2: Enable output on DPS0
+ * 3: Verify DPS0 output enabled, disable it
+ * 4: Enable output on DPS1
+ * 5: Verify DPS1 output enabled, disable it
+ * 6: Complete - all tests passed
+ */
+void ThermalController::handleSelfTest() {
+    unsigned long now = millis();
+    unsigned long phase_elapsed = now - _selftest_phase_start;
+
+    switch (_selftest_phase) {
+    case 0: {
+        // Phase 0: Configure both DPS to safe test settings with output OFF
+        _logger.log("TC: Self-test start");
+        for (size_t i = 0; i < 2; i++) {
+            _psus[i].setVoltage(DPS_SELFTEST_VOLTAGE);
+            _psus[i].setCurrent(DPS_SELFTEST_CURRENT);
+            _psus[i].setOutput(false);
+        }
+        _selftest_phase = 1;
+        _selftest_phase_start = now;
+        break;
+    }
+
+    case 1: {
+        // Phase 1: Wait for settings to apply, verify communication
+        if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
+            return;
+
+        // Check if both DPS responded
+        bool ok = _psus[0].isConnected() && _psus[1].isConnected();
+        if (!ok) {
+            _logger.log("TC: Self-test FAIL: DPS offline");
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+            return;
+        }
+
+        // Verify voltage setting was accepted (with tolerance)
+        float v0 = _psus[0].getSetVoltage();
+        float v1 = _psus[1].getSetVoltage();
+        if (fabs(v0 - DPS_SELFTEST_VOLTAGE) > 0.2f ||
+            fabs(v1 - DPS_SELFTEST_VOLTAGE) > 0.2f) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "TC: Self-test FAIL: V0=%.1f V1=%.1f",
+                     v0, v1);
+            _logger.log(buf);
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+            return;
+        }
+
+        _selftest_phase = 2;
+        _selftest_phase_start = now;
+        break;
+    }
+
+    case 2: {
+        // Phase 2: Enable output on DPS0
+        _psus[0].setOutput(true);
+        _selftest_phase = 3;
+        _selftest_phase_start = now;
+        break;
+    }
+
+    case 3: {
+        // Phase 3: Verify DPS0 output enabled, then disable
+        if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
+            return;
+
+        if (_psus[0].isOutputOn()) {
+            _selftest_passed[0] = true;
+            _psus[0].setOutput(false);
+            _selftest_phase = 4;
+            _selftest_phase_start = now;
+        } else if (phase_elapsed > DPS_SELFTEST_TIMEOUT_MS) {
+            _logger.log("TC: Self-test FAIL: DPS0 output");
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+            return;
+        }
+        break;
+    }
+
+    case 4: {
+        // Phase 4: Enable output on DPS1
+        if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
+            return; // Wait for DPS0 to turn off
+
+        _psus[1].setOutput(true);
+        _selftest_phase = 5;
+        _selftest_phase_start = now;
+        break;
+    }
+
+    case 5: {
+        // Phase 5: Verify DPS1 output enabled, then disable
+        if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
+            return;
+
+        if (_psus[1].isOutputOn()) {
+            _selftest_passed[1] = true;
+            _psus[1].setOutput(false);
+            _selftest_phase = 6;
+            _selftest_phase_start = now;
+        } else if (phase_elapsed > DPS_SELFTEST_TIMEOUT_MS) {
+            _logger.log("TC: Self-test FAIL: DPS1 output");
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+            return;
+        }
+        break;
+    }
+
+    case 6: {
+        // Phase 6: All tests passed
+        if (phase_elapsed < DPS_SELFTEST_SETTLE_MS)
+            return; // Wait for DPS1 to turn off
+
+        if (_selftest_passed[0] && _selftest_passed[1]) {
+            _logger.log("TC: Self-test PASS");
+            transitionTo(ThermalState::STARTUP);
+        } else {
+            _logger.log("TC: Self-test incomplete");
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+        }
+        break;
+    }
+
+    default: {
+        // Timeout safeguard
+        if (millis() - _state_entry_time > DPS_SELFTEST_TIMEOUT_MS * 3) {
+            _logger.log("TC: Self-test timeout");
+            transitionTo(ThermalState::DPS_DISCONNECTED);
+        }
+        break;
+    }
+    }
+}
+
 void ThermalController::handleRampUp() {
     // Safety checks
     if (!checkThermalLimits())
         return;
     if (!checkSensorHealth())
         return;
+    if (!checkSensorSanity())
+        return;
+    if (!checkPT100Plausibility())
+        return; // Physics-based PT100 validation
+    if (!checkCrossSensorValidation())
+        return; // Cross-validate cold < hot after grace period
     if (!checkDpsConnection())
         return;
     if (checkForManualOverride())
@@ -413,6 +610,12 @@ void ThermalController::handleSteadyState() {
         return;
     if (!checkSensorHealth())
         return;
+    if (!checkSensorSanity())
+        return;
+    if (!checkPT100Plausibility())
+        return; // Physics-based PT100 validation
+    if (!checkCrossSensorValidation())
+        return;
     if (!checkDpsConnection())
         return;
     if (checkForManualOverride())
@@ -422,9 +625,15 @@ void ThermalController::handleSteadyState() {
     float cold_temp = _cold_plate.getTemperature();
     float hot_temp = _hot_plate.getTemperature();
 
-    // Track minimum achieved temperature
+    // Track minimum achieved temperature (session and all-time)
     if (cold_temp < _min_cold_temp_achieved) {
         _min_cold_temp_achieved = cold_temp;
+    }
+    if (cold_temp < _all_time_min_temp) {
+        _all_time_min_temp = cold_temp;
+        _all_time_optimal_current = _target_current[0];
+        // Force save when we achieve a new record
+        saveMetricsToNvs(true);
     }
 
     // If awaiting evaluation of an increase attempt
@@ -618,6 +827,181 @@ bool ThermalController::checkDpsConnection() {
     return true;
 }
 
+/**
+ * @brief Cross-validate sensor readings
+ *
+ * During normal cooling operation (after grace period), the cold plate
+ * should always be colder than the hot plate. If not, either:
+ * - Sensors are swapped/misconfigured
+ * - A sensor is reading incorrectly
+ * - TECs are not cooling (failed or reversed polarity)
+ *
+ * This is a warning, not a fault, because it could be a transient condition.
+ */
+bool ThermalController::checkCrossSensorValidation() {
+    // Only check after grace period in RAMP_UP
+    if (_state == ThermalState::RAMP_UP) {
+        unsigned long ramp_elapsed = millis() - _ramp_start_time;
+        if (ramp_elapsed < SENSOR_CROSS_CHECK_GRACE_MS) {
+            return true; // Still in grace period
+        }
+    }
+
+    float cold_temp = _cold_plate.getTemperature();
+    float hot_temp = _hot_plate.getTemperature();
+
+    // Cold plate should be significantly colder than hot plate
+    if (cold_temp >= hot_temp - SENSOR_CROSS_CHECK_MARGIN_C) {
+        unsigned long now = millis();
+
+        if (!_cross_check_warning_active) {
+            _cross_check_warning_active = true;
+            char buf[48];
+            snprintf(buf, sizeof(buf), "WARN: Cold>=Hot! C=%.1f H=%.1f",
+                     cold_temp, hot_temp);
+            _logger.log(buf);
+            _last_cross_check_log_time = now;
+        } else if (now - _last_cross_check_log_time >=
+                   SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
+            // Rate-limited repeat warning
+            char buf[48];
+            snprintf(buf, sizeof(buf), "WARN: Cold>=Hot C=%.1f H=%.1f",
+                     cold_temp, hot_temp);
+            _logger.log(buf);
+            _last_cross_check_log_time = now;
+        }
+
+        // This is a warning, not a fault - TECs might just need time
+        // But if this persists, something is wrong
+    } else {
+        // Condition cleared
+        if (_cross_check_warning_active) {
+            _cross_check_warning_active = false;
+            _logger.log("Cross-check OK: Cold<Hot");
+        }
+    }
+
+    return true; // Always return true - this is informational, not blocking
+}
+
+/**
+ * @brief Check for impossible sensor values
+ *
+ * Detects obviously wrong readings that indicate sensor malfunction:
+ * - Cold plate below -60°C (PT100 limit / physically impossible)
+ * - Cold plate above 80°C (should never happen with TECs)
+ * - Hot plate below -20°C (impossible if TECs are on)
+ * - Hot plate above 100°C (way past fault threshold)
+ */
+bool ThermalController::checkSensorSanity() {
+    float cold_temp = _cold_plate.getTemperature();
+    float hot_temp = _hot_plate.getTemperature();
+
+    // Check cold plate sanity
+    if (cold_temp < COLD_PLATE_MIN_VALID_C) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "FAULT: Cold=%.1fC impossible", cold_temp);
+        enterThermalFault(buf);
+        return false;
+    }
+    if (cold_temp > COLD_PLATE_MAX_VALID_C) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "FAULT: Cold=%.1fC too hot", cold_temp);
+        enterThermalFault(buf);
+        return false;
+    }
+
+    // Check hot plate sanity
+    if (hot_temp < HOT_PLATE_MIN_VALID_C) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "FAULT: Hot=%.1fC impossible", hot_temp);
+        enterThermalFault(buf);
+        return false;
+    }
+    if (hot_temp > HOT_PLATE_MAX_VALID_C) {
+        char buf[48];
+        snprintf(buf, sizeof(buf), "FAULT: Hot=%.1fC extreme", hot_temp);
+        enterThermalFault(buf);
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Physics-based PT100 plausibility check
+ *
+ * Detects PT100 failures that produce "valid" but physically impossible
+ * readings.
+ *
+ * Key insight: If the PT100 shows extreme cold (e.g., -40°C) but the hot side
+ * is only moderately warm (e.g., 30°C), the reading is implausible because:
+ * - TEC cascade deltaT is roughly proportional to power input
+ * - Extreme cold requires significant heat rejection on hot side
+ * - A 70°C deltaT at low hot-side temp indicates sensor failure
+ *
+ * This catches:
+ * - Shorted PT100 (reads artificially low resistance = cold)
+ * - Miscalibrated MAX31865
+ * - Wiring issues causing resistance drop
+ *
+ * @return true if PT100 readings are plausible, false if sensor likely failed
+ */
+bool ThermalController::checkPT100Plausibility() {
+    // Skip check during startup - thermal gradient needs time to establish
+    if (_state == ThermalState::STARTUP ||
+        _state == ThermalState::INITIALIZING ||
+        _state == ThermalState::SELF_TEST) {
+        return true;
+    }
+
+    // Grace period after entering RAMP_UP
+    if (_state == ThermalState::RAMP_UP) {
+        unsigned long ramp_elapsed = millis() - _ramp_start_time;
+        if (ramp_elapsed < PLAUSIBILITY_CHECK_GRACE_MS) {
+            return true;
+        }
+    }
+
+    float cold_temp = _cold_plate.getTemperature();
+    float hot_temp = _hot_plate.getTemperature();
+    float avg_current = (_target_current[0] + _target_current[1]) / 2.0f;
+
+    // Only check if cold plate reports very low temperature
+    if (cold_temp > PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C) {
+        return true; // Not in suspicious range
+    }
+
+    // If cold plate is extremely cold, hot side MUST be significantly warm
+    // TEC heat pumping: Q_hot = Q_cold + P_electrical
+    // At -40°C cold with 16V × 10A × 2 = 320W input, hot side should be 50°C+
+
+    if (hot_temp < PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C) {
+        // Cold plate claims extreme cold, but hot side is barely warm
+        // This is physically impossible with active TECs
+        char buf[64];
+        snprintf(buf, sizeof(buf), "WARN: PT100 implausible! C=%.1f H=%.1f",
+                 cold_temp, hot_temp);
+        _logger.log(buf);
+
+        // Check if current draw supports the cold temperature claim
+        // At high current, we expect high deltaT
+        float expected_min_delta =
+            avg_current * PLAUSIBILITY_MIN_DELTA_T_PER_AMP;
+        float actual_delta = hot_temp - cold_temp;
+
+        if (actual_delta > expected_min_delta * 3) {
+            // DeltaT is much higher than expected for this current level
+            // Strong indicator of PT100 failure (reading too low)
+            _logger.log("FAULT: PT100 likely failed low");
+            enterThermalFault("PT100 implausible");
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // ============================================================================
 // Control Actions
 // ============================================================================
@@ -660,8 +1044,27 @@ void ThermalController::enterThermalFault(const char *reason) {
     if (hot_temp >= HOT_SIDE_FAULT_C) {
         // HARD CUT - immediate output disable, no ramp
         _logger.log("TC: HARD CUT!");
-        _psus[0].disableOutput();
-        _psus[1].disableOutput();
+
+        // Verify shutdown commands succeeded
+        bool shutdown_ok = true;
+        if (!_psus[0].disableOutput()) {
+            _logger.log("CRIT: PSU0 shutdown FAIL!");
+            shutdown_ok = false;
+        }
+        if (!_psus[1].disableOutput()) {
+            _logger.log("CRIT: PSU1 shutdown FAIL!");
+            shutdown_ok = false;
+        }
+
+        if (!shutdown_ok) {
+            // Modbus failed - try again, then log persistent failure
+            // In production, this should trigger a hardware interlock
+            delay(100); // Brief delay before retry
+            _psus[0].disableOutput();
+            _psus[1].disableOutput();
+            _logger.log("CRIT: MODBUS DOWN!");
+        }
+
         _target_current[0] = 0;
         _target_current[1] = 0;
         _shutdown_in_progress = false; // No ramp needed
@@ -881,6 +1284,244 @@ float ThermalController::getAmbientTemperature() const {
     }
 
     return 25.0f;
+}
+
+// ============================================================================
+// NVS Metrics Persistence
+// ============================================================================
+
+// NVS namespace and keys (keep short to save space)
+static constexpr const char *NVS_METRICS_NAMESPACE = "tc_metrics";
+static constexpr const char *NVS_KEY_MIN_TEMP = "min_t";
+static constexpr const char *NVS_KEY_OPT_CURRENT = "opt_i";
+static constexpr const char *NVS_KEY_RUNTIME = "runtime";
+static constexpr const char *NVS_KEY_SESSIONS = "sessions";
+
+// NVS space management
+// ESP32 NVS partition is typically 20KB-24KB
+// Our usage: 4 keys × ~8 bytes each = ~32 bytes data + overhead
+// We use a single namespace with fixed keys, so space usage is bounded
+static constexpr size_t NVS_MIN_FREE_ENTRIES =
+    10; // Minimum free entries to allow writes
+
+/**
+ * @brief Check if NVS has enough free space for writes
+ *
+ * ESP32 NVS uses a key-value store with entries. Each entry can hold
+ * up to 1984 bytes. We check that there are enough free entries
+ * before attempting writes.
+ *
+ * @return true if safe to write, false if NVS is nearly full
+ */
+bool ThermalController::checkNvsSpace() {
+    nvs_stats_t nvs_stats;
+    esp_err_t err = nvs_get_stats(NULL, &nvs_stats);
+
+    if (err != ESP_OK) {
+        // Can't get stats - allow writes but log warning
+        _logger.log("NVS: Stats unavailable", true);
+        return true;
+    }
+
+    size_t free_entries = nvs_stats.free_entries;
+
+    if (free_entries < NVS_MIN_FREE_ENTRIES) {
+        // Log warning (rate-limited)
+        static unsigned long last_nvs_warning = 0;
+        unsigned long now = millis();
+        if (now - last_nvs_warning > 60000) { // Once per minute max
+            char buf[48];
+            snprintf(buf, sizeof(buf), "NVS: Low space! %d free",
+                     (int)free_entries);
+            _logger.log(buf);
+            last_nvs_warning = now;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * @brief Load persisted metrics from NVS
+ *
+ * Called once during begin(). Loads:
+ * - All-time minimum temperature achieved
+ * - Optimal current that achieved that temperature
+ * - Total accumulated runtime (seconds)
+ * - Session count (number of boots)
+ */
+void ThermalController::loadMetricsFromNvs() {
+    if (!_metrics_prefs.begin(NVS_METRICS_NAMESPACE, true)) { // Read-only
+        _logger.log("TC: NVS init (first run)");
+        _metrics_prefs.end();
+
+        // First run - initialize with defaults
+        _all_time_min_temp = 100.0f;
+        _all_time_optimal_current = 0.0f;
+        _total_runtime_seconds = 0;
+        _session_count = 1;
+
+        // Check space before writing
+        if (!checkNvsSpace()) {
+            _logger.log("NVS: No space for init!");
+            return;
+        }
+
+        // Write initial values
+        if (_metrics_prefs.begin(NVS_METRICS_NAMESPACE, false)) {
+            bool ok = true;
+            ok &= _metrics_prefs.putFloat(NVS_KEY_MIN_TEMP,
+                                          _all_time_min_temp) > 0;
+            ok &= _metrics_prefs.putFloat(NVS_KEY_OPT_CURRENT,
+                                          _all_time_optimal_current) > 0;
+            ok &= _metrics_prefs.putULong(NVS_KEY_RUNTIME,
+                                          _total_runtime_seconds) > 0;
+            ok &= _metrics_prefs.putULong(NVS_KEY_SESSIONS, _session_count) > 0;
+            _metrics_prefs.end();
+
+            if (!ok) {
+                _logger.log("NVS: Init write failed!");
+            }
+        } else {
+            _logger.log("NVS: Failed to open for init");
+        }
+        return;
+    }
+
+    // Load existing values
+    _all_time_min_temp = _metrics_prefs.getFloat(NVS_KEY_MIN_TEMP, 100.0f);
+    _all_time_optimal_current =
+        _metrics_prefs.getFloat(NVS_KEY_OPT_CURRENT, 0.0f);
+    _total_runtime_seconds = _metrics_prefs.getULong(NVS_KEY_RUNTIME, 0);
+    _session_count = _metrics_prefs.getULong(NVS_KEY_SESSIONS, 0);
+    _metrics_prefs.end();
+
+    // Increment session count for this boot
+    _session_count++;
+
+    // Check space before writing session count
+    if (!checkNvsSpace()) {
+        _logger.log("NVS: No space for session++");
+    } else if (_metrics_prefs.begin(NVS_METRICS_NAMESPACE, false)) {
+        size_t written =
+            _metrics_prefs.putULong(NVS_KEY_SESSIONS, _session_count);
+        _metrics_prefs.end();
+        if (written == 0) {
+            _logger.log("NVS: Session write failed");
+        }
+    } else {
+        _logger.log("NVS: Failed to open for session");
+    }
+
+    // Log loaded values
+    char buf[64];
+    snprintf(buf, sizeof(buf), "TC: Best=%.1fC@%.1fA", _all_time_min_temp,
+             _all_time_optimal_current);
+    _logger.log(buf);
+
+    unsigned long hours = _total_runtime_seconds / 3600;
+    unsigned long mins = (_total_runtime_seconds % 3600) / 60;
+    snprintf(buf, sizeof(buf), "TC: Runtime=%luh%lum #%lu", hours, mins,
+             _session_count);
+    _logger.log(buf);
+}
+
+/**
+ * @brief Save metrics to NVS periodically
+ *
+ * Only saves if enough time has passed since last save to avoid
+ * wearing out flash. NVS has limited write cycles (~100,000).
+ *
+ * At 5-minute intervals, that's 20 years of continuous operation.
+ *
+ * @param force If true, save immediately regardless of interval
+ */
+void ThermalController::saveMetricsToNvs(bool force) {
+    unsigned long now = millis();
+
+    if (!force &&
+        now - _last_metrics_save_time < NVS_METRICS_SAVE_INTERVAL_MS) {
+        return;
+    }
+
+    // Check NVS space before writing
+    if (!checkNvsSpace()) {
+        // Already logged in checkNvsSpace
+        return;
+    }
+
+    if (!_metrics_prefs.begin(NVS_METRICS_NAMESPACE, false)) {
+        _logger.log("NVS: Failed to open for save", true);
+        return;
+    }
+
+    // Only write values that have changed to minimize wear
+    // NVS internally checks for changes, but we can skip the call entirely
+
+    float stored_min = _metrics_prefs.getFloat(NVS_KEY_MIN_TEMP, 100.0f);
+    if (fabs(_all_time_min_temp - stored_min) > 0.01f) {
+        size_t w1 =
+            _metrics_prefs.putFloat(NVS_KEY_MIN_TEMP, _all_time_min_temp);
+        size_t w2 = _metrics_prefs.putFloat(NVS_KEY_OPT_CURRENT,
+                                            _all_time_optimal_current);
+
+        if (w1 == 0 || w2 == 0) {
+            _logger.log("NVS: Metrics write failed!", true);
+        } else if (force) {
+            // Log when forced save succeeds (new record achieved)
+            char buf[48];
+            snprintf(buf, sizeof(buf), "NVS: Saved best=%.1fC",
+                     _all_time_min_temp);
+            _logger.log(buf, true);
+        }
+    }
+
+    _metrics_prefs.end();
+    _last_metrics_save_time = now;
+}
+
+/**
+ * @brief Update runtime counter and save periodically
+ *
+ * Accumulates runtime in 1-minute increments to avoid excessive
+ * NVS writes while still tracking operational time reasonably.
+ */
+void ThermalController::updateRuntimeCounter() {
+    unsigned long now = millis();
+
+    if (now - _last_runtime_save_time < NVS_RUNTIME_SAVE_INTERVAL_MS) {
+        return;
+    }
+
+    // Calculate runtime since last save
+    unsigned long elapsed_ms = now - _last_runtime_save_time;
+    if (_last_runtime_save_time == 0) {
+        // First call - use session start time
+        elapsed_ms = now - _session_start_time;
+    }
+
+    _total_runtime_seconds += elapsed_ms / 1000;
+    _last_runtime_save_time = now;
+
+    // Check NVS space before writing
+    if (!checkNvsSpace()) {
+        // Already logged in checkNvsSpace
+        return;
+    }
+
+    // Save to NVS
+    if (_metrics_prefs.begin(NVS_METRICS_NAMESPACE, false)) {
+        size_t written =
+            _metrics_prefs.putULong(NVS_KEY_RUNTIME, _total_runtime_seconds);
+        _metrics_prefs.end();
+
+        if (written == 0) {
+            _logger.log("NVS: Runtime write failed!", true);
+        }
+    } else {
+        _logger.log("NVS: Failed to open for runtime", true);
+    }
 }
 
 // ============================================================================

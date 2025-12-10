@@ -130,6 +130,9 @@ constexpr float DEGRADED_MODE_CURRENT =
     5.0f;                              // Max current when one DPS disconnects
 constexpr float DPS_OCP_LIMIT = 11.0f; // Hardware Over Current Protection
                                        // Failsafe in case ESP commands >10.6A
+constexpr float DPS_OVP_LIMIT =
+    16.5f; // Hardware Over Voltage Protection
+           // Slightly above setpoint to catch Modbus errors
 
 // Timing intervals (milliseconds)
 constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000; // 60s startup hold
@@ -193,5 +196,60 @@ constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz
 constexpr unsigned long HISTORY_SAMPLE_INTERVAL_MS = 1000; // 1 second samples
 constexpr size_t COOLING_RATE_WINDOW_SAMPLES =
     30; // 30s window for rate calculation
+
+// ============================================================================
+// Cross-Sensor Validation
+// ============================================================================
+
+// During normal cooling operation, cold plate must be colder than hot plate
+// This check is only active after STARTUP (TECs need time to establish
+// gradient)
+constexpr float SENSOR_CROSS_CHECK_MARGIN_C =
+    2.0f; // Cold plate must be at least this much colder than hot
+constexpr unsigned long SENSOR_CROSS_CHECK_GRACE_MS =
+    120000; // 2 minutes grace after entering RAMP_UP before checking
+constexpr unsigned long SENSOR_CROSS_CHECK_LOG_INTERVAL_MS =
+    30000; // Rate limit cross-check warnings
+
+// Absolute sensor sanity limits
+constexpr float COLD_PLATE_MIN_VALID_C = -60.0f; // PT100 can't read below this
+constexpr float COLD_PLATE_MAX_VALID_C = 80.0f;  // Cold plate shouldn't be hot
+constexpr float HOT_PLATE_MIN_VALID_C = -20.0f;  // Hot side shouldn't freeze
+constexpr float HOT_PLATE_MAX_VALID_C = 100.0f;  // Above fault threshold
+
+// PT100 plausibility check (physics-based validation)
+// If cold plate reports very low temp but hot side is only moderately warm,
+// the PT100 reading is implausible (sensor may be shorted or miscalibrated)
+// Expected: At full power, deltaT across TEC should be proportional to current
+constexpr float PLAUSIBILITY_MIN_DELTA_T_PER_AMP =
+    2.0f; // Minimum expected K/A at steady state
+constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C =
+    -35.0f; // Below this, check hot side
+constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C =
+    35.0f; // Hot side must be above this for extreme cold
+constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS =
+    180000; // 3 min grace after startup
+
+// ============================================================================
+// NVS Metrics Persistence
+// ============================================================================
+
+// Persist key metrics to NVS for long-term diagnostics
+// Write interval is long to avoid wearing out flash (NVS has limited writes)
+constexpr unsigned long NVS_METRICS_SAVE_INTERVAL_MS =
+    300000; // Save every 5 minutes
+constexpr unsigned long NVS_RUNTIME_SAVE_INTERVAL_MS =
+    60000; // Save runtime every 1 minute (incremental)
+
+// ============================================================================
+// DPS Self-Test Configuration
+// ============================================================================
+
+// Self-test verifies DPS communication and output control on startup
+constexpr unsigned long DPS_SELFTEST_TIMEOUT_MS = 3000; // Max time per DPS test
+constexpr unsigned long DPS_SELFTEST_SETTLE_MS =
+    500;                                     // Time to wait after command
+constexpr float DPS_SELFTEST_VOLTAGE = 1.0f; // Safe test voltage
+constexpr float DPS_SELFTEST_CURRENT = 0.1f; // Safe test current (no load)
 
 #endif

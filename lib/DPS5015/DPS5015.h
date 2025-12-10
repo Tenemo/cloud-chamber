@@ -70,6 +70,7 @@ class DPS5015 {
     bool setCurrent(float current);
     bool setOutput(bool on);
     bool setOCP(float current); // Set hardware Over Current Protection limit
+    bool setOVP(float voltage); // Set hardware Over Voltage Protection limit
 
     // Emergency methods - bypass queue for time-critical operations
     bool setCurrentImmediate(float current);

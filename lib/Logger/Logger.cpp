@@ -9,11 +9,13 @@
 #include "Logger.h"
 #include "config.h"
 #include <cstring>
+#include <esp_heap_caps.h> // For PSRAM allocation
 
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), _display_initialized(false),
       _last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0),
-      _spinner_index(0), _last_spinner_update(0) {
+      _spinner_index(0), _last_spinner_update(0), _psram_log_buffer(nullptr),
+      _psram_log_head(0), _psram_log_count(0), _psram_available(false) {
     // Initialize all display lines as inactive
     for (size_t i = 0; i < MAX_DISPLAY_LINES; i++) {
         _lines[i].active = false;
@@ -57,6 +59,21 @@ void Logger::initializeDisplay() {
     Serial.begin(115200);
     while (!Serial && millis() < SERIAL_TIMEOUT_MS) {
         ; // wait for serial connection
+    }
+
+    // Allocate PSRAM circular log buffer
+    // PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
+    size_t buffer_size = PSRAM_LOG_ENTRY_SIZE * PSRAM_LOG_BUFFER_ENTRIES;
+    _psram_log_buffer =
+        (char *)heap_caps_malloc(buffer_size, MALLOC_CAP_SPIRAM);
+    if (_psram_log_buffer != nullptr) {
+        _psram_available = true;
+        memset(_psram_log_buffer, 0, buffer_size);
+        Serial.printf("Logger: PSRAM log buffer allocated (%d bytes)\n",
+                      buffer_size);
+    } else {
+        _psram_available = false;
+        Serial.println("Logger: PSRAM unavailable, using serial only");
     }
 
     _backlight = LCD_BL;
@@ -407,6 +424,9 @@ void Logger::drawLogArea() {
 }
 
 void Logger::log(const char *message, bool serialOnly) {
+    // Add to PSRAM circular buffer (even for serialOnly messages)
+    addToLogBuffer(message);
+
     // Output to Serial
     Serial.println(message);
 
@@ -466,4 +486,76 @@ void Logger::log(const char *message, bool serialOnly) {
 
     // Redraw entire log area
     drawLogArea();
+}
+
+/**
+ * @brief Add a log entry to the PSRAM circular buffer
+ *
+ * Each entry includes a timestamp (ms since boot) and the message.
+ * Old entries are overwritten when buffer is full (circular).
+ */
+void Logger::addToLogBuffer(const char *message) {
+    if (!_psram_available || _psram_log_buffer == nullptr) {
+        return;
+    }
+
+    // Calculate pointer to current entry
+    char *entry = _psram_log_buffer + (_psram_log_head * PSRAM_LOG_ENTRY_SIZE);
+
+    // Format: "[timestamp_ms] message"
+    unsigned long timestamp = millis();
+    snprintf(entry, PSRAM_LOG_ENTRY_SIZE, "[%lu] %s", timestamp, message);
+
+    // Advance head (circular)
+    _psram_log_head = (_psram_log_head + 1) % PSRAM_LOG_BUFFER_ENTRIES;
+    if (_psram_log_count < PSRAM_LOG_BUFFER_ENTRIES) {
+        _psram_log_count++;
+    }
+}
+
+/**
+ * @brief Dump entire PSRAM log buffer to Serial
+ *
+ * Outputs logs in chronological order (oldest first).
+ * Call this via serial command for post-mortem diagnostics.
+ */
+void Logger::dumpLogBuffer() {
+    if (!_psram_available || _psram_log_buffer == nullptr) {
+        Serial.println("=== LOG BUFFER UNAVAILABLE (no PSRAM) ===");
+        return;
+    }
+
+    Serial.println("=== BEGIN LOG BUFFER DUMP ===");
+    Serial.printf("Total entries: %d\n", _psram_log_count);
+    Serial.println("---");
+
+    if (_psram_log_count == 0) {
+        Serial.println("(empty)");
+        Serial.println("=== END LOG BUFFER DUMP ===");
+        return;
+    }
+
+    // Start from oldest entry
+    size_t start_idx;
+    if (_psram_log_count < PSRAM_LOG_BUFFER_ENTRIES) {
+        // Buffer not yet full - start from 0
+        start_idx = 0;
+    } else {
+        // Buffer full - oldest entry is at head (about to be overwritten)
+        start_idx = _psram_log_head;
+    }
+
+    // Output all entries in chronological order
+    for (size_t i = 0; i < _psram_log_count; i++) {
+        size_t idx = (start_idx + i) % PSRAM_LOG_BUFFER_ENTRIES;
+        char *entry = _psram_log_buffer + (idx * PSRAM_LOG_ENTRY_SIZE);
+
+        // Only print non-empty entries
+        if (entry[0] != '\0') {
+            Serial.println(entry);
+        }
+    }
+
+    Serial.println("---");
+    Serial.println("=== END LOG BUFFER DUMP ===");
 }

@@ -33,10 +33,13 @@
 #include "PT100.h"
 #include "config.h"
 #include <Arduino.h>
+#include <Preferences.h>
+#include <nvs.h> // For nvs_get_stats (NVS space checking)
 
 // Controller state machine states
 enum class ThermalState {
     INITIALIZING,    // Waiting for hardware to come online
+    SELF_TEST,       // Running DPS self-test
     STARTUP,         // Soft-start with low current
     RAMP_UP,         // Gradually increasing current to maximum
     STEADY_STATE,    // Maintaining maximum safe operation
@@ -146,6 +149,26 @@ class ThermalController {
     // Channel imbalance tracking
     unsigned long _last_imbalance_log_time;
 
+    // Cross-sensor validation
+    unsigned long _ramp_start_time; // When RAMP_UP started (for grace period)
+    unsigned long _last_cross_check_log_time; // Rate limit cross-check warnings
+    bool _cross_check_warning_active; // Currently in cross-check warning state
+
+    // NVS metrics persistence
+    Preferences _metrics_prefs;
+    unsigned long _last_metrics_save_time;
+    unsigned long _last_runtime_save_time;
+    unsigned long _session_start_time;    // When this session started
+    unsigned long _total_runtime_seconds; // Accumulated runtime from NVS
+    float _all_time_min_temp;             // Best temperature ever achieved
+    float _all_time_optimal_current;      // Current that achieved best temp
+    uint32_t _session_count;              // Number of boot cycles
+
+    // Self-test state
+    int _selftest_phase;                 // Current phase of self-test
+    unsigned long _selftest_phase_start; // When current phase started
+    bool _selftest_passed[2];            // Per-DPS test result
+
     // Display line IDs
     static constexpr const char *LINE_STATE = "TC_STATE";
     static constexpr const char *LINE_RATE = "TC_RATE";
@@ -154,6 +177,7 @@ class ThermalController {
 
     // State handlers
     void handleInitializing();
+    void handleSelfTest();
     void handleStartup();
     void handleRampUp();
     void handleSteadyState();
@@ -171,6 +195,9 @@ class ThermalController {
     bool checkThermalLimits();
     bool checkSensorHealth();
     bool checkDpsConnection();
+    bool checkCrossSensorValidation(); // Cross-validate sensor readings
+    bool checkSensorSanity();          // Check for impossible sensor values
+    bool checkPT100Plausibility();     // Physics-based PT100 validation
 
     // Control actions
     void setChannelCurrent(size_t channel, float current);
@@ -186,6 +213,12 @@ class ThermalController {
     ThermalTrend analyzeTrend() const;
     float getAmbientTemperature() const;
     void checkChannelImbalance();
+
+    // NVS metrics persistence
+    void loadMetricsFromNvs();
+    void saveMetricsToNvs(bool force = false);
+    void updateRuntimeCounter();
+    bool checkNvsSpace(); // Check if NVS has enough free space
 
     // Display updates
     void registerDisplayLines();
