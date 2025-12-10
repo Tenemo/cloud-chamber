@@ -57,11 +57,6 @@ const ThermalSample *ThermalMetrics::getSample(size_t samples_ago) const {
     return &_buffer[idx];
 }
 
-void ThermalMetrics::clearHistory() {
-    _head = 0;
-    _count = 0;
-}
-
 float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
                                             size_t window_samples) const {
     if (_count < window_samples) {

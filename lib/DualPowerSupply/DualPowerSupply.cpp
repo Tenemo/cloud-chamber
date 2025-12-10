@@ -352,3 +352,137 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
     _logger.log("DPS: Hot reset detected");
     return fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
 }
+
+// =============================================================================
+// Self-Test
+// =============================================================================
+
+// Self-test phase constants (local to this file)
+namespace {
+constexpr int ST_PHASE_START = 0;
+constexpr int ST_PHASE_CHECK_SETTINGS = 1;
+constexpr int ST_PHASE_ENABLE_PSU0 = 2;
+constexpr int ST_PHASE_VERIFY_PSU0 = 3;
+constexpr int ST_PHASE_ENABLE_PSU1 = 4;
+constexpr int ST_PHASE_VERIFY_PSU1 = 5;
+constexpr int ST_PHASE_COMPLETE = 6;
+
+constexpr unsigned long ST_SETTLE_MS = 500;
+constexpr unsigned long ST_TIMEOUT_MS = 3000;
+constexpr float ST_VOLTAGE = 5.0f;
+constexpr float ST_CURRENT = 0.5f;
+constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
+} // namespace
+
+void DualPowerSupply::resetSelfTest() {
+    _selftest_phase = ST_PHASE_START;
+    _selftest_phase_start = 0;
+    _selftest_passed[0] = false;
+    _selftest_passed[1] = false;
+}
+
+SelfTestResult DualPowerSupply::runSelfTest() {
+    unsigned long now = millis();
+    unsigned long phase_elapsed = now - _selftest_phase_start;
+
+    switch (_selftest_phase) {
+    case ST_PHASE_START:
+        _logger.log("DPS: Self-test start");
+        _psu0.setVoltage(ST_VOLTAGE);
+        _psu0.setCurrent(ST_CURRENT);
+        _psu0.setOutput(false);
+        _psu1.setVoltage(ST_VOLTAGE);
+        _psu1.setCurrent(ST_CURRENT);
+        _psu1.setOutput(false);
+        _selftest_phase = ST_PHASE_CHECK_SETTINGS;
+        _selftest_phase_start = now;
+        break;
+
+    case ST_PHASE_CHECK_SETTINGS:
+        if (phase_elapsed < ST_SETTLE_MS)
+            return SelfTestResult::IN_PROGRESS;
+
+        if (!areBothConnected()) {
+            _logger.log("DPS: Self-test FAIL: offline");
+            CrashLog::logCritical("SELFTEST_FAIL", "DPS offline");
+            return SelfTestResult::FAILED;
+        }
+
+        if (fabs(_psu0.getSetVoltage() - ST_VOLTAGE) > ST_VOLTAGE_TOLERANCE ||
+            fabs(_psu1.getSetVoltage() - ST_VOLTAGE) > ST_VOLTAGE_TOLERANCE) {
+            _logger.log("DPS: Self-test FAIL: V mismatch");
+            CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
+            return SelfTestResult::FAILED;
+        }
+
+        _selftest_phase = ST_PHASE_ENABLE_PSU0;
+        _selftest_phase_start = now;
+        break;
+
+    case ST_PHASE_ENABLE_PSU0:
+        _psu0.setOutput(true);
+        _selftest_phase = ST_PHASE_VERIFY_PSU0;
+        _selftest_phase_start = now;
+        break;
+
+    case ST_PHASE_VERIFY_PSU0:
+        if (phase_elapsed < ST_SETTLE_MS)
+            return SelfTestResult::IN_PROGRESS;
+
+        if (_psu0.isOutputOn()) {
+            _selftest_passed[0] = true;
+            _psu0.setOutput(false);
+            _selftest_phase = ST_PHASE_ENABLE_PSU1;
+            _selftest_phase_start = now;
+        } else if (phase_elapsed > ST_TIMEOUT_MS) {
+            _logger.log("DPS: Self-test FAIL: DPS0 output");
+            CrashLog::logCritical("SELFTEST_FAIL", "DPS0 output");
+            return SelfTestResult::FAILED;
+        }
+        break;
+
+    case ST_PHASE_ENABLE_PSU1:
+        if (phase_elapsed < ST_SETTLE_MS)
+            return SelfTestResult::IN_PROGRESS;
+        _psu1.setOutput(true);
+        _selftest_phase = ST_PHASE_VERIFY_PSU1;
+        _selftest_phase_start = now;
+        break;
+
+    case ST_PHASE_VERIFY_PSU1:
+        if (phase_elapsed < ST_SETTLE_MS)
+            return SelfTestResult::IN_PROGRESS;
+
+        if (_psu1.isOutputOn()) {
+            _selftest_passed[1] = true;
+            _psu1.setOutput(false);
+            _selftest_phase = ST_PHASE_COMPLETE;
+            _selftest_phase_start = now;
+        } else if (phase_elapsed > ST_TIMEOUT_MS) {
+            _logger.log("DPS: Self-test FAIL: DPS1 output");
+            CrashLog::logCritical("SELFTEST_FAIL", "DPS1 output");
+            return SelfTestResult::FAILED;
+        }
+        break;
+
+    case ST_PHASE_COMPLETE:
+        if (phase_elapsed < ST_SETTLE_MS)
+            return SelfTestResult::IN_PROGRESS;
+
+        if (_selftest_passed[0] && _selftest_passed[1]) {
+            _logger.log("DPS: Self-test PASS");
+            return SelfTestResult::PASSED;
+        } else {
+            _logger.log("DPS: Self-test incomplete");
+            CrashLog::logCritical("SELFTEST_FAIL", "Incomplete");
+            return SelfTestResult::FAILED;
+        }
+
+    default:
+        // Shouldn't happen, but treat as timeout
+        _logger.log("DPS: Self-test invalid state");
+        return SelfTestResult::FAILED;
+    }
+
+    return SelfTestResult::IN_PROGRESS;
+}

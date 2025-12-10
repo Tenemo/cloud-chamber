@@ -47,6 +47,15 @@ enum class OverrideStatus {
     PENDING   // Mismatch detected but waiting for confirmation
 };
 
+/**
+ * @brief Result of self-test execution
+ */
+enum class SelfTestResult {
+    IN_PROGRESS, // Test still running, call again
+    PASSED,      // Both PSUs verified working
+    FAILED       // Test failed (see logs for details)
+};
+
 class DualPowerSupply {
   public:
     DualPowerSupply(Logger &logger, DPS5015 &psu0, DPS5015 &psu1);
@@ -250,6 +259,25 @@ class DualPowerSupply {
      */
     float detectHotReset(float min_threshold);
 
+    // =========================================================================
+    // Self-Test
+    // =========================================================================
+
+    /**
+     * @brief Run non-blocking self-test of both PSUs
+     *
+     * Tests voltage setting, output enable/disable for both channels.
+     * Call repeatedly until it returns PASSED or FAILED.
+     *
+     * @return IN_PROGRESS while testing, PASSED or FAILED when complete
+     */
+    SelfTestResult runSelfTest();
+
+    /**
+     * @brief Reset self-test state (call before starting a new test)
+     */
+    void resetSelfTest();
+
   private:
     Logger &_logger;
     DPS5015 &_psu0;
@@ -270,6 +298,11 @@ class DualPowerSupply {
 
     // Imbalance logging rate limiting
     unsigned long _last_imbalance_log_time = 0;
+
+    // Self-test state
+    int _selftest_phase = 0;
+    unsigned long _selftest_phase_start = 0;
+    bool _selftest_passed[2] = {false, false};
 
     // Override confirmation count
     static constexpr int OVERRIDE_CONFIRM_COUNT =
