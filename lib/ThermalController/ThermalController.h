@@ -107,8 +107,7 @@ struct OptimizerState {
 class ThermalController {
   public:
     ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                      DS18B20Sensor &hotPlate, DS18B20Sensor *ambientSensors,
-                      size_t numAmbient, DPS5015 &psu0, DPS5015 &psu1);
+                      DS18B20Sensor &hotPlate, DPS5015 &psu0, DPS5015 &psu1);
 
     void begin();
     void update();
@@ -125,8 +124,6 @@ class ThermalController {
     Logger &_logger;
     PT100Sensor &_cold_plate;
     DS18B20Sensor &_hot_plate;
-    DS18B20Sensor *_ambient_sensors;
-    size_t _num_ambient;
 
     // Delegate modules
     DualPowerSupply _dps;

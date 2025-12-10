@@ -65,10 +65,8 @@ ThermalController
     thermalController(logger,
                       pt100_sensor,       // Cold plate (PT100)
                       ds18b20_sensors[0], // Hot plate (first DS18B20)
-                      &ds18b20_sensors[1],
-                      2,    // Ambient sensors (remaining DS18B20s)
-                      psu0, // PSU 0 (channels 1-2)
-                      psu1  // PSU 1 (channels 3-4)
+                      psu0,               // PSU 0 (channels 1-2)
+                      psu1                // PSU 1 (channels 3-4)
     );
 
 static void initializeWatchdog() {
