@@ -57,15 +57,27 @@ enum class EvaluationResult { WAITING, IMPROVED, DEGRADED, UNCHANGED };
  * This makes save/restore of optimizer state cleaner and reduces
  * clutter in the main controller class.
  *
- * Tracks both step-by-step evaluation AND the global best point seen
- * during the entire ramp. When degradation is detected, we return to
- * the global best, not just one step back.
+ * Key concepts:
+ * - optimal_current/temp_at_optimal: Session best (updated when truly better)
+ * - baseline_current/temp: Point before the last step (for local revert)
+ * - probe_direction: +1 = increasing current, -1 = decreasing
+ * - current_step: Adaptive step size (coarse→medium→fine as we approach
+ * optimum)
+ * - consecutive_bounces: Tracks direction flips to shrink step size
  */
 struct OptimizerState {
-    float optimal_current = 0.0f;      // Best current found so far
-    float temp_at_optimal = 100.0f;    // Temperature achieved at optimal
-    float temp_before_step = 100.0f;   // Baseline temp before last step
-    float rate_before_step = 0.0f;     // Cooling rate before last step
+    // Session best tracking
+    float optimal_current = 0.0f;   // Best current found so far this session
+    float temp_at_optimal = 100.0f; // Temperature achieved at optimal
+
+    // Baseline before last step (for local revert, not jump to global best)
+    float baseline_current = 0.0f; // Current before the last step
+    float baseline_temp = 100.0f;  // Cold plate temp at baseline
+    float baseline_rate = 0.0f;    // Cooling rate at baseline
+
+    // Step evaluation state
+    float temp_before_step = 100.0f;   // Alias for baseline_temp (legacy)
+    float rate_before_step = 0.0f;     // Alias for baseline_rate (legacy)
     bool awaiting_evaluation = false;  // Evaluation in progress
     unsigned long eval_start_time = 0; // When evaluation started
 
@@ -73,19 +85,26 @@ struct OptimizerState {
     float best_temp_during_ramp = 100.0f; // Coldest temp seen during this ramp
     float current_at_best_temp = 0.0f;    // Current that achieved best temp
 
-    // Steady-state probe direction (alternates to find true optimum)
-    bool last_probe_was_increase = true; // Toggle between up/down probes
+    // Adaptive step control
+    int8_t probe_direction = 1;      // +1 = increase current, -1 = decrease
+    float current_step = 0.5f;       // Current step size (adaptive)
+    uint8_t consecutive_bounces = 0; // Direction flips - shrink step after 2+
 
     void reset() {
         optimal_current = 0.0f;
         temp_at_optimal = 100.0f;
+        baseline_current = 0.0f;
+        baseline_temp = 100.0f;
+        baseline_rate = 0.0f;
         temp_before_step = 100.0f;
         rate_before_step = 0.0f;
         awaiting_evaluation = false;
         eval_start_time = 0;
         best_temp_during_ramp = 100.0f;
         current_at_best_temp = 0.0f;
-        last_probe_was_increase = true;
+        probe_direction = 1;
+        current_step = 0.5f;
+        consecutive_bounces = 0;
     }
 };
 
@@ -174,6 +193,16 @@ class ThermalController {
      * @brief Evaluate the result of a current change
      */
     EvaluationResult evaluateCurrentChange();
+
+    /**
+     * @brief Choose adaptive step size based on cooling rate and hot-side temp
+     *
+     * Uses larger steps when far from optimum (fast cooling rate) and
+     * smaller steps when near optimum (slow cooling rate or hot side warm).
+     *
+     * @return Step size in amps (COARSE_STEP_A, MEDIUM_STEP_A, or FINE_STEP_A)
+     */
+    float chooseStepSize() const;
 
     // =========================================================================
     // History and display

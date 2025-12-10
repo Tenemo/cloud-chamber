@@ -326,6 +326,27 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     }
 }
 
+bool DPS5015::writeRegisterImmediate(uint16_t reg, uint16_t value) {
+    // Blocking write with retries for time-critical operations
+    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
+        clearSerialBuffer();
+        sendWriteRequest(reg, value);
+
+        // Wait for response with timeout
+        unsigned long start = millis();
+        while (_serial.available() < 8) {
+            if (millis() - start > RESPONSE_TIMEOUT_MS) {
+                break; // Retry on timeout
+            }
+        }
+
+        if (_serial.available() >= 8 && checkWriteResponse()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool DPS5015::setCurrentImmediate(float current) {
     if (!_initialized)
         return false;
@@ -334,25 +355,9 @@ bool DPS5015::setCurrentImmediate(float current) {
     float clamped = current < 0.0f ? 0.0f : (current > 15.0f ? 15.0f : current);
     uint16_t value = static_cast<uint16_t>(clamped * 100.0f);
 
-    // Retry loop for critical immediate writes
-    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
-        // Clear the serial buffer and send immediately (blocking)
-        clearSerialBuffer();
-
-        sendWriteRequest(REG_SET_CURRENT, value);
-
-        // Wait for response with timeout
-        unsigned long start = millis();
-        while (_serial.available() < 8) {
-            if (millis() - start > RESPONSE_TIMEOUT_MS) {
-                continue; // Retry on timeout
-            }
-        }
-
-        if (checkWriteResponse()) {
-            _commanded_current = clamped;
-            return true;
-        }
+    if (writeRegisterImmediate(REG_SET_CURRENT, value)) {
+        _commanded_current = clamped;
+        return true;
     }
     return false;
 }
@@ -361,26 +366,10 @@ bool DPS5015::disableOutput() {
     if (!_initialized)
         return false;
 
-    // Retry loop for critical output disable
-    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
-        // Clear the serial buffer and send immediately (blocking)
-        clearSerialBuffer();
-
-        sendWriteRequest(REG_OUTPUT, 0);
-
-        // Wait for response with timeout
-        unsigned long start = millis();
-        while (_serial.available() < 8) {
-            if (millis() - start > RESPONSE_TIMEOUT_MS) {
-                continue; // Retry on timeout
-            }
-        }
-
-        if (checkWriteResponse()) {
-            _commanded_output = false;
-            _last_command_time = millis();
-            return true;
-        }
+    if (writeRegisterImmediate(REG_OUTPUT, 0)) {
+        _commanded_output = false;
+        _last_command_time = millis();
+        return true;
     }
     return false;
 }

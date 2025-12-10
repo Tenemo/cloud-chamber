@@ -263,32 +263,36 @@ Hot side temperature zones use hysteresis to prevent oscillation:
    - Track previous connection state
    - Detect disconnection → DPS_DISCONNECTED
 
-4. **Manual override** (`checkForManualOverride()`):
+4. **Manual override** (`checkManualOverride()`):
    - Detect when user adjusts DPS dial
    - Requires **3 consecutive mismatches** to avoid false positives
+   - Checks current, voltage, and output state mismatches
    - Ignores readings during grace period after ESP sends commands
 
 ### Emergency Shutdown
 
-Two variants:
+Two shutdown variants:
 
-**Non-blocking (normal operation)**:
+**Soft shutdown (controlled ramp-down)**:
 
 ```cpp
-startEmergencyShutdown() → updateEmergencyShutdown()
+startEmergencyShutdown()  // Initiate non-blocking ramp-down
+updateEmergencyShutdown() // Call in update loop until complete
 ```
 
 - Ramps down at 2A/sec in 500ms steps
 - Disables outputs when current reaches 0
+- Used for non-critical faults (hot side warning, sensor issues)
 
-**Blocking (initialization only)**:
+**Hard shutdown (immediate cut)**:
 
 ```cpp
-emergencyShutdown()
+hardShutdown()  // Blocking, immediate output disable
 ```
 
-- Quick ramp-down in ~1 second
-- Used when DPS found running on hot reset
+- Immediate output disable on both channels
+- Used for critical faults (hot side ≥70°C)
+- Thermal shock acceptable vs. component damage
 
 > ⚠️ **IMPORTANT**: Emergency shutdown relies on Modbus communication. If Modbus is down, shutdown commands won't reach the PSUs. For true fail-safe operation, external hardware interlocks (thermal cutoff switches, contactors) should be used in addition to software control.
 
@@ -378,14 +382,13 @@ enum class ThermalTrend {
 
 ## Display Integration
 
-The controller registers and updates 4 display lines via the Logger:
+The controller registers and updates 3 display lines via the Logger:
 
-| Line ID  | Label   | Unit | Content                                 |
-| -------- | ------- | ---- | --------------------------------------- |
-| TC_STATE | State:  | -    | Current state (INIT, START, RAMP, etc.) |
-| TC_RATE  | dT/dt:  | K/m  | Cooling rate (negative = cooling)       |
-| TC_I1    | I1 SET: | A    | Channel 1 commanded current             |
-| TC_I2    | I2 SET: | A    | Channel 2 commanded current             |
+| Line ID  | Label  | Unit | Content                                 |
+| -------- | ------ | ---- | --------------------------------------- |
+| TC_STATE | State: | -    | Current state (INIT, START, RAMP, etc.) |
+| TC_RATE  | dT/dt: | K/m  | Cooling rate (negative = cooling)       |
+| TC_I     | I Set: | A    | Commanded current (same on both ch.)    |
 
 ---
 
