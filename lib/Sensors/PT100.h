@@ -37,7 +37,6 @@
 #include "Logger.h"
 #include "config.h"
 #include <Adafruit_MAX31865.h>
-#include <Arduino.h>
 
 class PT100Sensor {
   public:

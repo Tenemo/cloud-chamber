@@ -1,5 +1,4 @@
 #include "PT100.h"
-#include "config.h"
 
 PT100Sensor::PT100Sensor(Logger &logger, const char *label)
     : _logger(logger), _rtd(PIN_MAX31865_CS), _label(label),

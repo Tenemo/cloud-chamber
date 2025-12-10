@@ -5,7 +5,6 @@
 
 #include "DualPowerSupply.h"
 #include "CrashLog.h"
-#include "ThermalConstants.h"
 #include <cmath>
 
 // =============================================================================

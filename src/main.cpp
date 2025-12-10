@@ -28,7 +28,6 @@
  * - Crash events are logged to SPIFFS for post-mortem analysis
  */
 
-#include "CrashLog.h"
 #include "Logger.h"
 #include "TemperatureSensors.h"
 #include "config.h"
@@ -36,7 +35,6 @@
 #include <esp_task_wdt.h>
 
 #if CONTROL_LOOP_ENABLED
-#include "DualPowerSupply.h"
 #include "ThermalController.h"
 #endif
 
@@ -46,11 +44,9 @@ Logger logger;
 TemperatureSensors sensors(logger);
 
 #if CONTROL_LOOP_ENABLED
-// Dual power supply (owns and manages both DPS5015 units)
-DualPowerSupply dualPsu(logger);
-
-// Thermal controller - coordinates sensors and PSUs
-ThermalController thermalController(logger, sensors, dualPsu);
+// Thermal controller - coordinates sensors and PSUs (owns DualPowerSupply
+// internally)
+ThermalController thermalController(logger, sensors);
 #endif
 
 static void initializeWatchdog() {
@@ -67,10 +63,6 @@ static void initializeHardware() {
     // Mark session start in PSRAM log buffer for clear session boundaries
     // This helps when reviewing dumps - each boot starts with this marker
     logger.log("=== BOOT ===");
-
-    // Initialize SPIFFS-based crash logging (before watchdog so we can log
-    // reset reason)
-    CrashLog::begin();
 
     // Initialize watchdog
     initializeWatchdog();

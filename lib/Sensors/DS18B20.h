@@ -38,7 +38,6 @@
 #define DS18B20_H
 
 #include "Logger.h"
-#include <Arduino.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
 

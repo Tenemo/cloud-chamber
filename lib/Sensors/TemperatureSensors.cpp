@@ -4,6 +4,7 @@
  */
 
 #include "TemperatureSensors.h"
+#include "config.h"
 
 TemperatureSensors::TemperatureSensors(Logger &logger)
     : _logger(logger), _oneWire(PIN_DS18B20), _dallasSensors(&_oneWire),

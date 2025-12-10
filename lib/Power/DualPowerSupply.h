@@ -38,7 +38,6 @@
 #include "Logger.h"
 #include "ThermalConstants.h"
 #include "config.h"
-#include <Arduino.h>
 
 /**
  * @brief Result of manual override check

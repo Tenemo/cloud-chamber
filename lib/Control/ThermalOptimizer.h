@@ -30,7 +30,6 @@
 
 #include "Logger.h"
 #include "ThermalConstants.h"
-#include <Arduino.h>
 
 /**
  * @brief Control phase for optimizer decisions

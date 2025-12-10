@@ -22,7 +22,6 @@
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
 #include "ThermalTypes.h"
-#include <Arduino.h>
 
 /**
  * @brief Result of a safety check

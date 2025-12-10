@@ -45,7 +45,6 @@
 #include "Logger.h"
 #include "ThermalConstants.h"
 #include "config.h"
-#include <Arduino.h>
 
 // State machine states for non-blocking Modbus communication
 enum class ModbusState {
