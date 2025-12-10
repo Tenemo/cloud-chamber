@@ -15,12 +15,12 @@
 // Constructor and Initialization
 // =============================================================================
 
-ThermalController::ThermalController(Logger &logger, PT100Sensor &coldPlate,
-                                     DS18B20Sensor &hotPlate,
+ThermalController::ThermalController(Logger &logger,
+                                     TemperatureSensors &sensors,
                                      DualPowerSupply &dps)
-    : _logger(logger), _cold_plate(coldPlate), _hot_plate(hotPlate), _dps(dps),
-      _metrics(logger), _optimizer(logger),
-      _safety(logger, coldPlate, hotPlate, _dps),
+    : _logger(logger), _sensors(sensors), _dps(dps), _metrics(logger),
+      _optimizer(logger), _safety(logger, sensors.getColdPlateSensor(),
+                                  sensors.getHotPlateSensor(), _dps),
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
@@ -268,7 +268,7 @@ void ThermalController::enterThermalFault(const char *reason) {
     _logger.logf(false, "TC FAULT: %s", reason);
     CrashLog::logCritical("THERMAL_FAULT", reason);
 
-    float hot_temp = _hot_plate.getTemperature();
+    float hot_temp = _sensors.getHotPlateTemperature();
 
     if (hot_temp >= HOT_SIDE_FAULT_C) {
         _dps.hardShutdown();
@@ -287,8 +287,8 @@ void ThermalController::enterThermalFault(const char *reason) {
 void ThermalController::handleInitializing() {
     unsigned long elapsed = millis() - _state_entry_time;
 
-    bool cold_plate_ok = !_cold_plate.isInError();
-    bool hot_plate_ok = _hot_plate.isConnected();
+    bool cold_plate_ok = !_sensors.isColdPlateError();
+    bool hot_plate_ok = _sensors.isHotPlateConnected();
     bool both_psu_ok = _dps.areBothConnected();
 
     // Check for hot reset (DPS already running)
@@ -298,7 +298,7 @@ void ThermalController::handleInitializing() {
         _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
 
         // Seed the optimizer with current state as starting best point
-        float current_temp = _cold_plate.getTemperature();
+        float current_temp = _sensors.getColdPlateTemperature();
         _optimizer.seedWithCurrent(adopted, current_temp);
 
         if (adopted >= HOT_RESET_NEAR_MAX_A) {
@@ -483,8 +483,8 @@ void ThermalController::handleSensorFault() {
     }
 
     // Check recovery
-    bool cold_ok = !_cold_plate.isInError();
-    bool hot_ok = _hot_plate.isConnected();
+    bool cold_ok = !_sensors.isColdPlateError();
+    bool hot_ok = _sensors.isHotPlateConnected();
 
     if (cold_ok && hot_ok) {
         _logger.log("TC: Sensors recovered");
@@ -519,8 +519,8 @@ void ThermalController::handleDpsDisconnected() {
 
 ThermalSnapshot ThermalController::buildSnapshot() const {
     return ThermalSnapshot{
-        _cold_plate.getTemperature(),
-        _hot_plate.getTemperature(),
+        _sensors.getColdPlateTemperature(),
+        _sensors.getHotPlateTemperature(),
         _metrics.getColdPlateRate(),
         _metrics.getHotPlateRate(),
         _dps.getTargetCurrent(),
@@ -536,8 +536,8 @@ ThermalSnapshot ThermalController::buildSnapshot() const {
 
 void ThermalController::recordSample() {
     ThermalSample sample;
-    sample.cold_plate_temp = _cold_plate.getTemperature();
-    sample.hot_plate_temp = _hot_plate.getTemperature();
+    sample.cold_plate_temp = _sensors.getColdPlateTemperature();
+    sample.hot_plate_temp = _sensors.getHotPlateTemperature();
     sample.set_current = _dps.getTargetCurrent();
     sample.voltage[0] = _dps.getOutputVoltage(0);
     sample.voltage[1] = _dps.getOutputVoltage(1);
