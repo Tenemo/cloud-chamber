@@ -29,7 +29,6 @@
 #include "SafetyMonitor.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
-#include "config.h"
 #include <Arduino.h>
 
 // Controller state machine states
