@@ -221,11 +221,6 @@ class DualPowerSupply {
     float getOutputPower(size_t channel) const;
 
     /**
-     * @brief Get set current from specific channel (what DPS reports)
-     */
-    float getSetCurrent(size_t channel) const;
-
-    /**
      * @brief Check if specific PSU is connected
      */
     bool isConnected(size_t channel) const;

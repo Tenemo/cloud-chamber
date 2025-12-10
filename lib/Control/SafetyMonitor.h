@@ -81,55 +81,10 @@ class SafetyMonitor {
     const char *getLastFaultReason() const { return _last_fault_reason; }
 
     /**
-     * @brief Check thermal limits only
-     * @return SafetyStatus::OK or SafetyStatus::THERMAL_FAULT
-     */
-    SafetyStatus checkThermalLimits();
-
-    /**
-     * @brief Check sensor health only
-     * @return SafetyStatus::OK or SafetyStatus::SENSOR_FAULT
-     */
-    SafetyStatus checkSensorHealth();
-
-    /**
-     * @brief Check sensor sanity (impossible values)
-     * @return SafetyStatus::OK or SafetyStatus::SENSOR_FAULT
-     */
-    SafetyStatus checkSensorSanity();
-
-    /**
-     * @brief Check PT100 plausibility (physics-based)
-     * @param avg_current Average current across channels
-     * @param skip_check Whether to skip this check (e.g., during startup)
-     * @return SafetyStatus::OK, WARNING, or THERMAL_FAULT
-     */
-    SafetyStatus checkPT100Plausibility(float avg_current, bool skip_check);
-
-    /**
-     * @brief Check cross-sensor validation
-     * @param skip_check Whether to skip this check (e.g., during grace period)
-     * @return SafetyStatus::OK or SafetyStatus::WARNING
-     */
-    SafetyStatus checkCrossSensorValidation(bool skip_check);
-
-    /**
-     * @brief Check DPS connection status
-     * @return SafetyStatus::OK or SafetyStatus::DPS_DISCONNECTED
-     */
-    SafetyStatus checkDpsConnection();
-
-    /**
      * @brief Set thermal metrics reference for rate-based checks
      * @param metrics Pointer to unified thermal metrics (includes history)
      */
     void setMetrics(const ThermalMetrics *metrics) { _metrics = metrics; }
-
-    /**
-     * @brief Update hot-side hysteresis state
-     * Call once per update cycle to track warning/alarm states.
-     */
-    void updateHysteresis();
 
     /**
      * @brief Check if hot side is in warning zone (with hysteresis)
@@ -163,6 +118,48 @@ class SafetyMonitor {
      * @brief Set fault reason and return status
      */
     SafetyStatus setFault(SafetyStatus status, const char *reason);
+
+    /**
+     * @brief Update hot-side hysteresis state
+     */
+    void updateHysteresis();
+
+    /**
+     * @brief Check thermal limits
+     * @return SafetyStatus::OK or SafetyStatus::THERMAL_FAULT
+     */
+    SafetyStatus checkThermalLimits();
+
+    /**
+     * @brief Check sensor health
+     * @return SafetyStatus::OK or SafetyStatus::SENSOR_FAULT
+     */
+    SafetyStatus checkSensorHealth();
+
+    /**
+     * @brief Check sensor sanity (impossible values)
+     * @return SafetyStatus::OK or SafetyStatus::SENSOR_FAULT
+     */
+    SafetyStatus checkSensorSanity();
+
+    /**
+     * @brief Check PT100 plausibility (physics-based)
+     * @param avg_current Average current across channels
+     * @return SafetyStatus::OK, WARNING, or THERMAL_FAULT
+     */
+    SafetyStatus checkPT100Plausibility(float avg_current);
+
+    /**
+     * @brief Log cross-sensor validation warnings
+     * @param skip_check Whether to skip this check
+     */
+    void logCrossSensorWarnings(bool skip_check);
+
+    /**
+     * @brief Check DPS connection status
+     * @return SafetyStatus::OK or SafetyStatus::DPS_DISCONNECTED
+     */
+    SafetyStatus checkDpsConnection();
 };
 
 #endif // SAFETY_MONITOR_H

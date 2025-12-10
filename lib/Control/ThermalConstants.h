@@ -20,16 +20,6 @@
 #include <cstddef>
 
 // =============================================================================
-// Derived Constants (calculated from config.h values)
-// =============================================================================
-
-// Threshold for skipping ramp after hot reset (near max current)
-constexpr float HOT_RESET_NEAR_MAX_A = MAX_CURRENT_PER_CHANNEL - 0.5f;
-
-// Hot reset detection threshold
-constexpr float HOT_RESET_CURRENT_THRESHOLD_A = STARTUP_CURRENT;
-
-// =============================================================================
 // History Buffer Configuration
 // =============================================================================
 
@@ -48,14 +38,14 @@ static_assert(HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES <= HISTORY_BUFFER_SIZE,
               "Hot side rate window exceeds buffer size");
 
 // =============================================================================
-// Display Line IDs
+// Derived Constants (calculated from config.h values)
 // =============================================================================
 
-namespace ThermalDisplay {
-constexpr const char *LINE_STATE = "TC_STATE";
-constexpr const char *LINE_RATE = "TC_RATE";
-constexpr const char *LINE_CURRENT = "TC_I";
-} // namespace ThermalDisplay
+// Threshold for skipping ramp after hot reset (near max current)
+constexpr float HOT_RESET_NEAR_MAX_A = MAX_CURRENT_PER_CHANNEL - 0.5f;
+
+// Hot reset detection threshold
+constexpr float HOT_RESET_CURRENT_THRESHOLD_A = STARTUP_CURRENT;
 
 // =============================================================================
 // Tolerance Constants

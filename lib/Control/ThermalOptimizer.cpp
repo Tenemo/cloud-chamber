@@ -10,7 +10,7 @@ ThermalOptimizer::ThermalOptimizer(Logger &logger)
     : _logger(logger), _optimal_current(0.0f), _temp_at_optimal(100.0f),
       _baseline_current(0.0f), _baseline_temp(100.0f), _baseline_rate(0.0f),
       _awaiting_evaluation(false), _eval_start_time(0), _probe_direction(1),
-      _current_step(COARSE_STEP_A), _consecutive_bounces(0), _converged(false) {
+      _consecutive_bounces(0), _converged(false) {
     _log_buffer[0] = '\0';
 }
 
@@ -23,7 +23,6 @@ void ThermalOptimizer::reset() {
     _awaiting_evaluation = false;
     _eval_start_time = 0;
     _probe_direction = 1;
-    _current_step = COARSE_STEP_A;
     _consecutive_bounces = 0;
     _converged = false;
 }
@@ -244,7 +243,6 @@ ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
     float current = snapshot.current_setpoint;
     float step =
         calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
-    _current_step = step;
 
     // Record baseline before step
     _baseline_current = current;
@@ -280,7 +278,6 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
     float current = snapshot.current_setpoint;
     float step =
         calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
-    _current_step = step;
 
     // Record baseline before step
     _baseline_current = current;

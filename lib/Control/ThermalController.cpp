@@ -16,9 +16,8 @@
 // =============================================================================
 
 ThermalController::ThermalController(Logger &logger,
-                                     TemperatureSensors &sensors,
-                                     DualPowerSupply &dps)
-    : _logger(logger), _sensors(sensors), _dps(dps), _metrics(logger),
+                                     TemperatureSensors &sensors)
+    : _logger(logger), _sensors(sensors), _dps(logger), _metrics(logger),
       _optimizer(logger), _safety(logger, sensors.getColdPlateSensor(),
                                   sensors.getHotPlateSensor(), _dps),
       _state(ThermalState::INITIALIZING),
@@ -39,44 +38,8 @@ void ThermalController::begin() {
 }
 
 void ThermalController::registerDisplayLines() {
-    using namespace ThermalDisplay;
-    _logger.registerTextLine(LINE_STATE, "State:", "INIT");
-    _logger.registerLine(LINE_RATE, "dT/dt:", "K/m", 0.0f);
-    _logger.registerLine(LINE_CURRENT, "I Set:", "A", 0.0f);
+    _metrics.registerDisplayLines();
 }
-
-// =============================================================================
-// State String Conversion
-// =============================================================================
-
-const char *ThermalController::getStateString() const {
-    switch (_state) {
-    case ThermalState::INITIALIZING:
-        return "INIT";
-    case ThermalState::SELF_TEST:
-        return "TEST";
-    case ThermalState::STARTUP:
-        return "START";
-    case ThermalState::RAMP_UP:
-        return "RAMP";
-    case ThermalState::STEADY_STATE:
-        return "STEADY";
-    case ThermalState::MANUAL_OVERRIDE:
-        return "MANUAL";
-    case ThermalState::THERMAL_FAULT:
-        return "FAULT";
-    case ThermalState::SENSOR_FAULT:
-        return "SENS_F";
-    case ThermalState::DPS_DISCONNECTED:
-        return "DSCNCT";
-    default:
-        return "???";
-    }
-}
-
-// =============================================================================
-// Public Accessors
-// =============================================================================
 
 unsigned long ThermalController::getSteadyStateUptime() const {
     if (_state == ThermalState::STEADY_STATE) {
@@ -89,19 +52,14 @@ float ThermalController::getCoolingRate() const {
     return _metrics.getColdPlateRate();
 }
 
-// =============================================================================
-// Main Update Loop
-// =============================================================================
-
 void ThermalController::update() {
     unsigned long now = millis();
 
     // Update PSU communication (Modbus polling)
     _dps.update();
 
-    // Record history sample at regular intervals
     if (now - _last_sample_time >= HISTORY_SAMPLE_INTERVAL_MS) {
-        recordSample();
+        _metrics.recordSample(_sensors, _dps);
         _last_sample_time = now;
     }
 
@@ -154,10 +112,6 @@ void ThermalController::update() {
     updateDisplay();
 }
 
-// =============================================================================
-// Safety Checks (run once per update, not in each handler)
-// =============================================================================
-
 bool ThermalController::runSafetyChecks() {
     // All safety checks including grace period logic are now in SafetyMonitor
     // Use actual average current (not target) for physics-based plausibility
@@ -191,10 +145,6 @@ bool ThermalController::runSafetyChecks() {
     return true;
 }
 
-// =============================================================================
-// Control Permission Check
-// =============================================================================
-
 bool ThermalController::isOperationalState() const {
     // States where safety checks should NOT run:
     // - INITIALIZING: Hardware not ready yet, sensors may not be valid
@@ -226,10 +176,6 @@ bool ThermalController::canControlPower() const {
     return true;
 }
 
-// =============================================================================
-// State Transitions
-// =============================================================================
-
 void ThermalController::transitionTo(ThermalState newState) {
     if (newState == _state)
         return;
@@ -238,7 +184,7 @@ void ThermalController::transitionTo(ThermalState newState) {
     _state = newState;
     _state_entry_time = millis();
 
-    _logger.logf(false, "TC: -> %s", getStateString());
+    _logger.logf(false, "TC: -> %s", stateToString(_state));
 
     // State entry actions
     switch (newState) {
@@ -279,10 +225,6 @@ void ThermalController::enterThermalFault(const char *reason) {
     _state = ThermalState::THERMAL_FAULT;
     _state_entry_time = millis();
 }
-
-// =============================================================================
-// State Handlers (simplified - no repeated safety checks)
-// =============================================================================
 
 void ThermalController::handleInitializing() {
     unsigned long elapsed = millis() - _state_entry_time;
@@ -368,8 +310,23 @@ void ThermalController::handleStartup() {
     }
 }
 
+void ThermalController::applyOptimizationDecision(
+    const ThermalOptimizationDecision &decision, unsigned long snapshot_now) {
+    // Log if optimizer has a message
+    if (decision.log_message) {
+        _logger.log(decision.log_message, true);
+    }
+
+    // Execute current change if requested
+    if (decision.change_current) {
+        _dps.setSymmetricCurrent(decision.new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot_now;
+    }
+}
+
 void ThermalController::handleRampUp() {
-    ThermalSnapshot snapshot = buildSnapshot();
+    ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
     float current = snapshot.current_setpoint;
 
     // Check termination conditions via optimizer
@@ -397,17 +354,7 @@ void ThermalController::handleRampUp() {
         snapshot, ThermalControlPhase::RAMP_UP, _last_adjustment_time,
         RAMP_ADJUSTMENT_INTERVAL_MS, psus_ready);
 
-    // Log if optimizer has a message
-    if (decision.log_message) {
-        _logger.log(decision.log_message, true);
-    }
-
-    // Execute current change if requested
-    if (decision.change_current) {
-        _dps.setSymmetricCurrent(decision.new_current);
-        _dps.resetOverrideCounter();
-        _last_adjustment_time = snapshot.now;
-    }
+    applyOptimizationDecision(decision, snapshot.now);
 
     // Handle revert on degraded evaluation
     if (decision.evaluation_complete && decision.should_transition) {
@@ -416,7 +363,7 @@ void ThermalController::handleRampUp() {
 }
 
 void ThermalController::handleSteadyState() {
-    ThermalSnapshot snapshot = buildSnapshot();
+    ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
 
     // Record new minimum for NVS persistence
     _metrics.recordNewMinimum(snapshot.cold_temp, snapshot.current_setpoint);
@@ -436,43 +383,12 @@ void ThermalController::handleSteadyState() {
         snapshot, ThermalControlPhase::STEADY_STATE, _last_adjustment_time,
         STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
 
-    // Log if optimizer has a message
-    if (decision.log_message) {
-        _logger.log(decision.log_message, true);
-    }
-
-    // Execute current change if requested
-    if (decision.change_current) {
-        _dps.setSymmetricCurrent(decision.new_current);
-        _dps.resetOverrideCounter();
-        _last_adjustment_time = snapshot.now;
-    }
+    applyOptimizationDecision(decision, snapshot.now);
 }
 
-void ThermalController::handleManualOverride() {
-    // ==========================================================================
-    // MANUAL OVERRIDE POLICY: Monitor-only, no automatic control
-    // ==========================================================================
-    // This state is entered when a human physically adjusts the DPS dial,
-    // detected via consecutive mismatches between commanded and actual values.
-    //
-    // Behavior:
-    // - NO commands are sent to the PSUs - we respect human intervention
-    // - Safety checks STILL RUN via runSafetyChecks() at top of update()
-    // - Thermal faults will still trigger emergency shutdown
-    // - This state is PERMANENT until power cycle (no auto-recovery)
-    //
-    // Rationale: If someone is manually adjusting the system, they have a
-    // reason. Automatically fighting their changes could be dangerous.
-    // We stay hands-off but keep watching for critical safety issues.
-    // ==========================================================================
-}
+void ThermalController::handleManualOverride() {}
 
-void ThermalController::handleThermalFault() {
-    // Intentionally empty - emergency shutdown is handled by DualPowerSupply.
-    // This state is latched (requires power cycle to exit) to ensure
-    // the system stays off after a thermal event until human inspection.
-}
+void ThermalController::handleThermalFault() {}
 
 void ThermalController::handleSensorFault() {
     unsigned long elapsed = millis() - _sensor_fault_time;
@@ -513,55 +429,6 @@ void ThermalController::handleDpsDisconnected() {
     }
 }
 
-// =============================================================================
-// Optimizer Support
-// =============================================================================
-
-ThermalSnapshot ThermalController::buildSnapshot() const {
-    return ThermalSnapshot{
-        _sensors.getColdPlateTemperature(),
-        _sensors.getHotPlateTemperature(),
-        _metrics.getColdPlateRate(),
-        _metrics.getHotPlateRate(),
-        _dps.getTargetCurrent(),
-        _safety.isHotSideWarning(),
-        _safety.isHotSideAlarm(),
-        _metrics.isHotSideStable(HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN),
-        millis()};
-}
-
-// =============================================================================
-// History and Analysis
-// =============================================================================
-
-void ThermalController::recordSample() {
-    ThermalSample sample;
-    sample.cold_plate_temp = _sensors.getColdPlateTemperature();
-    sample.hot_plate_temp = _sensors.getHotPlateTemperature();
-    sample.set_current = _dps.getTargetCurrent();
-    sample.voltage[0] = _dps.getOutputVoltage(0);
-    sample.voltage[1] = _dps.getOutputVoltage(1);
-    sample.current[0] = _dps.getOutputCurrent(0);
-    sample.current[1] = _dps.getOutputCurrent(1);
-    sample.power[0] = _dps.getOutputPower(0);
-    sample.power[1] = _dps.getOutputPower(1);
-    sample.timestamp = millis();
-
-    _metrics.recordSample(sample);
-
-    // Check for channel imbalance (rate-limited logging)
-    _dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
-                              CHANNEL_POWER_IMBALANCE_W,
-                              Timing::IMBALANCE_LOG_INTERVAL_MS);
-}
-
-// =============================================================================
-// Display
-// =============================================================================
-
 void ThermalController::updateDisplay() {
-    using namespace ThermalDisplay;
-    _logger.updateLineText(LINE_STATE, getStateString());
-    _logger.updateLine(LINE_RATE, _metrics.getColdPlateRate());
-    _logger.updateLine(LINE_CURRENT, _dps.getTargetCurrent());
+    _metrics.updateDisplay(stateToString(_state), _dps.getTargetCurrent());
 }

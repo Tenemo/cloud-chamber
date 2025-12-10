@@ -13,7 +13,7 @@
  * ---------------
  * - 300 samples at 1-second intervals = 5 minutes of history
  * - Linear regression for cooling rate calculation (K/min)
- * - Separate windows for cold plate (60 samples) and hot plate (10 samples)
+ * - Separate windows for cold plate (30 samples) and hot plate (60 samples)
  *
  * NVS PERSISTENCE:
  * ----------------
@@ -32,6 +32,11 @@
 #include "ThermalConstants.h"
 #include <Preferences.h>
 #include <nvs.h>
+
+// Forward declarations
+class TemperatureSensors;
+class DualPowerSupply;
+class SafetyMonitor;
 
 // Special return value when insufficient history for rate calculation
 constexpr float RATE_INSUFFICIENT_HISTORY = -999.0f;
@@ -52,6 +57,9 @@ struct ThermalSample {
     float power[2];          // Output power per channel (W)
     unsigned long timestamp; // millis() when sample was taken
 };
+
+// Forward declaration from ThermalOptimizer.h
+struct ThermalSnapshot;
 
 /**
  * @brief Thermal history and metrics tracker
@@ -78,6 +86,29 @@ class ThermalMetrics {
      * @brief Add a temperature sample to the circular buffer
      */
     void recordSample(const ThermalSample &sample);
+
+    /**
+     * @brief Record sample from sensors and PSU (convenience overload)
+     *
+     * Builds a ThermalSample from the hardware references and records it.
+     * Also checks for channel imbalance.
+     *
+     * @param sensors Temperature sensors reference
+     * @param dps Dual power supply reference
+     */
+    void recordSample(TemperatureSensors &sensors, DualPowerSupply &dps);
+
+    /**
+     * @brief Build a snapshot of current thermal state for optimizer
+     *
+     * @param sensors Temperature sensors reference
+     * @param dps Dual power supply reference
+     * @param safety Safety monitor reference
+     * @return ThermalSnapshot with current state
+     */
+    ThermalSnapshot buildSnapshot(TemperatureSensors &sensors,
+                                  DualPowerSupply &dps,
+                                  SafetyMonitor &safety) const;
 
     /**
      * @brief Check if minimum sample count is available
@@ -124,11 +155,6 @@ class ThermalMetrics {
      */
     void recordNewMinimum(float temp, float current);
 
-    /**
-     * @brief Force immediate save to NVS
-     */
-    void forceSave();
-
     // =========================================================================
     // Accessors
     // =========================================================================
@@ -167,6 +193,19 @@ class ThermalMetrics {
                              unsigned long interval_ms) const {
         return (millis() - last_adjustment_time) >= interval_ms;
     }
+
+    /**
+     * @brief Register display lines for thermal metrics
+     */
+    void registerDisplayLines();
+
+    /**
+     * @brief Update display with current state and PSU info
+     *
+     * @param state_string Current state string (from stateToString)
+     * @param target_current Current target current from DPS
+     */
+    void updateDisplay(const char *state_string, float target_current);
 
   private:
     Logger &_logger;

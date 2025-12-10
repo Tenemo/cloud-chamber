@@ -28,6 +28,7 @@
  * - Crash events are logged to SPIFFS for post-mortem analysis
  */
 
+#include "CrashLog.h"
 #include "Logger.h"
 #include "TemperatureSensors.h"
 #include "config.h"
@@ -59,19 +60,16 @@ static void initializeWatchdog() {
 
 static void initializeHardware() {
     logger.initializeDisplay();
-
-    // Mark session start in PSRAM log buffer for clear session boundaries
-    // This helps when reviewing dumps - each boot starts with this marker
     logger.log("=== BOOT ===");
 
-    // Initialize watchdog
-    initializeWatchdog();
+    // Initialize crash logging early (SPIFFS) - captures reset reasons in all
+    // modes
+    CrashLog::begin();
 
-    // Initialize temperature sensors
+    initializeWatchdog();
     sensors.begin();
 
 #if CONTROL_LOOP_ENABLED
-    // Initialize thermal controller (handles PSU initialization internally)
     thermalController.begin();
 #endif
 }
@@ -79,15 +77,11 @@ static void initializeHardware() {
 void setup() { initializeHardware(); }
 
 void loop() {
-    // Feed the watchdog - must be called regularly
     esp_task_wdt_reset();
-
-    // Update all hardware drivers
     logger.update();
     sensors.update();
 
 #if CONTROL_LOOP_ENABLED
-    // Run thermal control logic (handles PSU updates internally)
     thermalController.update();
 #endif
 }

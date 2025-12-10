@@ -42,7 +42,7 @@ class ThermalController {
 
     // State accessors
     ThermalState getState() const { return _state; }
-    const char *getStateString() const;
+    const char *getStateString() const { return stateToString(_state); }
     float getCoolingRate() const;
     float getTargetCurrent() const { return _dps.getTargetCurrent(); }
     unsigned long getSteadyStateUptime() const;
@@ -131,14 +131,20 @@ class ThermalController {
     bool canControlPower() const;
 
     /**
-     * @brief Build a snapshot of current thermal state for optimizer
+     * @brief Apply optimizer decision (log message, set current if requested)
+     *
+     * Common pattern used by both handleRampUp() and handleSteadyState().
+     * Logs any decision message and applies current changes to DPS.
+     *
+     * @param decision The optimization decision from ThermalOptimizer
+     * @param snapshot_now Current timestamp from snapshot
      */
-    ThermalSnapshot buildSnapshot() const;
+    void applyOptimizationDecision(const ThermalOptimizationDecision &decision,
+                                   unsigned long snapshot_now);
 
     // =========================================================================
     // History and display
     // =========================================================================
-    void recordSample();
     void registerDisplayLines();
     void updateDisplay();
 };
