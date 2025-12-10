@@ -176,6 +176,7 @@ class Logger {
                                int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
+    void drawDeltaChar(int x, int y); // Draw custom Δ character
     void registerLineInternal(const char *name, const char *label,
                               const char *value, const char *unit);
     bool shouldWrap(const char *label, const char *value) const;

@@ -17,10 +17,17 @@ void TemperatureSensors::begin() {
     _hotPlate.begin();
     _pt100.begin();
 
+    // Register ΔT display line (shows temperature difference hot - cold)
+    // \delta is a special marker that triggers custom delta character rendering
+    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
+
     _logger.log("Sensors initialized.");
 }
 
 void TemperatureSensors::update() {
     _pt100.update();
     _hotPlate.update();
+
+    // Update ΔT display (hot - cold)
+    _logger.updateLine("deltaT", getDeltaT());
 }
