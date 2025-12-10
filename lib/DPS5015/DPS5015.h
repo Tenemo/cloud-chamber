@@ -195,6 +195,14 @@ class DPS5015 {
     void applyPendingConfig();
     uint16_t calculateCRC(uint8_t *buffer, size_t length);
     void clearSerialBuffer();
+
+    /**
+     * @brief Blocking write with retries for time-critical operations
+     * @param reg Register address to write
+     * @param value Value to write
+     * @return true if write succeeded, false if all retries failed
+     */
+    bool writeRegisterImmediate(uint16_t reg, uint16_t value);
 };
 
 #endif // DPS5015_H

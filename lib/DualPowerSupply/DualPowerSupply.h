@@ -136,8 +136,21 @@ class DualPowerSupply {
 
     /**
      * @brief Check for manual override (human changed DPS settings)
+     *
+     * Detects mismatches in current, voltage, or output state between
+     * what we commanded and what the DPS reports. Requires consecutive
+     * mismatches to avoid false positives from transient states.
      */
     OverrideStatus checkManualOverride() const;
+
+    /**
+     * @brief Check if both PSUs are settled (commanded = reported)
+     *
+     * Use this before sending new commands to verify the previous
+     * command was processed. Returns false if in grace period,
+     * have pending writes, or values don't match.
+     */
+    bool areBothSettled() const;
 
     /**
      * @brief Check if either PSU has its output enabled

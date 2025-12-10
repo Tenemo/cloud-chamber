@@ -170,8 +170,23 @@ constexpr float OVERCURRENT_WARMING_THRESHOLD_C =
 constexpr float COOLING_RATE_DEGRADATION_THRESHOLD =
     0.3f; // K/min - detect when cooling rate slows significantly
 
-// Control parameters
-constexpr float RAMP_CURRENT_STEP_A = 0.5f; // Current step during ramp
+// Control parameters - Adaptive step sizes for current optimization
+// Use coarse steps when far from optimum (fast initial cooling)
+// Use fine steps when near optimum (precise positioning)
+constexpr float COARSE_STEP_A =
+    0.5f; // Far from optimum, cooling rate > 1 K/min
+constexpr float MEDIUM_STEP_A = 0.25f; // Approaching optimum, rate 0.5-1 K/min
+constexpr float FINE_STEP_A = 0.1f;    // Near optimum, rate < 0.5 K/min
+
+// Thresholds for selecting step size based on cooling rate magnitude
+constexpr float STEP_COARSE_RATE_THRESHOLD =
+    1.0f; // K/min - above this use coarse
+constexpr float STEP_MEDIUM_RATE_THRESHOLD =
+    0.5f; // K/min - above this use medium
+
+// Legacy constant (use COARSE_STEP_A instead)
+constexpr float RAMP_CURRENT_STEP_A = COARSE_STEP_A;
+
 constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
     0.15f; // Tolerance for override detection
 constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
@@ -277,8 +292,6 @@ constexpr unsigned long STARTUP_CONFIG_SEND_MS =
     50; // Only send config in first 50ms of window
 constexpr float HOT_RESET_CURRENT_THRESHOLD_A =
     STARTUP_CURRENT; // Current threshold for hot reset detection
-constexpr float MODBUS_READ_COMPLETE_THRESHOLD_A =
-    0.01f; // Below this, Modbus read hasn't completed
 
 // ============================================================================
 // Sensor Validation Configuration

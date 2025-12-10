@@ -194,11 +194,15 @@ OverrideStatus DualPowerSupply::checkManualOverride() const {
     if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
         return OverrideStatus::NONE;
 
-    // Check for current mismatch on either channel
-    bool mismatch0 = _psu0.hasCurrentMismatch();
-    bool mismatch1 = _psu1.hasCurrentMismatch();
+    // Check for any mismatch (current, voltage, or output state)
+    bool current_mismatch =
+        _psu0.hasCurrentMismatch() || _psu1.hasCurrentMismatch();
+    bool voltage_mismatch =
+        _psu0.hasVoltageMismatch() || _psu1.hasVoltageMismatch();
+    bool output_mismatch =
+        _psu0.hasOutputMismatch() || _psu1.hasOutputMismatch();
 
-    if (mismatch0 || mismatch1) {
+    if (current_mismatch || voltage_mismatch || output_mismatch) {
         _consecutive_mismatches++;
 
         if (_consecutive_mismatches >= OVERRIDE_CONFIRM_COUNT) {
@@ -297,4 +301,11 @@ float DualPowerSupply::getPowerImbalance() const {
         return 0.0f;
 
     return fabs(_psu0.getOutputPower() - _psu1.getOutputPower());
+}
+
+bool DualPowerSupply::areBothSettled() const {
+    if (!areBothConnected())
+        return false;
+
+    return _psu0.isSettled() && _psu1.isSettled();
 }
