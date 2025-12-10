@@ -21,20 +21,8 @@
 #include "PT100.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
+#include "ThermalTypes.h"
 #include <Arduino.h>
-
-// Forward declaration - must match ThermalController's enum
-enum class ThermalState {
-    INITIALIZING,
-    SELF_TEST,
-    STARTUP,
-    RAMP_UP,
-    STEADY_STATE,
-    MANUAL_OVERRIDE,
-    THERMAL_FAULT,
-    SENSOR_FAULT,
-    DPS_DISCONNECTED
-};
 
 /**
  * @brief Result of a safety check

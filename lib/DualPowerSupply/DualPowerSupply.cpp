@@ -177,7 +177,7 @@ bool DualPowerSupply::isAsymmetricFailure() const {
     return _psu0.isConnected() != _psu1.isConnected();
 }
 
-OverrideStatus DualPowerSupply::checkManualOverride() const {
+OverrideStatus DualPowerSupply::checkManualOverride() {
     // Skip check if not connected or in grace period
     if (!areBothConnected())
         return OverrideStatus::NONE;

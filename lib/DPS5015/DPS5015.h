@@ -70,8 +70,6 @@ class DPS5015 {
     bool setVoltage(float voltage);
     bool setCurrent(float current);
     bool setOutput(bool on);
-    bool setOCP(float current); // Set hardware Over Current Protection limit
-    bool setOVP(float voltage); // Set hardware Over Voltage Protection limit
 
     // Emergency methods - bypass queue for time-critical operations
     bool setCurrentImmediate(float current);
@@ -89,7 +87,7 @@ class DPS5015 {
     float getOutputPower() const { return _output_power; }
     float getInputVoltage() const { return _input_voltage; }
     bool isOutputOn() const { return _output_on; }
-    bool isConnected() const { return _connected; }
+    bool isConnected() const { return _currently_online; }
     bool isConstantCurrentMode() const {
         return _cc_mode;
     } // True if in CC mode (current limiting)
@@ -118,8 +116,8 @@ class DPS5015 {
     const char *_label;
     uint8_t _slave_address;
     bool _initialized;
-    bool _connected;
-    bool _ever_connected; // True if device was successfully read at least once
+    bool _currently_online;
+    bool _ever_seen; // True if device was successfully read at least once
     bool _in_error_state;
     unsigned long _last_update_time;
 
@@ -206,6 +204,10 @@ class DPS5015 {
     void applyPendingConfig();
     uint16_t calculateCRC(uint8_t *buffer, size_t length);
     void clearSerialBuffer();
+
+    // Hardware protection configuration (only called internally)
+    bool setOCP(float current); // Set hardware Over Current Protection limit
+    bool setOVP(float voltage); // Set hardware Over Voltage Protection limit
 
     /**
      * @brief Blocking write with retries for time-critical operations

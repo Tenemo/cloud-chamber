@@ -42,6 +42,9 @@ void ThermalMetrics::recordSample(const ThermalSample &sample) {
     if (_count < HISTORY_BUFFER_SIZE) {
         _count++;
     }
+
+    // Track session minimum automatically
+    updateSessionMin(sample.cold_plate_temp);
 }
 
 bool ThermalMetrics::hasMinimumHistory(size_t min_samples) const {

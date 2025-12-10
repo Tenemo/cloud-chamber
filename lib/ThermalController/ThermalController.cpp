@@ -366,11 +366,8 @@ void ThermalController::handleRampUp() {
     float current = _dps.getTargetCurrent();
     OptimizerState &opt = _metrics.optimizer();
 
-    // Track session minimum temperature
-    _metrics.updateSessionMin(cold_temp);
-
     // Evaluate pending current change (with transition on bounce)
-    if (processEvaluationIfPending(true)) {
+    if (tryCompleteEvaluation(true)) {
         if (_state != ThermalState::RAMP_UP)
             return; // Transitioned to STEADY_STATE
     }
@@ -452,12 +449,11 @@ void ThermalController::handleSteadyState() {
     float current = _dps.getTargetCurrent();
     OptimizerState &opt = _metrics.optimizer();
 
-    // Track session minimum temperature
-    _metrics.updateSessionMin(cold_temp);
+    // Record new minimum for NVS persistence
     _metrics.recordNewMinimum(cold_temp, current);
 
     // Evaluate pending change
-    if (processEvaluationIfPending(false)) {
+    if (tryCompleteEvaluation(false)) {
         return; // Evaluation processed, wait for next cycle
     }
 
@@ -499,7 +495,7 @@ void ThermalController::handleSteadyState() {
         if (opt.probe_direction > 0) {
             // Try increasing (if we have room and thermal headroom)
             if (current < MAX_CURRENT_PER_CHANNEL &&
-                hot_temp < HOT_SIDE_WARNING_C - 5.0f) {
+                hot_temp < HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
                 new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
                 can_step = true;
             }
@@ -597,13 +593,13 @@ void ThermalController::handleDpsDisconnected() {
 // Shared Evaluation Logic
 // =============================================================================
 
-bool ThermalController::processEvaluationIfPending(bool allow_transition) {
+bool ThermalController::tryCompleteEvaluation(bool may_transition) {
     float cold_temp = _cold_plate.getTemperature();
     float current = _dps.getTargetCurrent();
 
     // Delegate evaluation to ThermalMetrics
-    EvaluationAction action = _metrics.processEvaluation(
-        cold_temp, current, allow_transition, _logger);
+    EvaluationAction action =
+        _metrics.processEvaluation(cold_temp, current, may_transition, _logger);
 
     if (action.result == EvaluationResult::WAITING)
         return false;
