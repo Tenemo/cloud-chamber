@@ -19,8 +19,8 @@
 #include "DualPowerSupply.h"
 #include "Logger.h"
 #include "PT100.h"
+#include "ThermalConstants.h"
 #include "ThermalMetrics.h"
-#include "config.h"
 #include <Arduino.h>
 
 /**

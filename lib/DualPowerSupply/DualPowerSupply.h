@@ -35,7 +35,7 @@
 
 #include "DPS5015.h"
 #include "Logger.h"
-#include "config.h"
+#include "ThermalConstants.h"
 #include <Arduino.h>
 
 /**

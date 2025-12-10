@@ -27,7 +27,7 @@
 #define THERMAL_METRICS_H
 
 #include "Logger.h"
-#include "config.h"
+#include "ThermalConstants.h"
 #include <Arduino.h>
 #include <Preferences.h>
 #include <nvs.h>
