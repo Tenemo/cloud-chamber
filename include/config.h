@@ -92,6 +92,16 @@ constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
 constexpr int MODBUS_MAX_RETRIES = 3; // Consecutive failures before error state
 
+// Modbus communication settings
+// Default baud rate is 9600. If experiencing communication errors at high
+// TEC power due to EMI from the DC lines, try:
+// - Lowering baud rate to 4800 or 2400 (more robust but slower updates)
+// - Adding ferrite cores to UART lines
+// - Using shielded cables for Modbus connections
+// - Increasing physical separation from high-current DC wiring
+constexpr unsigned long MODBUS_BAUD_RATE = 9600;
+constexpr unsigned long MODBUS_BYTE_TIMEOUT_MS = 10; // Per-byte timeout
+
 // PT100 serial logging (serial only, not display)
 constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
 constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
@@ -118,6 +128,8 @@ constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
 constexpr float DEGRADED_MODE_CURRENT =
     5.0f; // Max current when one DPS disconnects
+constexpr float DPS_OCP_LIMIT = 11.0f; // Hardware Over Current Protection
+                                       // Failsafe in case ESP commands >10.6A
 
 // Timing intervals (milliseconds)
 constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000; // 60s startup hold
@@ -148,6 +160,8 @@ constexpr float COOLING_STALL_THRESHOLD_C =
     0.5f; // Consider stalled if less than this
 constexpr float OVERCURRENT_WARMING_THRESHOLD_C =
     0.3f; // Back off if cold plate warms this much
+constexpr float COOLING_RATE_DEGRADATION_THRESHOLD =
+    0.3f; // K/min - detect when cooling rate slows significantly
 
 // Control parameters
 constexpr float RAMP_CURRENT_STEP_A = 0.5f; // Current step during ramp
@@ -156,7 +170,8 @@ constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V =
 constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A =
     0.15f; // Tolerance for override detection
 constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS =
-    2000; // Grace period after command before checking for override
+    3000; // Settling window: time for DPS to process command and for ESP
+          // to read back new value before checking for override
 constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC =
     2.0f; // Emergency shutdown ramp
 constexpr unsigned long EMERGENCY_SHUTDOWN_STEP_MS =

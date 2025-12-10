@@ -59,7 +59,7 @@ class DPS5015 {
             uint8_t slaveAddress = 1);
 
     void begin(int rxPin = PIN_DPS5015_1_RX, int txPin = PIN_DPS5015_1_TX,
-               unsigned long baud = 9600);
+               unsigned long baud = 0);  // 0 = use MODBUS_BAUD_RATE from config
     void update();
 
     // Configure desired settings (applied automatically when connected)
@@ -69,6 +69,7 @@ class DPS5015 {
     bool setVoltage(float voltage);
     bool setCurrent(float current);
     bool setOutput(bool on);
+    bool setOCP(float current);  // Set hardware Over Current Protection limit
 
     // Emergency methods - bypass queue for time-critical operations
     bool setCurrentImmediate(float current);
@@ -88,6 +89,11 @@ class DPS5015 {
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _connected; }
     bool isInGracePeriod() const; // True if recent command still propagating
+    bool isSettled() const;       // True if DPS state matches last command
+
+    // Pre-write validation: check if DPS state is consistent before commanding
+    // Returns true if safe to write, false if manual override detected
+    bool validateStateBeforeWrite(float expected_current) const;
 
   private:
     Logger &_logger;
@@ -157,6 +163,10 @@ class DPS5015 {
     static constexpr uint16_t REG_PROTECTION = 0x0007;
     static constexpr uint16_t REG_CV_CC = 0x0008;
     static constexpr uint16_t REG_OUTPUT = 0x0009;
+    // DPS5015 protection settings (may vary by firmware version)
+    static constexpr uint16_t REG_OVP = 0x0010;  // Over Voltage Protection
+    static constexpr uint16_t REG_OCP = 0x0011;  // Over Current Protection
+    static constexpr uint16_t REG_OPP = 0x0012;  // Over Power Protection
 
     // Timing constants
     static constexpr unsigned long RESPONSE_TIMEOUT_MS = 500;

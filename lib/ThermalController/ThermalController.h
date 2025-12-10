@@ -110,6 +110,7 @@ class ThermalController {
     float _optimal_current;           // Best current found so far
     float _temp_at_optimal;           // Temperature at optimal current
     float _temp_before_last_increase; // Temperature before last current bump
+    float _rate_before_last_increase; // Cooling rate before last current bump
     bool _awaiting_evaluation; // True when waiting to evaluate last change
     unsigned long _evaluation_start_time;
 
