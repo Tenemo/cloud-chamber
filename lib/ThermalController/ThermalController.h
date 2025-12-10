@@ -29,6 +29,7 @@
 #include "SafetyMonitor.h"
 #include "ThermalConstants.h"
 #include "ThermalMetrics.h"
+#include "ThermalTypes.h"
 #include <Arduino.h>
 
 // ThermalState enum is defined in SafetyMonitor.h (shared for context-aware
@@ -127,12 +128,16 @@ class ThermalController {
     bool canControlPower() const;
 
     /**
-     * @brief Process pending evaluation if one is active
-     * @param allow_transition If true, may trigger state transition on bounce
-     * @return true if evaluation was processed (IMPROVED, DEGRADED, or
-     * UNCHANGED) false if no evaluation pending or still WAITING
+     * @brief Try to complete a pending evaluation
+     *
+     * If an evaluation is in progress and ready, processes it and
+     * takes appropriate action (accept improvement or revert).
+     *
+     * @param may_transition If true, may trigger state transition on bounce
+     * @return true if evaluation completed (result available),
+     *         false if no evaluation pending or still waiting
      */
-    bool processEvaluationIfPending(bool allow_transition = false);
+    bool tryCompleteEvaluation(bool may_transition = false);
 
     // =========================================================================
     // History and display

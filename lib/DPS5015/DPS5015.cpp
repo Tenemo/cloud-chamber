@@ -5,17 +5,17 @@
 DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
                  uint8_t slaveAddress)
     : _logger(logger), _serial(serial), _label(label),
-      _slave_address(slaveAddress), _initialized(false), _connected(false),
-      _ever_connected(false), _in_error_state(false), _last_update_time(0),
-      _set_voltage(0.0f), _set_current(0.0f), _output_voltage(0.0f),
-      _output_current(0.0f), _output_power(0.0f), _input_voltage(0.0f),
-      _output_on(false), _cc_mode(false), _commanded_voltage(0.0f),
-      _commanded_current(0.0f), _commanded_output(false),
-      _state(ModbusState::IDLE), _request_start_time(0),
-      _expected_response_length(0), _consecutive_errors(0),
-      _write_retry_count(0), _last_command_time(0), _current_write{0, 0},
-      _pending_writes(0), _write_queue_head(0), _write_queue_tail(0),
-      _pending_config{0.0f, 0.0f, false, false} {}
+      _slave_address(slaveAddress), _initialized(false),
+      _currently_online(false), _ever_seen(false), _in_error_state(false),
+      _last_update_time(0), _set_voltage(0.0f), _set_current(0.0f),
+      _output_voltage(0.0f), _output_current(0.0f), _output_power(0.0f),
+      _input_voltage(0.0f), _output_on(false), _cc_mode(false),
+      _commanded_voltage(0.0f), _commanded_current(0.0f),
+      _commanded_output(false), _state(ModbusState::IDLE),
+      _request_start_time(0), _expected_response_length(0),
+      _consecutive_errors(0), _write_retry_count(0), _last_command_time(0),
+      _current_write{0, 0}, _pending_writes(0), _write_queue_head(0),
+      _write_queue_tail(0), _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
@@ -156,9 +156,9 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     _output_on = (buffer[9] == 1);
 
     // First successful connection
-    if (!_ever_connected) {
-        _ever_connected = true;
-        _connected = true;
+    if (!_ever_seen) {
+        _ever_seen = true;
+        _currently_online = true;
         _in_error_state = false;
         registerDisplayLines();
         _logger.log("DPS5015 connected.");
@@ -169,7 +169,7 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     // Recover from error state
     if (_in_error_state) {
         _in_error_state = false;
-        _connected = true;
+        _currently_online = true;
         registerDisplayLines();
         _logger.log("DPS5015 recovered");
     }
@@ -185,7 +185,7 @@ void DPS5015::handleCommError() {
     _consecutive_errors++;
 
     // If never connected, keep trying silently
-    if (!_ever_connected) {
+    if (!_ever_seen) {
         return;
     }
 
@@ -193,7 +193,7 @@ void DPS5015::handleCommError() {
     // failures
     if (_consecutive_errors >= MODBUS_MAX_RETRIES && !_in_error_state) {
         _in_error_state = true;
-        _connected = false;
+        _currently_online = false;
         _logger.log("DPS5015 comm error");
         _logger.updateLineText(_label, "ERROR");
         _logger.updateLineText(_current_line_id, "ERROR");
@@ -250,7 +250,7 @@ static uint16_t clampAndConvert(float &value, float scale, float maxVal) {
 }
 
 bool DPS5015::setVoltage(float voltage) {
-    if (!_connected && _ever_connected)
+    if (!_currently_online && _ever_seen)
         return false;
 
     // Clamp voltage to valid range (0-50V for DPS5015)
@@ -265,7 +265,7 @@ bool DPS5015::setVoltage(float voltage) {
 }
 
 bool DPS5015::setCurrent(float current) {
-    if (!_connected && _ever_connected)
+    if (!_currently_online && _ever_seen)
         return false;
 
     // Clamp current to valid range (0-15A for DPS5015)
@@ -280,7 +280,7 @@ bool DPS5015::setCurrent(float current) {
 }
 
 bool DPS5015::setOutput(bool on) {
-    if (!_connected && _ever_connected)
+    if (!_currently_online && _ever_seen)
         return false;
 
     if (queueWrite(REG_OUTPUT, on ? 1 : 0)) {
@@ -294,7 +294,7 @@ bool DPS5015::setOutput(bool on) {
 bool DPS5015::setOCP(float current) {
     // Set hardware Over Current Protection limit
     // This is a failsafe that triggers if software commands an invalid current
-    if (!_connected && _ever_connected)
+    if (!_currently_online && _ever_seen)
         return false;
 
     // Clamp to valid OCP range (0-16A, slightly above max for protection
@@ -307,7 +307,7 @@ bool DPS5015::setOCP(float current) {
 bool DPS5015::setOVP(float voltage) {
     // Set hardware Over Voltage Protection limit
     // Failsafe against Modbus errors commanding excessive voltage
-    if (!_connected && _ever_connected)
+    if (!_currently_online && _ever_seen)
         return false;
 
     // Clamp to valid OVP range (0-55V, slightly above max for protection
@@ -324,7 +324,7 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     _pending_config.has_config = true;
 
     // If already connected, apply immediately
-    if (_connected) {
+    if (_currently_online) {
         applyPendingConfig();
     }
 }

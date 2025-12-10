@@ -148,8 +148,11 @@ class DualPowerSupply {
      * Detects mismatches in current, voltage, or output state between
      * what we commanded and what the DPS reports. Requires consecutive
      * mismatches to avoid false positives from transient states.
+     *
+     * Note: This method has side effects (updates consecutive mismatch counter)
+     * so it is intentionally non-const.
      */
-    OverrideStatus checkManualOverride() const;
+    OverrideStatus checkManualOverride();
 
     /**
      * @brief Check if either PSU has its output enabled
@@ -313,7 +316,7 @@ class DualPowerSupply {
     unsigned long _last_shutdown_step_time;
 
     // Manual override tracking
-    mutable int _consecutive_mismatches;
+    int _consecutive_mismatches;
 
     // Imbalance logging rate limiting
     unsigned long _last_imbalance_log_time = 0;
