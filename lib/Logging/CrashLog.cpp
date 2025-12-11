@@ -28,7 +28,7 @@ bool CrashLog::begin() {
     // Log the reset reason on startup
     logResetReason();
 
-    Serial.println("CrashLog: Initialized");
+    Serial.println("CrashLog initialized.");
 
     // Check if there are existing crash logs
     if (SPIFFS.exists(CRASH_LOG_PATH)) {
