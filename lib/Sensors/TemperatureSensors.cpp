@@ -16,13 +16,13 @@ TemperatureSensors::TemperatureSensors(Logger &logger)
 void TemperatureSensors::begin() {
     _dallasSensors.begin();
     _dallasSensors.setWaitForConversion(false);
+
     _internal.begin();
     _glassTop.begin();
 
-    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
-
     _hotPlate.begin();
     _pt100.begin();
+    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
 
     _logger.log("Sensors initialized.");
 }
