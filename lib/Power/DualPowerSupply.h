@@ -9,7 +9,7 @@
  * - Owning and initializing both DPS5015 instances
  * - Symmetric current/voltage control (both channels always together)
  * - Manual override detection (consolidated from DPS5015 mismatch data)
- * - Fail-one-kill-both shutdown logic
+ * - Provides status signals used by controller for fail-one-kill-both policy
  * - Emergency shutdown with controlled ramp-down
  * - Connection state tracking
  *

@@ -44,7 +44,7 @@
  * - Uses SPIFFS partition for persistence
  * - Circular file rotation when full
  * - Each entry includes timestamp (millis) and message
- * - Maximum ~50 critical events stored
+ * - Maximum ~64 critical events stored (8192B / 128B per entry)
  */
 
 #ifndef CRASH_LOG_H
