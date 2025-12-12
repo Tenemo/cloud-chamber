@@ -75,26 +75,27 @@ SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {
     return status;
 }
 
+// Helper function to update a hysteresis state
+static inline void updateHysteresisState(bool &state, float value,
+                                         float enter_threshold,
+                                         float exit_threshold) {
+    if (state) {
+        if (value < exit_threshold)
+            state = false;
+    } else {
+        if (value >= enter_threshold)
+            state = true;
+    }
+}
+
 void SafetyMonitor::updateHysteresis() {
     float hot_temp = _hot_plate.getTemperature();
 
-    // Update alarm state with hysteresis
-    if (_hot_side_in_alarm) {
-        if (hot_temp < HOT_SIDE_ALARM_EXIT_C)
-            _hot_side_in_alarm = false;
-    } else {
-        if (hot_temp >= HOT_SIDE_ALARM_C)
-            _hot_side_in_alarm = true;
-    }
-
-    // Update warning state with hysteresis
-    if (_hot_side_in_warning) {
-        if (hot_temp < HOT_SIDE_WARNING_EXIT_C)
-            _hot_side_in_warning = false;
-    } else {
-        if (hot_temp >= HOT_SIDE_WARNING_C)
-            _hot_side_in_warning = true;
-    }
+    // Update alarm and warning states with hysteresis
+    updateHysteresisState(_hot_side_in_alarm, hot_temp, HOT_SIDE_ALARM_C,
+                          HOT_SIDE_ALARM_EXIT_C);
+    updateHysteresisState(_hot_side_in_warning, hot_temp, HOT_SIDE_WARNING_C,
+                          HOT_SIDE_WARNING_EXIT_C);
 }
 
 SafetyStatus SafetyMonitor::checkThermalLimits() {

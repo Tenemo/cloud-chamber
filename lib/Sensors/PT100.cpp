@@ -11,20 +11,20 @@ void PT100Sensor::begin() {
 
     _rtd.begin(MAX31865_3WIRE);
 
+    // Format label once and cache it
+    Logger::formatLabel(_formatted_label, sizeof(_formatted_label), _label);
+
     // Check initial reading to see if sensor is connected
     delay(100); // allow sensor to stabilize
     float temp_c = _rtd.temperature(RNOMINAL, RREF);
     bool has_error = (temp_c < PT100_ERROR_MIN_C || temp_c > PT100_ERROR_MAX_C);
 
-    char labelBuf[16];
-    Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
-
     if (has_error) {
         _in_error_state = true;
-        _logger.registerTextLine(_label, labelBuf, "ERROR");
+        _logger.registerTextLine(_label, _formatted_label, "ERROR");
         _logger.log("PT100 sensor error");
     } else {
-        _logger.registerLine(_label, labelBuf, "C", temp_c);
+        _logger.registerLine(_label, _formatted_label, "C", temp_c);
         _logger.log("PT100 initialized.");
         _last_temperature = temp_c;
     }
@@ -67,10 +67,8 @@ void PT100Sensor::update() {
     if (_in_error_state) {
         _in_error_state = false;
         _logger.log("PT100 sensor recovered");
-        // Re-register as numeric line
-        char labelBuf[16];
-        Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
-        _logger.registerLine(_label, labelBuf, "C", temp_c);
+        // Re-register as numeric line (use cached formatted label)
+        _logger.registerLine(_label, _formatted_label, "C", temp_c);
     }
 
     _logger.updateLine(_label, temp_c);
