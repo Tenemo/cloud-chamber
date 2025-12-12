@@ -9,24 +9,29 @@
 TemperatureSensors::TemperatureSensors(Logger &logger)
     : _logger(logger), _oneWire(PIN_DS18B20), _dallasSensors(&_oneWire),
       _pt100(logger, "Cold plate"),
-      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Hot plate") {}
+      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Hot plate"),
+      _glassTop(logger, _dallasSensors, DS18B20_2_ADDRESS, "Glass top"),
+      _internal(logger, _dallasSensors, DS18B20_3_ADDRESS, "Internal") {}
 
 void TemperatureSensors::begin() {
     _dallasSensors.begin();
     _dallasSensors.setWaitForConversion(false);
+    _internal.begin();
+    _glassTop.begin();
+
+    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
+
     _hotPlate.begin();
     _pt100.begin();
-
-    // Register ΔT display line (shows temperature difference hot - cold)
-    // \delta is a special marker that triggers custom delta character rendering
-    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
 
     _logger.log("Sensors initialized.");
 }
 
 void TemperatureSensors::update() {
-    _pt100.update();
+    _internal.update();
+    _glassTop.update();
     _hotPlate.update();
+    _pt100.update();
 
     // Update ΔT display (hot - cold)
     _logger.updateLine("deltaT", getDeltaT());
