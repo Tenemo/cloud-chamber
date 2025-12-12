@@ -5,6 +5,8 @@
  * This class owns and manages all temperature sensors:
  * - PT100 (cold plate) via MAX31865
  * - DS18B20 (hot plate) via OneWire
+ * - DS18B20 (glass top - display only)
+ * - DS18B20 (internal - display only)
  *
  * USAGE:
  * ------
@@ -63,6 +65,16 @@ class TemperatureSensors {
     float getHotPlateTemperature() const { return _hotPlate.getTemperature(); }
 
     /**
+     * @brief Get glass top temperature (DS18B20, display only)
+     */
+    float getGlassTopTemperature() const { return _glassTop.getTemperature(); }
+
+    /**
+     * @brief Get internal temperature (DS18B20, display only)
+     */
+    float getInternalTemperature() const { return _internal.getTemperature(); }
+
+    /**
      * @brief Get temperature difference (ΔT = hot - cold)
      *
      * @return Temperature difference in Celsius (hot plate - cold plate)
@@ -112,6 +124,8 @@ class TemperatureSensors {
     // Sensors (owned)
     PT100Sensor _pt100;
     DS18B20Sensor _hotPlate;
+    DS18B20Sensor _glassTop;
+    DS18B20Sensor _internal;
 };
 
 #endif // TEMPERATURE_SENSORS_H
