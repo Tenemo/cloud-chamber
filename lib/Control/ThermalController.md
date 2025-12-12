@@ -23,7 +23,7 @@ The system uses a **hierarchical state machine with safety-first design**, autom
 | ---------- | ---------------------------- | ---------------------------------------------------------- |
 | Cold Plate | PT100 (MAX31865)             | Primary control feedback - measures cold side of TEC stack |
 | Hot Plate  | DS18B20                      | Safety monitoring - measures hot side heat rejection       |
-| Ambient    | DS18B20 (optional, multiple) | Environmental reference                                    |
+| Glass Top / Internal | DS18B20 (display only) | Display-only reference temperatures                        |
 
 ### Power Supplies
 
@@ -119,7 +119,7 @@ The controller operates as a finite state machine with the following states:
 #### RAMP_UP
 
 - **Purpose**: Gradually increase current to find optimal operating point
-- **Interval**: 20 seconds between adjustments (`RAMP_ADJUSTMENT_INTERVAL_MS`)
+- **Interval**: Minimum 20 seconds between *attempts* (`RAMP_ADJUSTMENT_INTERVAL_MS`); actual steps wait on evaluation/stabilization (≥60s)
 - **Algorithm**:
   1. Increase current by adaptive step size (0.5A coarse / 0.25A medium / 0.1A fine) on both channels
   2. Wait 60 seconds for thermal system to stabilize
@@ -132,7 +132,7 @@ The controller operates as a finite state machine with the following states:
 - **Exit conditions**:
   - Reached `MAX_CURRENT_PER_CHANNEL` → STEADY_STATE
   - Hot side limiting → STEADY_STATE
-  - Cooling stalled (rate ≈ 0) → STEADY_STATE
+  - Cooling stalled (|rate| < 0.5 K/min) → STEADY_STATE
   - Past inflection point (warming) → STEADY_STATE
 
 #### STEADY_STATE
@@ -164,7 +164,7 @@ The controller operates as a finite state machine with the following states:
 - **Triggers**:
   - Hot side ≥ 70°C (`HOT_SIDE_FAULT_C`)
   - Thermal runaway detected (>5°C/min rise on hot side)
-  - Hot side sensor disconnected
+  - PT100 plausibility fault (implausibly low cold temp)
 - **Actions**:
   - **Hard cut** at 70°C: Immediate output disable (thermal shock acceptable vs. component damage)
   - **Soft ramp** below 70°C: Controlled ramp-down at 2A/sec
@@ -186,7 +186,7 @@ The controller operates as a finite state machine with the following states:
 - **Actions**:
   - **SYMMETRIC SHUTDOWN**: If one PSU fails, shut down BOTH immediately
   - No degraded mode - running one TEC creates dangerous thermal gradient
-  - Wait for reconnection with both channels at 0A
+  - Wait for both PSUs to reconnect before restarting
 - **Rationale**: The mechanical stress of differential expansion on the cooling assembly (and the glass chamber on top) is too high risk. Thermal gradients across the cold plate can damage seals, crack the vacuum chamber, or warp the aluminum plate.
 - **Exit conditions**:
   - Both PSUs reconnected → STARTUP (safe restart)
@@ -282,7 +282,7 @@ updateEmergencyShutdown() // Call in update loop until complete
 
 - Ramps down at 2A/sec in 500ms steps
 - Disables outputs when current reaches 0
-- Used for non-critical faults (hot side warning, sensor issues)
+- Used for thermal faults below `HOT_SIDE_FAULT_C` (controlled ramp-down)
 
 **Hard shutdown (immediate cut)**:
 
@@ -348,10 +348,8 @@ Imbalances are logged (rate-limited to once per minute) as diagnostic informatio
   - Timestamp
   - Cold plate temperature
   - Hot plate temperature
-  - Ambient temperature
-  - Current setpoints (commanded)
-  - Actual currents (measured)
-  - Power per channel
+  - Current setpoint (commanded, per channel)
+  - Actual voltages, currents, and power per channel
 
 ### Cooling Rate Calculation
 
@@ -394,7 +392,7 @@ The controller registers and updates 3 display lines via the Logger:
 
 ## Configuration Reference
 
-All timing and threshold values are defined in `config.h`:
+Most timing and threshold values are defined in `config.h` (internal timing constants are in `ThermalConstants.h`):
 
 ### Timing Parameters
 
@@ -409,7 +407,7 @@ All timing and threshold values are defined in `config.h`:
 | `SENSOR_RECOVERY_TIMEOUT_MS`          | 60000   | Sensor fault recovery window        |
 | `INIT_TIMEOUT_MS`                     | 30000   | Hardware initialization timeout     |
 | `MANUAL_OVERRIDE_GRACE_MS`            | 3000    | Settling window after command       |
-| `EMERGENCY_SHUTDOWN_STEP_MS`          | 500     | Ramp-down step interval             |
+| `Timing::SHUTDOWN_STEP_MS`           | 500     | Ramp-down step interval (internal)  |
 
 ### Temperature Thresholds
 
@@ -444,33 +442,26 @@ All timing and threshold values are defined in `config.h`:
 
 ```cpp
 #include "ThermalController.h"
+#include "TemperatureSensors.h"
+#include "Logger.h"
+#include "CrashLog.h"
 
 // Hardware instances
-Logger logger(display, Serial);
-PT100Sensor coldPlate(PIN_MAX31865_CS);
-DS18B20Sensor hotPlate(oneWire, DS18B20_1_ADDRESS);
-DS18B20Sensor ambientSensors[2] = { ... };
-DPS5015 psu0(logger, "DC12", Serial1);
-DPS5015 psu1(logger, "DC34", Serial2);
-
-// Create controller
-ThermalController controller(
-    logger,
-    coldPlate,
-    hotPlate,
-    ambientSensors, 2,
-    psu0,   // First PSU (reference)
-    psu1    // Second PSU (reference)
-);
+Logger logger;
+TemperatureSensors sensors(logger);
+ThermalController controller(logger, sensors);
 
 void setup() {
-    // Initialize hardware...
+    logger.initializeDisplay();
+    CrashLog::begin();
+    sensors.begin();
     controller.begin();
 }
 
 void loop() {
+    logger.update();
+    sensors.update();
     controller.update();  // Call frequently (≥1Hz)
-    // Other tasks...
 }
 ```
 
@@ -563,7 +554,7 @@ Total entries: 347
 
 - Buffer is **circular** - oldest entries overwritten when full
 - Lost on any reset (power cycle, watchdog, brownout)
-- All 500 entries dump at once - no filtering
+- All entries dump at once (~12,800 when full) - no filtering
 - For persistent logging, use SPIFFS data logging (future enhancement)
 
 ### Implementation Notes
@@ -672,7 +663,7 @@ Self-test is **skipped** on hot reset (when DPS is already running at >2A). This
 
 | Parameter                 | Value | Description                 |
 | ------------------------- | ----- | --------------------------- |
-| `DPS_SELFTEST_TIMEOUT_MS` | 3000  | Max time per phase          |
-| `DPS_SELFTEST_SETTLE_MS`  | 500   | Wait after each command     |
-| `DPS_SELFTEST_VOLTAGE`    | 1.0V  | Safe test voltage (no load) |
-| `DPS_SELFTEST_CURRENT`    | 0.1A  | Safe test current (no load) |
+| `ST_TIMEOUT_MS` | 3000  | Max time to verify output (internal) |
+| `ST_SETTLE_MS`  | 500   | Wait after each command (internal)   |
+| `ST_VOLTAGE`    | 1.0V  | Safe test voltage (no load)          |
+| `ST_CURRENT`    | 0.1A  | Safe test current (no load)          |
