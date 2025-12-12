@@ -1,0 +1,131 @@
+/**
+ * @file TimeService.cpp
+ * @brief Implementation of one-shot WiFi + NTP time synchronization
+ */
+
+#include "TimeService.h"
+#include "config.h"
+
+#include <time.h>
+#include <WiFi.h>
+
+#if __has_include("env.h")
+#include "env.h"
+#define TIME_SERVICE_HAS_WIFI_CREDS 1
+#else
+#define TIME_SERVICE_HAS_WIFI_CREDS 0
+#endif
+
+namespace {
+// Consider wall time valid if epoch is after 2024-01-01.
+constexpr time_t VALID_EPOCH_THRESHOLD = 1704067200;
+
+bool wall_time_valid = false;
+
+bool waitForConnection(unsigned long timeout_ms) {
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED &&
+           (millis() - start) < timeout_ms) {
+        delay(200);
+    }
+    return WiFi.status() == WL_CONNECTED;
+}
+
+bool waitForTimeValid(unsigned long timeout_ms) {
+    unsigned long start = millis();
+    while ((millis() - start) < timeout_ms) {
+        time_t now = time(nullptr);
+        if (now > VALID_EPOCH_THRESHOLD) {
+            wall_time_valid = true;
+            return true;
+        }
+        delay(200);
+    }
+    return false;
+}
+
+} // namespace
+
+namespace TimeService {
+
+bool trySyncFromWifi(TimeLogCallback logCb) {
+#if !TIME_SERVICE_HAS_WIFI_CREDS
+    if (logCb) {
+        logCb("Time sync skipped/failed", false);
+    }
+    return false;
+#else
+    if (WIFI_SSID == nullptr || WIFI_SSID[0] == '\0') {
+        if (logCb) {
+            logCb("Time sync skipped/failed", false);
+        }
+        return false;
+    }
+
+    wall_time_valid = false;
+
+    if (logCb) {
+        logCb("Wi-Fi time sync...", false);
+    }
+
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+    if (!waitForConnection(WIFI_CONNECT_TIMEOUT_MS)) {
+        WiFi.disconnect(true, true);
+        WiFi.mode(WIFI_OFF);
+        if (logCb) {
+            logCb("Time sync skipped/failed", false);
+        }
+        return false;
+    }
+
+    // Sync via NTP and set timezone (rules configurable in config.h)
+    if (TIME_TZ_STRING != nullptr && TIME_TZ_STRING[0] != '\0') {
+        configTzTime(TIME_TZ_STRING, NTP_SERVER_1, NTP_SERVER_2);
+    } else {
+        configTime(TIME_GMT_OFFSET_SEC, TIME_DAYLIGHT_OFFSET_SEC,
+                   NTP_SERVER_1, NTP_SERVER_2);
+    }
+
+    bool ok = waitForTimeValid(NTP_SYNC_TIMEOUT_MS);
+
+    WiFi.disconnect(true, true);
+    WiFi.mode(WIFI_OFF);
+
+    if (logCb) {
+        logCb(ok ? "Time sync OK" : "Time sync skipped/failed", false);
+    }
+    return ok;
+#endif
+}
+
+bool isWallTimeValid() { return wall_time_valid; }
+
+const char *getIsoTimestamp() {
+    if (!wall_time_valid) {
+        return nullptr;
+    }
+
+    static char buf[32];
+    time_t now = time(nullptr);
+    struct tm tm_local;
+    localtime_r(&now, &tm_local);
+
+    char base[20];
+    strftime(base, sizeof(base), "%Y-%m-%dT%H:%M:%S", &tm_local);
+
+    char tzbuf[6];
+    size_t tzlen = strftime(tzbuf, sizeof(tzbuf), "%z", &tm_local);
+    if (tzlen == 5) {
+        // tzbuf is like +0100 → format +01:00
+        snprintf(buf, sizeof(buf), "%s%c%c%c:%c%c", base, tzbuf[0], tzbuf[1],
+                 tzbuf[2], tzbuf[3], tzbuf[4]);
+    } else {
+        // Fallback to UTC-style suffix if offset unavailable
+        snprintf(buf, sizeof(buf), "%sZ", base);
+    }
+    return buf;
+}
+
+} // namespace TimeService

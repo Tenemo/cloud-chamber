@@ -4,6 +4,7 @@
  */
 
 #include "CrashLog.h"
+#include "TimeService.h"
 #include <SPIFFS.h>
 #include <esp_system.h>
 
@@ -181,6 +182,11 @@ void CrashLog::logCritical(const char *category, const char *message) {
     f.close();
 
     // Also output to serial for immediate visibility
+    const char *iso = TimeService::getIsoTimestamp();
+    if (iso != nullptr) {
+        Serial.print(iso);
+        Serial.print(" ");
+    }
     Serial.print("CRASH: ");
     Serial.print(entry);
 }

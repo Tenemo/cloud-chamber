@@ -31,6 +31,7 @@
 #include "CrashLog.h"
 #include "Logger.h"
 #include "TemperatureSensors.h"
+#include "TimeService.h"
 #include "config.h"
 #include <Arduino.h>
 #include <esp_task_wdt.h>
@@ -65,6 +66,10 @@ static void initializeHardware() {
     // Initialize crash logging early (SPIFFS) - captures reset reasons in all
     // modes
     CrashLog::begin();
+
+    // Optional one-shot wall-clock sync via home WiFi + NTP
+    TimeService::trySyncFromWifi(
+        [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
 
     initializeWatchdog();
     sensors.begin();
