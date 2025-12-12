@@ -64,6 +64,28 @@ constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
 constexpr unsigned long WDT_TIMEOUT_SECONDS = 10; // Task WDT timeout
 
 // =============================================================================
+// WiFi Time Sync (boot-time, optional)
+// =============================================================================
+// If WIFI_SSID from env.h is present and reachable, the system will connect
+// briefly on boot, sync wall time via NTP, then disconnect.
+// If any step fails, wall time remains invalid and logging format is unchanged.
+constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 10000; // 10s connect timeout
+constexpr unsigned long NTP_SYNC_TIMEOUT_MS = 8000;      // 8s NTP wait timeout
+
+// NTP servers (UTC by default)
+constexpr const char *NTP_SERVER_1 = "pool.ntp.org";
+constexpr const char *NTP_SERVER_2 = "time.nist.gov";
+
+// Timezone rule string (POSIX TZ). If empty, TIME_GMT_OFFSET_SEC and
+// TIME_DAYLIGHT_OFFSET_SEC are used instead.
+// Default is Central Europe (Poland): CET/CEST with DST rules.
+constexpr const char *TIME_TZ_STRING = "CET-1CEST,M3.5.0/2,M10.5.0/3";
+
+// Timezone offsets for configTime (seconds). Keep 0 for UTC.
+constexpr long TIME_GMT_OFFSET_SEC = 0;
+constexpr int TIME_DAYLIGHT_OFFSET_SEC = 0;
+
+// =============================================================================
 // PT100 Sensor Error Detection
 // =============================================================================
 constexpr float PT100_ERROR_MIN_C = -100.0f; // Below this = sensor error

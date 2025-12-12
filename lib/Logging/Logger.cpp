@@ -8,6 +8,7 @@
 
 #include "Logger.h"
 #include "config.h"
+#include "TimeService.h"
 #include <cstdarg>
 #include <cstring>
 #include <esp_heap_caps.h> // For PSRAM allocation
@@ -463,18 +464,29 @@ void Logger::drawLogArea() {
 }
 
 void Logger::log(const char *message, bool serialOnly) {
+    const char *iso = TimeService::getIsoTimestamp();
+
+    // If wall time is valid, prefix ISO8601 timestamp. Otherwise keep
+    // the log format exactly as-is.
+    const char *out = message;
+    char stamped[160];
+    if (iso != nullptr) {
+        snprintf(stamped, sizeof(stamped), "%s %s", iso, message);
+        out = stamped;
+    }
+
     // Add to PSRAM circular buffer (even for serialOnly messages)
-    addToLogBuffer(message);
+    addToLogBuffer(out);
 
     // Output to Serial
-    Serial.println(message);
+    Serial.println(out);
 
     if (serialOnly || !_display_initialized || !_screen)
         return;
 
     // Use local buffer for word wrap processing
     char remaining[128];
-    strncpy(remaining, message, sizeof(remaining) - 1);
+    strncpy(remaining, out, sizeof(remaining) - 1);
     remaining[sizeof(remaining) - 1] = '\0';
 
     size_t remaining_len = strlen(remaining);
