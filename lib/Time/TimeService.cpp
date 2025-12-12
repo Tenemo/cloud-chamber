@@ -6,8 +6,8 @@
 #include "TimeService.h"
 #include "config.h"
 
-#include <time.h>
 #include <WiFi.h>
+#include <time.h>
 
 #if __has_include("env.h")
 #include "env.h"
@@ -24,8 +24,7 @@ bool wall_time_valid = false;
 
 bool waitForConnection(unsigned long timeout_ms) {
     unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED &&
-           (millis() - start) < timeout_ms) {
+    while (WiFi.status() != WL_CONNECTED && (millis() - start) < timeout_ms) {
         delay(200);
     }
     return WiFi.status() == WL_CONNECTED;
@@ -49,24 +48,24 @@ bool waitForTimeValid(unsigned long timeout_ms) {
 namespace TimeService {
 
 bool trySyncFromWifi(TimeLogCallback logCb) {
+    auto log = [logCb](const char *msg) {
+        if (logCb) {
+            logCb(msg, false);
+        }
+    };
+
+    log("Wi-Fi time sync...");
+
 #if !TIME_SERVICE_HAS_WIFI_CREDS
-    if (logCb) {
-        logCb("Time sync skipped/failed", false);
-    }
+    log("Wi-Fi time sync skipped (no env.h)");
     return false;
 #else
     if (WIFI_SSID == nullptr || WIFI_SSID[0] == '\0') {
-        if (logCb) {
-            logCb("Time sync skipped/failed", false);
-        }
+        log("Wi-Fi time sync skipped (SSID empty)");
         return false;
     }
 
     wall_time_valid = false;
-
-    if (logCb) {
-        logCb("Wi-Fi time sync...", false);
-    }
 
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -74,9 +73,7 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
     if (!waitForConnection(WIFI_CONNECT_TIMEOUT_MS)) {
         WiFi.disconnect(true, true);
         WiFi.mode(WIFI_OFF);
-        if (logCb) {
-            logCb("Time sync skipped/failed", false);
-        }
+        log("Wi-Fi time sync failed (connect timeout)");
         return false;
     }
 
@@ -84,8 +81,8 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
     if (TIME_TZ_STRING != nullptr && TIME_TZ_STRING[0] != '\0') {
         configTzTime(TIME_TZ_STRING, NTP_SERVER_1, NTP_SERVER_2);
     } else {
-        configTime(TIME_GMT_OFFSET_SEC, TIME_DAYLIGHT_OFFSET_SEC,
-                   NTP_SERVER_1, NTP_SERVER_2);
+        configTime(TIME_GMT_OFFSET_SEC, TIME_DAYLIGHT_OFFSET_SEC, NTP_SERVER_1,
+                   NTP_SERVER_2);
     }
 
     bool ok = waitForTimeValid(NTP_SYNC_TIMEOUT_MS);
@@ -93,9 +90,7 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
     WiFi.disconnect(true, true);
     WiFi.mode(WIFI_OFF);
 
-    if (logCb) {
-        logCb(ok ? "Time sync OK" : "Time sync skipped/failed", false);
-    }
+    log(ok ? "Time sync OK" : "Time sync failed (NTP timeout)");
     return ok;
 #endif
 }
