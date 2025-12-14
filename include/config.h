@@ -66,7 +66,7 @@ constexpr const char *LABEL_COLD_PLATE = "Cold plate";
 constexpr const char *LABEL_HOT_PLATE = "Hot plate";
 constexpr const char *LABEL_DELTA_T = "dT";
 constexpr const char *LABEL_RATE = "dT/dt";
-constexpr const char *LABEL_CURRENT = "I Set";
+constexpr const char *LABEL_CURRENT = "I set";
 
 // Units
 constexpr const char *UNIT_TEMP = "C";
@@ -138,7 +138,7 @@ constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
 // Cooling performance thresholds
 constexpr float COOLING_STALL_THRESHOLD_C = 0.02f; // Rate below this = stalled
 constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f; // Back off if warming
-constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.5f; // K/min degradation
+constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.1f; // K/min degradation
 constexpr float MIN_CURRENT_FOR_STALL_CHECK_A =
     4.0f; // Don't check stall below this
 constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A =

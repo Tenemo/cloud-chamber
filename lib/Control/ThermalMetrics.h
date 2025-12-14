@@ -169,6 +169,9 @@ class ThermalMetrics {
     size_t _head;  // Next write position
     size_t _count; // Number of valid samples (up to HISTORY_BUFFER_SIZE)
 
+    // Cached measurements for display/log convenience
+    float _last_actual_current; // Average actual output current (A)
+
     /**
      * @brief Calculate temperature slope using linear regression
      * @param use_hot_plate If true, use hot plate temps; else cold plate

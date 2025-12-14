@@ -385,7 +385,7 @@ The controller registers and updates 3 display lines via the Logger:
 | -------- | ------ | ---- | --------------------------------------- |
 | TC_STATE | State: | -    | Current state (INIT, START, RAMP, etc.) |
 | TC_RATE  | dT/dt: | K/m  | Cooling rate (negative = cooling)       |
-| TC_I     | I Set: | A    | Commanded current (same on both ch.)    |
+| TC_I     | I set: | A    | Commanded current (same on both ch.)    |
 
 ---
 
