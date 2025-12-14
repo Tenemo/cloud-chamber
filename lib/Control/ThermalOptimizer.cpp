@@ -207,7 +207,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         _consecutive_degraded = 0; // Reset degraded counter on success
         _converged = false;
 
-        snprintf(_log_buffer, sizeof(_log_buffer), "TC: Opt %.1fA=%.1fC",
+        snprintf(_log_buffer, sizeof(_log_buffer), "TC: Opt %.2fA=%.1fC",
                  snapshot.current_setpoint, snapshot.cold_temp);
         decision.log_message = _log_buffer;
 
@@ -227,7 +227,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
             } else {
                 // Not ready to revert yet - log but continue ramping
                 snprintf(_log_buffer, sizeof(_log_buffer),
-                         "TC: Degraded #%d at %.1fA (need %d @ %.1fA+)",
+                         "TC: Degraded #%d at %.2fA (need %d @ %.2fA+)",
                          _consecutive_degraded, snapshot.current_setpoint,
                          CONSECUTIVE_DEGRADED_FOR_REVERT,
                          MIN_RAMP_CURRENT_BEFORE_EXIT_A);
@@ -264,12 +264,12 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
                 decision.converged = true;
 
                 snprintf(_log_buffer, sizeof(_log_buffer),
-                         "TC: Converged at %.1fA (%.1fC)", _optimal_current,
+                         "TC: Converged at %.2fA (%.1fC)", _optimal_current,
                          _temp_at_optimal);
                 decision.log_message = _log_buffer;
             } else {
                 snprintf(_log_buffer, sizeof(_log_buffer),
-                         "TC: Revert %.1fA (bounce #%d)", revert_current,
+                         "TC: Revert %.2fA (bounce #%d)", revert_current,
                          _consecutive_bounces);
                 decision.log_message = _log_buffer;
             }
@@ -366,7 +366,7 @@ ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
     _awaiting_evaluation = true;
     _eval_start_time = snapshot.now;
 
-    snprintf(_log_buffer, sizeof(_log_buffer), "TC: Ramp %.1fA (+%.2fA)",
+    snprintf(_log_buffer, sizeof(_log_buffer), "TC: Ramp %.2fA (+%.2fA)",
              new_current, step);
     decision.log_message = _log_buffer;
 
@@ -427,7 +427,7 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
 
     const char *dir_str =
         (_probe_direction < 0) ? "up" : "down"; // Already flipped
-    snprintf(_log_buffer, sizeof(_log_buffer), "TC: Probe %s %.1fA (%+.2fA)",
+    snprintf(_log_buffer, sizeof(_log_buffer), "TC: Probe %s %.2fA (%+.2fA)",
              dir_str, new_current, new_current - current);
     decision.log_message = _log_buffer;
 

@@ -60,6 +60,18 @@ constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
 constexpr int LOG_AREA_LINES = 2; // Lines reserved for live logs at bottom
 
+// Display/Log labels (used consistently across display and serial logs)
+constexpr const char *LABEL_COLD_PLATE = "Cold plate";
+constexpr const char *LABEL_HOT_PLATE = "Hot plate";
+constexpr const char *LABEL_DELTA_T = "dT";
+constexpr const char *LABEL_RATE = "dT/dt";
+constexpr const char *LABEL_CURRENT = "I Set";
+
+// Units
+constexpr const char *UNIT_TEMP = "C";
+constexpr const char *UNIT_RATE = "K/m";
+constexpr const char *UNIT_CURRENT = "A";
+
 // =============================================================================
 // Watchdog Configuration
 // =============================================================================

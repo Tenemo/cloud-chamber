@@ -86,7 +86,7 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         float hot = sample.hot_plate_temp;
         float delta = hot - cold;
         float rate = getColdPlateRate();
-        float current = sample.set_current;
+        float set_current = sample.set_current;
 
         unsigned long total_secs = now / 1000;
         unsigned int hours = (total_secs / 3600) % 24;
@@ -94,17 +94,21 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         unsigned int secs = total_secs % 60;
 
         // Format rate string (handle insufficient history)
-        char rate_str[12];
+        char rate_str[16];
         if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
-            snprintf(rate_str, sizeof(rate_str), "---");
+            snprintf(rate_str, sizeof(rate_str), "--- %s", UNIT_RATE);
         } else {
-            snprintf(rate_str, sizeof(rate_str), "%.2f", rate);
+            snprintf(rate_str, sizeof(rate_str), "%.2f %s", rate, UNIT_RATE);
         }
 
+        // Use same labels as display, two spaces between values
         _logger.logf(true,
-                     "[%02u:%02u:%02u] Cold:%.1fC Hot:%.1fC dT:%.1fC "
-                     "Rate:%sK/m I:%.2fA",
-                     hours, mins, secs, cold, hot, delta, rate_str, current);
+                     "[%02u:%02u:%02u]  %s: %.1f%s  %s: %.1f%s  "
+                     "%s: %.1f%s  %s: %s  %s: %.2f%s",
+                     hours, mins, secs, LABEL_COLD_PLATE, cold, UNIT_TEMP,
+                     LABEL_HOT_PLATE, hot, UNIT_TEMP, LABEL_DELTA_T, delta,
+                     UNIT_TEMP, LABEL_RATE, rate_str, LABEL_CURRENT,
+                     set_current, UNIT_CURRENT);
     }
 }
 
@@ -212,7 +216,7 @@ void ThermalMetrics::recordNewMinimum(float temp, float current) {
         // for display purposes
         unsigned long now = millis();
         if (now - _last_metrics_save_time >= NVS_METRICS_SAVE_INTERVAL_MS) {
-            _logger.logf(true, "NVS: New best=%.1fC@%.1fA", temp, current);
+            _logger.logf(true, "NVS: New best=%.1fC@%.2fA", temp, current);
             saveToNvs(true);
         }
         // If throttled, the new best will be saved on next periodic save or
@@ -296,7 +300,7 @@ void ThermalMetrics::loadFromNvs() {
 #endif
 
     // Log loaded values
-    _logger.logf("TC: Best=%.1fC@%.1fA", _all_time_min_temp,
+    _logger.logf("TC: Best=%.1fC@%.2fA", _all_time_min_temp,
                  _all_time_optimal_current);
 
     unsigned long hours = _total_runtime_seconds / 3600;
@@ -362,8 +366,19 @@ void ThermalMetrics::updateRuntime() {
 
 void ThermalMetrics::registerDisplayLines() {
     _logger.registerTextLine(LINE_STATE, "State:", "INIT");
-    _logger.registerTextLine(LINE_RATE, "dT/dt:", "--- K/m");
-    _logger.registerTextLine(LINE_CURRENT, "I Set:", "0.0 A");
+
+    // Build label with colon for display
+    char rate_label[16];
+    snprintf(rate_label, sizeof(rate_label), "%s:", LABEL_RATE);
+    char rate_default[16];
+    snprintf(rate_default, sizeof(rate_default), "--- %s", UNIT_RATE);
+    _logger.registerTextLine(LINE_RATE, rate_label, rate_default);
+
+    char current_label[16];
+    snprintf(current_label, sizeof(current_label), "%s:", LABEL_CURRENT);
+    char current_default[16];
+    snprintf(current_default, sizeof(current_default), "0.0 %s", UNIT_CURRENT);
+    _logger.registerTextLine(LINE_CURRENT, current_label, current_default);
 }
 
 void ThermalMetrics::updateDisplay(const char *state_string,
@@ -374,14 +389,15 @@ void ThermalMetrics::updateDisplay(const char *state_string,
     float rate = getColdPlateRate();
     char rate_buf[16];
     if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
-        snprintf(rate_buf, sizeof(rate_buf), "--- K/m");
+        snprintf(rate_buf, sizeof(rate_buf), "--- %s", UNIT_RATE);
     } else {
-        snprintf(rate_buf, sizeof(rate_buf), "%.2f K/m", rate);
+        snprintf(rate_buf, sizeof(rate_buf), "%.2f %s", rate, UNIT_RATE);
     }
     _logger.updateLineText(LINE_RATE, rate_buf);
 
     // Format current as text
     char current_buf[16];
-    snprintf(current_buf, sizeof(current_buf), "%.2f A", target_current);
+    snprintf(current_buf, sizeof(current_buf), "%.2f %s", target_current,
+             UNIT_CURRENT);
     _logger.updateLineText(LINE_CURRENT, current_buf);
 }

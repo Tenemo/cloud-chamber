@@ -304,6 +304,10 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
     if (!areBothConnected())
         return;
 
+    // Skip check if either PSU is in grace period (just received a command)
+    if (_psu0.isInGracePeriod() || _psu1.isInGracePeriod())
+        return;
+
     unsigned long now = millis();
     if (now - _last_imbalance_log_time < interval_ms)
         return;
@@ -312,7 +316,7 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
     float power_diff = getPowerImbalance();
 
     if (current_diff > current_threshold || power_diff > power_threshold) {
-        _logger.logf("IMBAL: dI=%.1fA dP=%.0fW", current_diff, power_diff);
+        _logger.logf("IMBAL: dI=%.2fA dP=%.0fW", current_diff, power_diff);
         _last_imbalance_log_time = now;
     }
 }
@@ -357,9 +361,13 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
     if (avg_current <= min_threshold)
         return 0.0f;
 
-    // Hot reset detected - return current to adopt
+    // Hot reset detected - round down to nearest 0.1A for clean values
+    // (our fine step size is 0.1A anyway)
+    float rounded_current = floorf(avg_current * 10.0f) / 10.0f;
+    rounded_current = fmin(rounded_current, MAX_CURRENT_PER_CHANNEL);
+
     _logger.log("DPS: Hot reset detected");
-    return fmin(avg_current, MAX_CURRENT_PER_CHANNEL);
+    return rounded_current;
 }
 
 void DualPowerSupply::resetSelfTest() {
