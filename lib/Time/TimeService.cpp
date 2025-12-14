@@ -68,6 +68,34 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
     wall_time_valid = false;
 
     WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true, true); // ensure clean start
+
+    // Quick pre-flight scan to confirm SSID is visible (reduces silent NO_AP)
+    int n = WiFi.scanNetworks(/*async=*/false, /*hidden=*/true);
+    bool ssid_found = false;
+    int ssid_rssi = -127;
+    int ssid_channel = -1;
+    for (int i = 0; i < n; i++) {
+        if (WiFi.SSID(i) == WIFI_SSID) {
+            ssid_found = true;
+            ssid_rssi = WiFi.RSSI(i);
+            ssid_channel = WiFi.channel(i);
+            break;
+        }
+    }
+    WiFi.scanDelete();
+
+    if (!ssid_found) {
+        log("Wi-Fi time sync skipped (SSID not found in scan)");
+        WiFi.mode(WIFI_OFF);
+        return false;
+    } else {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Wi-Fi SSID visible (RSSI %ddBm ch%d)",
+                 ssid_rssi, ssid_channel);
+        log(buf);
+    }
+
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     if (!waitForConnection(WIFI_CONNECT_TIMEOUT_MS)) {
