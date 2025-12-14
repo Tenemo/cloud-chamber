@@ -14,10 +14,14 @@ namespace {
 constexpr const char *LINE_STATE = "TC_STATE";
 constexpr const char *LINE_RATE = "TC_RATE";
 constexpr const char *LINE_CURRENT = "TC_I";
+constexpr const char *LINE_CURRENT_ACTUAL = "TC_IA";
+
+constexpr const char *LABEL_CURRENT_ACTUAL = "I actual";
 } // namespace
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
-    : _logger(logger), _head(0), _count(0), _last_temp_log_time(0) {}
+    : _logger(logger), _head(0), _count(0), _last_actual_current(0.0f),
+      _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
     // Nothing to initialize - history buffer is ready
@@ -55,6 +59,19 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
 
     recordSample(sample);
 
+    // Cache average actual current for display/logging
+    float actual_current_sum = 0.0f;
+    int actual_current_count = 0;
+    for (size_t ch = 0; ch < 2; ch++) {
+        if (dps.isConnected(ch)) {
+            actual_current_sum += sample.current[ch];
+            actual_current_count++;
+        }
+    }
+    _last_actual_current = (actual_current_count > 0)
+                               ? (actual_current_sum / actual_current_count)
+                               : 0.0f;
+
     dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
                              CHANNEL_POWER_IMBALANCE_W,
                              Timing::IMBALANCE_LOG_INTERVAL_MS);
@@ -69,6 +86,7 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         float delta = hot - cold;
         float rate = getColdPlateRate();
         float set_current = sample.set_current;
+        float actual_current = _last_actual_current;
 
         // Format rate string (handle insufficient history)
         char rate_str[16];
@@ -81,10 +99,12 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         // Use same labels as display, two spaces between values
         // Timestamp is added by Logger automatically
         _logger.logf(true,
-                     "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s",
+                     "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s  "
+                     "%s: %.2f%s",
                      LABEL_COLD_PLATE, cold, UNIT_TEMP, LABEL_HOT_PLATE, hot,
                      UNIT_TEMP, LABEL_DELTA_T, delta, UNIT_TEMP, LABEL_RATE,
-                     rate_str, LABEL_CURRENT, set_current, UNIT_CURRENT);
+                     rate_str, LABEL_CURRENT, set_current, UNIT_CURRENT,
+                     LABEL_CURRENT_ACTUAL, actual_current, UNIT_CURRENT);
     }
 }
 
@@ -193,6 +213,15 @@ void ThermalMetrics::registerDisplayLines() {
     char current_default[16];
     snprintf(current_default, sizeof(current_default), "0.0 %s", UNIT_CURRENT);
     _logger.registerTextLine(LINE_CURRENT, current_label, current_default);
+
+    char actual_current_label[16];
+    snprintf(actual_current_label, sizeof(actual_current_label),
+             "%s:", LABEL_CURRENT_ACTUAL);
+    char actual_current_default[16];
+    snprintf(actual_current_default, sizeof(actual_current_default), "0.0 %s",
+             UNIT_CURRENT);
+    _logger.registerTextLine(LINE_CURRENT_ACTUAL, actual_current_label,
+                             actual_current_default);
 }
 
 void ThermalMetrics::updateDisplay(const char *state_string,
@@ -214,4 +243,10 @@ void ThermalMetrics::updateDisplay(const char *state_string,
     snprintf(current_buf, sizeof(current_buf), "%.2f %s", target_current,
              UNIT_CURRENT);
     _logger.updateLineText(LINE_CURRENT, current_buf);
+
+    // Format actual current as text
+    char actual_current_buf[16];
+    snprintf(actual_current_buf, sizeof(actual_current_buf), "%.2f %s",
+             _last_actual_current, UNIT_CURRENT);
+    _logger.updateLineText(LINE_CURRENT_ACTUAL, actual_current_buf);
 }
