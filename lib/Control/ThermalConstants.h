@@ -70,11 +70,6 @@ constexpr unsigned long IMBALANCE_LOG_INTERVAL_MS = 60000;
 
 // DPS self-test
 constexpr unsigned long SELFTEST_TIMEOUT_MS = 3000;
-constexpr unsigned long SELFTEST_SETTLE_MS = 500;
-
-// Startup configuration
-constexpr unsigned long STARTUP_CONFIG_WINDOW_MS = 500;
-constexpr unsigned long STARTUP_CONFIG_SEND_MS = 50;
 } // namespace Timing
 
 // =============================================================================

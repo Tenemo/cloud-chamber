@@ -33,8 +33,8 @@ enum class SafetyStatus {
     OK,               // All checks passed
     WARNING,          // Non-critical issue (logged but not blocking)
     MANUAL_OVERRIDE,  // User has taken control
-    DPS_DISCONNECTED, // Lost communication with PSU
     SENSOR_FAULT,     // Sensor failure detected
+    DPS_DISCONNECTED, // Lost communication with PSU
     THERMAL_FAULT     // Critical temperature exceeded (most severe)
 };
 
