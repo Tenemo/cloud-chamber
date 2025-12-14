@@ -206,7 +206,7 @@ void ThermalController::transitionTo(ThermalState newState,
         _startup_configured = false;
         _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
         _startup_configured = true;
-        _logger.logf(false, "TC: Config %.0fV %.1fA", TEC_VOLTAGE_SETPOINT,
+        _logger.logf(false, "TC: Config %.0fV %.2fA", TEC_VOLTAGE_SETPOINT,
                      STARTUP_CURRENT);
         break;
     case ThermalState::STEADY_STATE:

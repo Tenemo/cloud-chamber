@@ -8,8 +8,8 @@
 
 TemperatureSensors::TemperatureSensors(Logger &logger)
     : _logger(logger), _oneWire(PIN_DS18B20), _dallasSensors(&_oneWire),
-      _pt100(logger, "Cold plate"),
-      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Hot plate"),
+      _pt100(logger, LABEL_COLD_PLATE),
+      _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, LABEL_HOT_PLATE),
       _glassTop(logger, _dallasSensors, DS18B20_2_ADDRESS, "External"),
       _internal(logger, _dallasSensors, DS18B20_3_ADDRESS, "Internal") {}
 
@@ -22,7 +22,7 @@ void TemperatureSensors::begin() {
 
     _hotPlate.begin();
     _pt100.begin();
-    _logger.registerLine("deltaT", "\\deltaT", "C", 0.0f);
+    _logger.registerLine("deltaT", "\\deltaT", UNIT_TEMP, 0.0f);
 
     _logger.log("Sensors initialized.");
 }
