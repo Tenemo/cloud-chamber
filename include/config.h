@@ -171,9 +171,9 @@ constexpr unsigned long HOT_RESET_STABILIZATION_MS =
 // Thermal Controller - Adaptive Step Sizes
 // =============================================================================
 // Step sizes for current adjustments
-constexpr float COARSE_STEP_A = 0.5f;  // Below RAMP_COARSE_BELOW_A
-constexpr float MEDIUM_STEP_A = 0.25f; // Below RAMP_MEDIUM_BELOW_A
-constexpr float FINE_STEP_A = 0.1f;    // Above RAMP_MEDIUM_BELOW_A
+constexpr float COARSE_STEP_A = 1.0f; // Below RAMP_COARSE_BELOW_A
+constexpr float MEDIUM_STEP_A = 0.5f; // Below RAMP_MEDIUM_BELOW_A
+constexpr float FINE_STEP_A = 0.1f;   // Above RAMP_MEDIUM_BELOW_A
 
 // Current thresholds for step size selection during RAMP_UP
 constexpr float RAMP_COARSE_BELOW_A = 7.0f; // Below = coarse steps

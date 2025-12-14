@@ -468,21 +468,23 @@ void Logger::drawLogArea() {
 void Logger::log(const char *message, bool serialOnly) {
     const char *iso = TimeService::getIsoTimestamp();
 
-    // Serial output: always include timestamp
-    // - ISO8601 when wall time is valid (from NTP)
-    // - Boot-relative [HH:MM:SS.mmm] otherwise
+    // Build boot-relative timestamp (always included)
+    unsigned long ms = millis();
+    unsigned int hours = (ms / 3600000) % 24;
+    unsigned int mins = (ms / 60000) % 60;
+    unsigned int secs = (ms / 1000) % 60;
+    unsigned int millis_part = ms % 1000;
+
+    // Serial output format:
+    // - With wall time: [YYYY-MM-DDTHH:MM:SS][HH:MM:SS.mmm] message
+    // - Without wall time: [HH:MM:SS.mmm] message
     const char *serial_out = message;
-    char stamped[160];
+    char stamped[192];
     if (iso != nullptr) {
-        snprintf(stamped, sizeof(stamped), "%s %s", iso, message);
+        snprintf(stamped, sizeof(stamped), "[%s][%02u:%02u:%02u.%03u] %s", iso,
+                 hours, mins, secs, millis_part, message);
         serial_out = stamped;
     } else {
-        // Boot-relative timestamp in HH:MM:SS.mmm format
-        unsigned long ms = millis();
-        unsigned int hours = (ms / 3600000) % 24;
-        unsigned int mins = (ms / 60000) % 60;
-        unsigned int secs = (ms / 1000) % 60;
-        unsigned int millis_part = ms % 1000;
         snprintf(stamped, sizeof(stamped), "[%02u:%02u:%02u.%03u] %s", hours,
                  mins, secs, millis_part, message);
         serial_out = stamped;

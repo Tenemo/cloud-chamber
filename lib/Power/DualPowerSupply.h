@@ -89,13 +89,6 @@ class DualPowerSupply {
     bool setSymmetricCurrent(float current);
 
     /**
-     * @brief Set voltage on both channels symmetrically
-     * @param voltage Target voltage
-     * @return true if both commands were queued successfully
-     */
-    bool setSymmetricVoltage(float voltage);
-
-    /**
      * @brief Enable output on both channels
      * @return true if both commands were queued successfully
      */
@@ -189,11 +182,6 @@ class DualPowerSupply {
      * @brief Get current target (what we commanded)
      */
     float getTargetCurrent() const { return _target_current; }
-
-    /**
-     * @brief Get current target voltage
-     */
-    float getTargetVoltage() const { return _target_voltage; }
 
     /**
      * @brief Get average actual output current
@@ -329,7 +317,6 @@ class DualPowerSupply {
 
     // Target setpoints (commanded values)
     float _target_current;
-    float _target_voltage;
     bool _target_output;
 
     // Emergency shutdown state

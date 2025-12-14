@@ -11,9 +11,9 @@ DualPowerSupply::DualPowerSupply(Logger &logger)
     : _logger(logger), _psu_storage{DPS5015(logger, "DC12", Serial1),
                                     DPS5015(logger, "DC34", Serial2)},
       _psus{&_psu_storage[0], &_psu_storage[1]}, _target_current(0.0f),
-      _target_voltage(0.0f), _target_output(false),
-      _shutdown_in_progress(false), _shutdown_current(0.0f),
-      _last_shutdown_step_time(0), _consecutive_mismatches(0) {}
+      _target_output(false), _shutdown_in_progress(false),
+      _shutdown_current(0.0f), _last_shutdown_step_time(0),
+      _consecutive_mismatches(0) {}
 
 void DualPowerSupply::begin() {
     _psus[0]->begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
@@ -35,18 +35,6 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
     for (auto *psu : _psus) {
         if (psu->isConnected()) {
             success &= psu->setCurrent(current);
-        }
-    }
-    return success;
-}
-
-bool DualPowerSupply::setSymmetricVoltage(float voltage) {
-    _target_voltage = voltage;
-
-    bool success = true;
-    for (auto *psu : _psus) {
-        if (psu->isConnected()) {
-            success &= psu->setVoltage(voltage);
         }
     }
     return success;
@@ -75,7 +63,6 @@ bool DualPowerSupply::disableOutput() {
 }
 
 void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
-    _target_voltage = voltage;
     _target_current = current;
     _target_output = outputOn;
 
