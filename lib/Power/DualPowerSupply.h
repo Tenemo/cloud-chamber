@@ -365,9 +365,12 @@ class DualPowerSupply {
     };
 
     // Self-test configuration
-    static constexpr unsigned long ST_SETTLE_MS = 500;
+    // ST_SETTLE_MS must exceed DPS5015_UPDATE_INTERVAL_MS to ensure
+    // at least one Modbus read cycle has occurred before checking values
+    static constexpr unsigned long ST_SETTLE_MS = 750;
     static constexpr unsigned long ST_TIMEOUT_MS = 3000;
-    static constexpr float ST_VOLTAGE = 1.0f; // Safe test voltage (no load)
+    static constexpr float ST_VOLTAGE =
+        TEC_VOLTAGE_SETPOINT;                 // Use actual TEC voltage for test
     static constexpr float ST_CURRENT = 0.1f; // Safe test current (no load)
     static constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
 };
