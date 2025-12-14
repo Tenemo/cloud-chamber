@@ -298,6 +298,11 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     _pending_config.output_on = outputOn;
     _pending_config.has_config = true;
 
+    // Always start grace period when configuration is requested,
+    // even if PSU is temporarily offline. This prevents false
+    // manual override detection during state transitions.
+    _last_command_time = millis();
+
     // If already connected, apply immediately
     if (_currently_online) {
         applyPendingConfig();

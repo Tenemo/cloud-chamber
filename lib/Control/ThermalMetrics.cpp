@@ -70,11 +70,6 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         float rate = getColdPlateRate();
         float set_current = sample.set_current;
 
-        unsigned long total_secs = now / 1000;
-        unsigned int hours = (total_secs / 3600) % 24;
-        unsigned int mins = (total_secs / 60) % 60;
-        unsigned int secs = total_secs % 60;
-
         // Format rate string (handle insufficient history)
         char rate_str[16];
         if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
@@ -84,13 +79,12 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         }
 
         // Use same labels as display, two spaces between values
+        // Timestamp is added by Logger automatically
         _logger.logf(true,
-                     "[%02u:%02u:%02u]  %s: %.1f%s  %s: %.1f%s  "
-                     "%s: %.1f%s  %s: %s  %s: %.2f%s",
-                     hours, mins, secs, LABEL_COLD_PLATE, cold, UNIT_TEMP,
-                     LABEL_HOT_PLATE, hot, UNIT_TEMP, LABEL_DELTA_T, delta,
-                     UNIT_TEMP, LABEL_RATE, rate_str, LABEL_CURRENT,
-                     set_current, UNIT_CURRENT);
+                     "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s",
+                     LABEL_COLD_PLATE, cold, UNIT_TEMP, LABEL_HOT_PLATE, hot,
+                     UNIT_TEMP, LABEL_DELTA_T, delta, UNIT_TEMP, LABEL_RATE,
+                     rate_str, LABEL_CURRENT, set_current, UNIT_CURRENT);
     }
 }
 
