@@ -358,6 +358,10 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         break;
 
     case SelfTestPhase::CHECK_SETTINGS:
+        // Wait for any pending writes (OVP/OCP from initial config) to complete
+        if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
+            return SelfTestResult::IN_PROGRESS;
+
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 

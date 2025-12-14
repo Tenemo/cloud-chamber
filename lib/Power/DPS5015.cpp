@@ -142,6 +142,13 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
         _ever_seen = true;
         _currently_online = true;
         _in_error_state = false;
+
+        // Initialize commanded values from actual DPS state to prevent
+        // false manual override detection on startup
+        _commanded_voltage = _set_voltage;
+        _commanded_current = _set_current;
+        _commanded_output = _output_on;
+
         _logger.log("DPS5015 connected.");
         applyPendingConfig();
         return;
