@@ -7,8 +7,8 @@
  */
 
 #include "Logger.h"
-#include "config.h"
 #include "TimeService.h"
+#include "config.h"
 #include <cstdarg>
 #include <cstring>
 #include <esp_heap_caps.h> // For PSRAM allocation
@@ -146,9 +146,11 @@ void Logger::drawDeltaChar(int x, int y) {
 
     // Draw a delta (triangle) character: Δ
     // Triangle fits in a 5x7 pixel box (standard char size)
-    _screen->drawLine(x + 2, y + 1, x, y + 6, COLOR_RGB565_WHITE);     // Left edge
-    _screen->drawLine(x + 2, y + 1, x + 4, y + 6, COLOR_RGB565_WHITE); // Right edge
-    _screen->drawLine(x, y + 6, x + 4, y + 6, COLOR_RGB565_WHITE);     // Bottom edge
+    _screen->drawLine(x + 2, y + 1, x, y + 6, COLOR_RGB565_WHITE); // Left edge
+    _screen->drawLine(x + 2, y + 1, x + 4, y + 6,
+                      COLOR_RGB565_WHITE); // Right edge
+    _screen->drawLine(x, y + 6, x + 4, y + 6,
+                      COLOR_RGB565_WHITE); // Bottom edge
 }
 
 void Logger::drawLineLabel(const char *label, int slot) {
@@ -466,12 +468,19 @@ void Logger::drawLogArea() {
 void Logger::log(const char *message, bool serialOnly) {
     const char *iso = TimeService::getIsoTimestamp();
 
-    // Serial output: prefix ISO8601 when wall time is valid.
-    // Display output: keep the original message (no timestamps added).
+    // Serial output: always include timestamp
+    // - ISO8601 when wall time is valid (from NTP)
+    // - Boot-relative seconds otherwise
     const char *serial_out = message;
     char stamped[160];
     if (iso != nullptr) {
         snprintf(stamped, sizeof(stamped), "%s %s", iso, message);
+        serial_out = stamped;
+    } else {
+        // Boot-relative timestamp in seconds
+        unsigned long ms = millis();
+        snprintf(stamped, sizeof(stamped), "[%lu.%03lu] %s", ms / 1000,
+                 ms % 1000, message);
         serial_out = stamped;
     }
 
