@@ -401,7 +401,6 @@ void ThermalController::handleRampUp() {
             exit_reason = "Hot side limit";
         } else if (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C &&
                    has_enough_history) {
-            _optimizer.setProbeDirection(-1);
             exit_reason = "Cooling stalled";
         }
 
