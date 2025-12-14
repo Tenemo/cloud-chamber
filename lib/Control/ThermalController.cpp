@@ -216,12 +216,10 @@ void ThermalController::transitionTo(ThermalState newState,
         _steady_state_start_time = millis();
 
         // If no adjustment was ever made (e.g., hot reset recovery that
-        // immediately exited ramp), set timing to allow first probe after
-        // evaluation delay rather than waiting the full recheck interval
+        // immediately exited ramp), allow immediate first probe since we
+        // already waited during stabilization
         if (_last_adjustment_time == 0) {
-            _last_adjustment_time = millis() -
-                                    STEADY_STATE_RECHECK_INTERVAL_MS +
-                                    CURRENT_EVALUATION_DELAY_MS;
+            _last_adjustment_time = millis() - STEADY_STATE_RECHECK_INTERVAL_MS;
         }
         break;
     case ThermalState::RAMP_UP:
@@ -273,8 +271,7 @@ void ThermalController::handleInitializing() {
         float adopted = _dps.detectHotReset(HOT_RESET_CURRENT_THRESHOLD_A);
 
         if (adopted > 0.0f) {
-            CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
-            _logger.logf(true, "TC: Hot Reset detected, adopting %.2fA",
+            _logger.logf(true, "TC: Hot reset detected, adopting %.2fA",
                          adopted);
 
             _hot_reset_active = true;
