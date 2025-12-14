@@ -136,9 +136,9 @@ constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
     5.0f; // Max acceptable rise rate
 
 // Cooling performance thresholds
-constexpr float COOLING_STALL_THRESHOLD_C = 0.5f; // Rate below this = stalled
+constexpr float COOLING_STALL_THRESHOLD_C = 0.1f; // Rate below this = stalled
 constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f; // Back off if warming
-constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.3f; // K/min degradation
+constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.5f; // K/min degradation
 constexpr float MIN_CURRENT_FOR_STALL_CHECK_A =
     4.0f; // Don't check stall below this
 constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A =
@@ -154,7 +154,7 @@ constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS =
     20000; // 20s between steps
 constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000; // 60s evaluation
 constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
-    900000; // 15min recheck
+    2 * 60 * 1000; // 15min recheck
 constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
     60000;                                       // 60s sensor recovery
 constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
