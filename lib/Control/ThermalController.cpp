@@ -24,8 +24,7 @@ ThermalController::ThermalController(Logger &logger,
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
       _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
-      _startup_configured(false), _hot_reset_active(false),
-      _hot_reset_current(0.0f) {}
+      _hot_reset_active(false), _hot_reset_current(0.0f) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -75,9 +74,8 @@ void ThermalController::update() {
 
     // Run safety checks ONCE at top of loop (not in each handler)
     // Skip for non-operational states (hardware not ready or already faulted)
-    if (isOperationalState() && !runSafetyChecks()) {
-        updateDisplay();
-        return; // Safety check triggered state transition
+    if (isOperationalState()) {
+        runSafetyChecks();
     }
 
     // Run state-specific handler
@@ -114,7 +112,7 @@ void ThermalController::update() {
     updateDisplay();
 }
 
-bool ThermalController::runSafetyChecks() {
+void ThermalController::runSafetyChecks() {
     // All safety checks including grace period logic are now in SafetyMonitor
     // Use actual average current (not target) for physics-based plausibility
     // check
@@ -124,27 +122,25 @@ bool ThermalController::runSafetyChecks() {
     switch (result.status) {
     case SafetyStatus::SENSOR_FAULT:
         transitionTo(ThermalState::SENSOR_FAULT);
-        return false;
+        break;
 
     case SafetyStatus::THERMAL_FAULT:
         enterThermalFault(result.reason);
-        return false;
+        break;
 
     case SafetyStatus::DPS_DISCONNECTED:
         transitionTo(ThermalState::DPS_DISCONNECTED);
-        return false;
+        break;
 
     case SafetyStatus::MANUAL_OVERRIDE:
         _logger.log("TC: Manual override detected");
         transitionTo(ThermalState::MANUAL_OVERRIDE);
-        return false;
+        break;
 
     case SafetyStatus::OK:
     case SafetyStatus::WARNING:
         break;
     }
-
-    return true;
 }
 
 bool ThermalController::isOperationalState() const {
@@ -153,12 +149,10 @@ bool ThermalController::isOperationalState() const {
     // - SELF_TEST: Running DPS verification, not operational
     // - THERMAL_FAULT: Already in fault state, shutdown in progress
     // - DPS_DISCONNECTED: No PSU communication, can't check or control
-    // - MANUAL_OVERRIDE: Already detected, don't keep re-checking/logging
     return _state != ThermalState::INITIALIZING &&
            _state != ThermalState::SELF_TEST &&
            _state != ThermalState::THERMAL_FAULT &&
-           _state != ThermalState::DPS_DISCONNECTED &&
-           _state != ThermalState::MANUAL_OVERRIDE;
+           _state != ThermalState::DPS_DISCONNECTED;
 }
 
 bool ThermalController::canControlPower() const {
@@ -203,9 +197,7 @@ void ThermalController::transitionTo(ThermalState newState,
         _hot_reset_current = 0.0f;
 
         // Configure PSUs immediately on entering STARTUP
-        _startup_configured = false;
         _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
-        _startup_configured = true;
         _logger.logf(false, "TC: Config %.0fV %.2fA", TEC_VOLTAGE_SETPOINT,
                      STARTUP_CURRENT);
         break;

@@ -73,9 +73,6 @@ class ThermalController {
     unsigned long _sensor_fault_time;
     uint8_t _consecutive_stall_detects = 0;
 
-    // Configuration flags
-    bool _startup_configured;
-
     // Hot reset recovery tracking
     bool _hot_reset_active;   // True if we detected hot reset and haven't
                               // completed normal startup
@@ -106,9 +103,8 @@ class ThermalController {
 
     /**
      * @brief Run all safety checks at top of update loop
-     * @return true if ok to continue, false if transitioned to fault state
      */
-    bool runSafetyChecks();
+    void runSafetyChecks();
 
     /**
      * @brief Check if controller is in an operational state

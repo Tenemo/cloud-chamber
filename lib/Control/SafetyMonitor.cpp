@@ -66,9 +66,13 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
     }
 
     // Manual override via DualPowerSupply
-    OverrideStatus override = _dps.checkManualOverride();
-    if (override == OverrideStatus::DETECTED) {
-        return {SafetyStatus::MANUAL_OVERRIDE, "Manual override"};
+    // If we're already in MANUAL_OVERRIDE, suppress the check to avoid
+    // re-triggering/log spam while still monitoring thermal limits.
+    if (current_state != ThermalState::MANUAL_OVERRIDE) {
+        OverrideStatus override = _dps.checkManualOverride();
+        if (override == OverrideStatus::DETECTED) {
+            return {SafetyStatus::MANUAL_OVERRIDE, "Manual override"};
+        }
     }
 
     // PT100 plausibility check with grace period

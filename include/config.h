@@ -154,7 +154,7 @@ constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS =
     20000; // 20s between steps
 constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000; // 60s evaluation
 constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
-    2 * 60 * 1000; // 15min recheck
+    15UL * 60UL * 1000UL; // 15min recheck
 constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
     60000;                                       // 60s sensor recovery
 constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
