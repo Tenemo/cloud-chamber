@@ -166,6 +166,13 @@ class ThermalOptimizer {
     bool isConverged() const { return _converged; }
 
     /**
+     * @brief Check if in stabilization period (e.g., after hot reset)
+     */
+    bool isInStabilization() const {
+        return _stabilization_until > 0 && millis() < _stabilization_until;
+    }
+
+    /**
      * @brief Check if an evaluation is pending
      */
     bool isEvaluationPending() const { return _awaiting_evaluation; }

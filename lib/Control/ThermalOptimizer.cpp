@@ -87,6 +87,12 @@ ThermalOptimizationDecision ThermalOptimizer::update(
 
 bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
                                       bool has_enough_history) const {
+    // Never exit during stabilization period (e.g., after hot reset)
+    // The system needs time to establish actual thermal behavior
+    if (_stabilization_until > 0 && snapshot.now < _stabilization_until) {
+        return false;
+    }
+
     // At maximum current
     if (snapshot.current_setpoint >= MAX_CURRENT_PER_CHANNEL)
         return true;

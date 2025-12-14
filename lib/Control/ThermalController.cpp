@@ -214,6 +214,15 @@ void ThermalController::transitionTo(ThermalState newState,
         _hot_reset_active = false;
         _hot_reset_current = 0.0f;
         _steady_state_start_time = millis();
+
+        // If no adjustment was ever made (e.g., hot reset recovery that
+        // immediately exited ramp), set timing to allow first probe after
+        // evaluation delay rather than waiting the full recheck interval
+        if (_last_adjustment_time == 0) {
+            _last_adjustment_time = millis() -
+                                    STEADY_STATE_RECHECK_INTERVAL_MS +
+                                    CURRENT_EVALUATION_DELAY_MS;
+        }
         break;
     case ThermalState::RAMP_UP:
         _ramp_start_time = millis();
