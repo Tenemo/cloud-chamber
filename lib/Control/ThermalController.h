@@ -90,7 +90,7 @@ class ThermalController {
     // =========================================================================
     // State transitions
     // =========================================================================
-    void transitionTo(ThermalState newState);
+    void transitionTo(ThermalState newState, const char *reason = nullptr);
     void enterThermalFault(const char *reason);
 
     // =========================================================================

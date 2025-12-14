@@ -3,7 +3,7 @@
 PT100Sensor::PT100Sensor(Logger &logger, const char *label)
     : _logger(logger), _rtd(PIN_MAX31865_CS), _label(label),
       _last_temperature(0.0f), _initialized(false), _in_error_state(false),
-      _last_update_time(0), _last_serial_log_time(0) {}
+      _last_update_time(0) {}
 
 void PT100Sensor::begin() {
     if (_initialized)
@@ -73,18 +73,4 @@ void PT100Sensor::update() {
 
     _logger.updateLine(_label, temp_c);
     _last_temperature = temp_c;
-
-    // Periodic serial logging (serial only, not display)
-    if (PT100_SERIAL_LOGGING_ENABLED) {
-        if (current_time - _last_serial_log_time >=
-            PT100_SERIAL_LOG_INTERVAL_MS) {
-            _last_serial_log_time = current_time;
-            unsigned long total_secs = current_time / 1000;
-            unsigned int hours = (total_secs / 3600) % 24;
-            unsigned int mins = (total_secs / 60) % 60;
-            unsigned int secs = total_secs % 60;
-            _logger.logf(true, "[%02u:%02u:%02u] PT100: %.2f C", hours, mins,
-                         secs, temp_c);
-        }
-    }
 }

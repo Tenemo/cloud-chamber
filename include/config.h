@@ -61,10 +61,6 @@ constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
 constexpr int LOG_AREA_LINES = 2; // Lines reserved for live logs at bottom
 
-// PT100 serial logging (serial only, not display)
-constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
-constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
-
 // =============================================================================
 // Watchdog Configuration
 // =============================================================================

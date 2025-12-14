@@ -168,13 +168,24 @@ bool ThermalMetrics::isHotSideStable(float max_rate_k_per_min,
 // =============================================================================
 
 void ThermalMetrics::recordNewMinimum(float temp, float current) {
+    // Update session minimum (RAM-only, instant updates for display)
+    updateSessionMin(temp);
+
+    // Check if this beats the all-time record
     if (temp < _all_time_min_temp) {
         _all_time_min_temp = temp;
         _all_time_optimal_current = current;
 
-        _logger.logf(true, "NVS: New best=%.1fC@%.1fA", temp, current);
-
-        saveToNvs(true); // Force save for new records
+        // Throttle NVS writes to protect flash (max once per
+        // NVS_METRICS_SAVE_INTERVAL_MS) The values are already updated in RAM
+        // for display purposes
+        unsigned long now = millis();
+        if (now - _last_metrics_save_time >= NVS_METRICS_SAVE_INTERVAL_MS) {
+            _logger.logf(true, "NVS: New best=%.1fC@%.1fA", temp, current);
+            saveToNvs(true);
+        }
+        // If throttled, the new best will be saved on next periodic save or
+        // shutdown
     }
 }
 

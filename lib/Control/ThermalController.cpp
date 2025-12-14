@@ -179,7 +179,8 @@ bool ThermalController::canControlPower() const {
     return true;
 }
 
-void ThermalController::transitionTo(ThermalState newState) {
+void ThermalController::transitionTo(ThermalState newState,
+                                     const char *reason) {
     if (newState == _state)
         return;
 
@@ -187,7 +188,11 @@ void ThermalController::transitionTo(ThermalState newState) {
     _state = newState;
     _state_entry_time = millis();
 
-    _logger.logf(false, "TC: -> %s", stateToString(_state));
+    if (reason) {
+        _logger.logf(false, "TC: -> %s (%s)", stateToString(_state), reason);
+    } else {
+        _logger.logf(false, "TC: -> %s", stateToString(_state));
+    }
 
     // State entry actions
     switch (newState) {
@@ -339,15 +344,17 @@ void ThermalController::handleRampUp() {
     if (_optimizer.shouldExitRamp(snapshot, has_enough_history)) {
         _optimizer.updateBest(current, snapshot.cold_temp);
 
-        if (_safety.isHotSideAlarm() ||
-            (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C &&
-             has_enough_history)) {
-            _optimizer.setProbeDirection(-1); // Start by trying to decrease
-            _logger.logf(true, "TC: Limit/stall at %.1fA, fine-tuning",
-                         current);
+        const char *exit_reason = "Max current";
+        if (_safety.isHotSideAlarm()) {
+            _optimizer.setProbeDirection(-1);
+            exit_reason = "Hot side limit";
+        } else if (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C &&
+                   has_enough_history) {
+            _optimizer.setProbeDirection(-1);
+            exit_reason = "Cooling stalled";
         }
 
-        transitionTo(ThermalState::STEADY_STATE);
+        transitionTo(ThermalState::STEADY_STATE, exit_reason);
         return;
     }
 
@@ -361,7 +368,7 @@ void ThermalController::handleRampUp() {
 
     // Handle revert on degraded evaluation
     if (decision.evaluation_complete && decision.should_transition) {
-        transitionTo(ThermalState::STEADY_STATE);
+        transitionTo(ThermalState::STEADY_STATE, "Degradation detected");
     }
 }
 
