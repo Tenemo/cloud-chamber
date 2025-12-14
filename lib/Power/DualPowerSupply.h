@@ -343,12 +343,13 @@ class DualPowerSupply {
     // Self-test phases
     enum class SelfTestPhase {
         START = 0,
-        CHECK_SETTINGS = 1,
-        ENABLE_PSU0 = 2,
-        VERIFY_PSU0 = 3,
-        ENABLE_PSU1 = 4,
-        VERIFY_PSU1 = 5,
-        COMPLETE = 6
+        WAIT_WRITES = 1, // Wait for pending writes to complete
+        CHECK_SETTINGS = 2,
+        ENABLE_PSU0 = 3,
+        VERIFY_PSU0 = 4,
+        ENABLE_PSU1 = 5,
+        VERIFY_PSU1 = 6,
+        COMPLETE = 7
     };
 
     // Self-test configuration

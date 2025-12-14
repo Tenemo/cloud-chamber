@@ -309,13 +309,26 @@ void ThermalMetrics::updateRuntime() {
 
 void ThermalMetrics::registerDisplayLines() {
     _logger.registerTextLine(LINE_STATE, "State:", "INIT");
-    _logger.registerLine(LINE_RATE, "dT/dt:", "K/m", 0.0f);
-    _logger.registerLine(LINE_CURRENT, "I Set:", "A", 0.0f);
+    _logger.registerTextLine(LINE_RATE, "dT/dt:", "--- K/m");
+    _logger.registerTextLine(LINE_CURRENT, "I Set:", "0.0 A");
 }
 
 void ThermalMetrics::updateDisplay(const char *state_string,
                                    float target_current) {
     _logger.updateLineText(LINE_STATE, state_string);
-    _logger.updateLine(LINE_RATE, getColdPlateRate());
-    _logger.updateLine(LINE_CURRENT, target_current);
+
+    // Format rate as text to avoid mixed updateLine/updateLineText issues
+    float rate = getColdPlateRate();
+    char rate_buf[16];
+    if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
+        snprintf(rate_buf, sizeof(rate_buf), "--- K/m");
+    } else {
+        snprintf(rate_buf, sizeof(rate_buf), "%.2f K/m", rate);
+    }
+    _logger.updateLineText(LINE_RATE, rate_buf);
+
+    // Format current as text
+    char current_buf[16];
+    snprintf(current_buf, sizeof(current_buf), "%.1f A", target_current);
+    _logger.updateLineText(LINE_CURRENT, current_buf);
 }

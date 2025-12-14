@@ -71,6 +71,9 @@ class ThermalController {
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
 
+    // Configuration flags
+    bool _startup_configured;
+
     // =========================================================================
     // State handlers (contain only state-specific logic)
     // =========================================================================

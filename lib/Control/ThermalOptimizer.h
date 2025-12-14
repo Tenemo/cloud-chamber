@@ -103,6 +103,7 @@ class ThermalOptimizer {
      * @brief Initialize with a known-good starting point
      *
      * Use this for hot reset detection when DPS is already running.
+     * Starts a stabilization period before optimization begins.
      *
      * @param current Current current setpoint
      * @param temp Current cold plate temperature
@@ -175,6 +176,7 @@ class ThermalOptimizer {
     void clearConverged() {
         _converged = false;
         _consecutive_bounces = 0;
+        _consecutive_degraded = 0;
     }
 
     /**
@@ -204,18 +206,42 @@ class ThermalOptimizer {
     // Adaptive step control
     int8_t _probe_direction;
     uint8_t _consecutive_bounces;
+    uint8_t _consecutive_degraded; // Track consecutive degraded evals
     bool _converged;
+
+    // Hot reset stabilization
+    unsigned long _stabilization_until;
 
     // Formatting buffer for log messages
     mutable char _log_buffer[64];
 
+    // Stabilization period after hot reset (ms)
+    static constexpr unsigned long HOT_RESET_STABILIZATION_MS =
+        90000; // 90 seconds
+
     /**
-     * @brief Evaluate effect of a current change
+     * @brief Evaluate effect during RAMP_UP (temperature-focused)
+     *
+     * During ramp, only declare degradation if temperature actually rises.
+     * Rate-based degradation is disabled since rate naturally decreases
+     * as cold plate gets colder (basic thermodynamics).
      *
      * @param snapshot Current system state
      * @return WAITING if not ready, or evaluation result
      */
-    ThermalEvaluationResult evaluateEffect(const ThermalSnapshot &snapshot);
+    ThermalEvaluationResult evaluateRampEffect(const ThermalSnapshot &snapshot);
+
+    /**
+     * @brief Evaluate effect during STEADY_STATE (rate-focused)
+     *
+     * In steady state, rate-based fine-tuning is appropriate since we're
+     * near equilibrium and looking for marginal improvements.
+     *
+     * @param snapshot Current system state
+     * @return WAITING if not ready, or evaluation result
+     */
+    ThermalEvaluationResult
+    evaluateSteadyEffect(const ThermalSnapshot &snapshot);
 
     /**
      * @brief Process a pending evaluation and update internal state
