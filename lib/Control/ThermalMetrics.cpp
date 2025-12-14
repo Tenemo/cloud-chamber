@@ -17,8 +17,7 @@ constexpr const char *LINE_CURRENT = "TC_I";
 } // namespace
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
-    : _logger(logger), _head(0), _count(0), _session_min_temp(100.0f),
-      _last_temp_log_time(0) {}
+    : _logger(logger), _head(0), _count(0), _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
     // Nothing to initialize - history buffer is ready
@@ -38,8 +37,6 @@ void ThermalMetrics::recordSample(const ThermalSample &sample) {
     if (_count < HISTORY_BUFFER_SIZE) {
         _count++;
     }
-
-    updateSessionMin(sample.cold_plate_temp);
 }
 
 void ThermalMetrics::recordSample(TemperatureSensors &sensors,
@@ -181,16 +178,6 @@ bool ThermalMetrics::isHotSideStable(float max_rate_k_per_min,
         return false;
 
     return fabs(rate) <= max_rate_k_per_min;
-}
-
-// =============================================================================
-// Session Tracking (RAM only, not persisted)
-// =============================================================================
-
-void ThermalMetrics::recordNewMinimum(float temp, float current) {
-    // Update session minimum (RAM-only)
-    updateSessionMin(temp);
-    (void)current; // Unused since we don't persist
 }
 
 // =============================================================================

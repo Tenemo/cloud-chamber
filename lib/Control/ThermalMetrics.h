@@ -6,7 +6,6 @@
  * 1. **Runtime History**: Circular buffer of temperature samples for trend
  *    analysis and cooling rate calculations (volatile, lost on reset)
  * 2. **Trend Analysis**: Linear regression for cooling/heating rate
- * 3. **Session Tracking**: Best temperature during current session (RAM only)
  *
  * HISTORY BUFFER:
  * ---------------
@@ -136,35 +135,6 @@ class ThermalMetrics {
     bool isHotSideStable(float max_rate_k_per_min,
                          size_t min_samples = 60) const;
 
-    // =========================================================================
-    // Session Tracking (RAM only)
-    // =========================================================================
-
-    /**
-     * @brief Record a new minimum temperature for this session
-     */
-    void recordNewMinimum(float temp, float current);
-
-    // =========================================================================
-    // Accessors
-    // =========================================================================
-
-    /**
-     * @brief Get session minimum temperature (reset each boot)
-     *
-     * This tracks the coldest temperature achieved during the current session.
-     */
-    float getSessionMinTemp() const { return _session_min_temp; }
-
-    /**
-     * @brief Update session minimum if new temp is lower
-     */
-    void updateSessionMin(float temp) {
-        if (temp < _session_min_temp) {
-            _session_min_temp = temp;
-        }
-    }
-
     /**
      * @brief Check if it's time to perform an adjustment
      * @param last_adjustment_time Time of last adjustment
@@ -207,11 +177,6 @@ class ThermalMetrics {
      */
     float calculateSlopeKPerMin(bool use_hot_plate,
                                 size_t window_samples) const;
-
-    // -------------------------------------------------------------------------
-    // Session tracking (RAM only)
-    // -------------------------------------------------------------------------
-    float _session_min_temp;
 
     // Timing for periodic logs
     unsigned long _last_temp_log_time;

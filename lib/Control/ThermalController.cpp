@@ -420,9 +420,6 @@ void ThermalController::handleRampUp() {
 void ThermalController::handleSteadyState() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
 
-    // Record new session minimum for display
-    _metrics.recordNewMinimum(snapshot.cold_temp, snapshot.current_setpoint);
-
     // Reset converged state at recheck interval
     if (_optimizer.isConverged()) {
         if (_metrics.isTimeForAdjustment(_last_adjustment_time,
