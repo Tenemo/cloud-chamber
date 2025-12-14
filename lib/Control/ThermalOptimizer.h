@@ -215,10 +215,6 @@ class ThermalOptimizer {
     // Formatting buffer for log messages
     mutable char _log_buffer[64];
 
-    // Stabilization period after hot reset (ms)
-    static constexpr unsigned long HOT_RESET_STABILIZATION_MS =
-        90000; // 90 seconds
-
     /**
      * @brief Evaluate effect during RAMP_UP (temperature-focused)
      *

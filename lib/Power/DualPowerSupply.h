@@ -235,7 +235,7 @@ class DualPowerSupply {
      * @param channel 0 or 1
      * @return Reference to the requested PSU
      */
-    DPS5015 &getPsu(size_t channel) { return (channel == 0) ? _psu0 : _psu1; }
+    DPS5015 &getPsu(size_t channel) { return *_psus[channel & 1]; }
 
     /**
      * @brief Reset manual override counter
@@ -324,8 +324,8 @@ class DualPowerSupply {
 
   private:
     Logger &_logger;
-    DPS5015 _psu0;
-    DPS5015 _psu1;
+    DPS5015 _psu_storage[2]; // Storage for PSU objects
+    DPS5015 *_psus[2];       // Array of pointers for uniform access
 
     // Target setpoints (commanded values)
     float _target_current;

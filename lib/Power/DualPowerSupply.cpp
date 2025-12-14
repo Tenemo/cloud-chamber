@@ -8,36 +8,35 @@
 #include <cmath>
 
 DualPowerSupply::DualPowerSupply(Logger &logger)
-    : _logger(logger), _psu0(logger, "DC12", Serial1),
-      _psu1(logger, "DC34", Serial2), _target_current(0.0f),
+    : _logger(logger), _psu_storage{DPS5015(logger, "DC12", Serial1),
+                                    DPS5015(logger, "DC34", Serial2)},
+      _psus{&_psu_storage[0], &_psu_storage[1]}, _target_current(0.0f),
       _target_voltage(0.0f), _target_output(false),
       _shutdown_in_progress(false), _shutdown_current(0.0f),
       _last_shutdown_step_time(0), _consecutive_mismatches(0) {}
 
 void DualPowerSupply::begin() {
-    _psu0.begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
-    _psu1.begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
+    _psus[0]->begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
+    _psus[1]->begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
 }
 
 void DualPowerSupply::update() {
-    _psu0.update();
-    _psu1.update();
+    for (auto *psu : _psus) {
+        psu->update();
+    }
 }
 
 bool DualPowerSupply::setSymmetricCurrent(float current) {
     // Clamp to valid range
     current = Clamp::current(current);
-
     _target_current = current;
 
     bool success = true;
-    if (_psu0.isConnected()) {
-        success &= _psu0.setCurrent(current);
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            success &= psu->setCurrent(current);
+        }
     }
-    if (_psu1.isConnected()) {
-        success &= _psu1.setCurrent(current);
-    }
-
     return success;
 }
 
@@ -45,13 +44,11 @@ bool DualPowerSupply::setSymmetricVoltage(float voltage) {
     _target_voltage = voltage;
 
     bool success = true;
-    if (_psu0.isConnected()) {
-        success &= _psu0.setVoltage(voltage);
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            success &= psu->setVoltage(voltage);
+        }
     }
-    if (_psu1.isConnected()) {
-        success &= _psu1.setVoltage(voltage);
-    }
-
     return success;
 }
 
@@ -59,13 +56,11 @@ bool DualPowerSupply::enableOutput() {
     _target_output = true;
 
     bool success = true;
-    if (_psu0.isConnected()) {
-        success &= _psu0.setOutput(true);
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            success &= psu->setOutput(true);
+        }
     }
-    if (_psu1.isConnected()) {
-        success &= _psu1.setOutput(true);
-    }
-
     return success;
 }
 
@@ -73,9 +68,9 @@ bool DualPowerSupply::disableOutput() {
     _target_output = false;
 
     bool success = true;
-    success &= _psu0.disableOutput();
-    success &= _psu1.disableOutput();
-
+    for (auto *psu : _psus) {
+        success &= psu->disableOutput();
+    }
     return success;
 }
 
@@ -84,8 +79,9 @@ void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
     _target_current = current;
     _target_output = outputOn;
 
-    _psu0.configure(voltage, current, outputOn);
-    _psu1.configure(voltage, current, outputOn);
+    for (auto *psu : _psus) {
+        psu->configure(voltage, current, outputOn);
+    }
 
     // Reset override counter - we just intentionally changed settings
     // so any temporary mismatch should not trigger override detection
@@ -99,12 +95,17 @@ void DualPowerSupply::startEmergencyShutdown() {
     _logger.log("DPS: Emergency shutdown");
     CrashLog::logCritical("SHUTDOWN", "Emergency ramp-down");
 
+    // Immediately set target to 0 to prevent any further increases
+    _target_current = 0.0f;
+    _target_output = false;
+
+    // Clear any pending override detection (we're intentionally shutting down)
+    resetOverrideCounter();
+
     _shutdown_in_progress = true;
     _shutdown_current =
-        fmax(_psu0.getOutputCurrent(), _psu1.getOutputCurrent());
-    if (_shutdown_current < _target_current) {
-        _shutdown_current = _target_current;
-    }
+        fmax(_psus[0]->getOutputCurrent(), _psus[1]->getOutputCurrent());
+    // Use the actual current for ramp-down (don't use old _target_current)
     _last_shutdown_step_time = millis();
 }
 
@@ -124,8 +125,9 @@ bool DualPowerSupply::updateEmergencyShutdown() {
 
     if (_shutdown_current <= 0.1f) {
         // Final shutdown
-        _psu0.disableOutput();
-        _psu1.disableOutput();
+        for (auto *psu : _psus) {
+            psu->disableOutput();
+        }
         _target_current = 0;
         _target_output = false;
         _shutdown_in_progress = false;
@@ -134,8 +136,9 @@ bool DualPowerSupply::updateEmergencyShutdown() {
         return false;
     } else {
         // Continue ramp-down with immediate writes
-        _psu0.setCurrentImmediate(_shutdown_current);
-        _psu1.setCurrentImmediate(_shutdown_current);
+        for (auto *psu : _psus) {
+            psu->setCurrentImmediate(_shutdown_current);
+        }
         return true;
     }
 }
@@ -149,8 +152,9 @@ bool DualPowerSupply::hardShutdown() {
     _target_output = false;
 
     bool success = true;
-    success &= _psu0.disableOutput();
-    success &= _psu1.disableOutput();
+    for (auto *psu : _psus) {
+        success &= psu->disableOutput();
+    }
 
     if (!success) {
         _logger.log("CRIT: PSU shutdown FAIL!");
@@ -160,15 +164,15 @@ bool DualPowerSupply::hardShutdown() {
 }
 
 bool DualPowerSupply::areBothConnected() const {
-    return _psu0.isConnected() && _psu1.isConnected();
+    return _psus[0]->isConnected() && _psus[1]->isConnected();
 }
 
 bool DualPowerSupply::isEitherConnected() const {
-    return _psu0.isConnected() || _psu1.isConnected();
+    return _psus[0]->isConnected() || _psus[1]->isConnected();
 }
 
 bool DualPowerSupply::isAsymmetricFailure() const {
-    return _psu0.isConnected() != _psu1.isConnected();
+    return _psus[0]->isConnected() != _psus[1]->isConnected();
 }
 
 OverrideStatus DualPowerSupply::checkManualOverride() {
@@ -176,14 +180,19 @@ OverrideStatus DualPowerSupply::checkManualOverride() {
     if (!areBothConnected())
         return OverrideStatus::NONE;
 
-    if (_psu0.isInGracePeriod() || _psu1.isInGracePeriod())
-        return OverrideStatus::NONE;
-
-    if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
-        return OverrideStatus::NONE;
+    for (auto *psu : _psus) {
+        if (psu->isInGracePeriod() || psu->hasPendingWrites())
+            return OverrideStatus::NONE;
+    }
 
     // Check for any mismatch (current, voltage, or output state)
-    bool has_mismatch = _psu0.hasAnyMismatch() || _psu1.hasAnyMismatch();
+    bool has_mismatch = false;
+    for (auto *psu : _psus) {
+        if (psu->hasAnyMismatch()) {
+            has_mismatch = true;
+            break;
+        }
+    }
 
     if (has_mismatch) {
         _consecutive_mismatches++;
@@ -200,7 +209,11 @@ OverrideStatus DualPowerSupply::checkManualOverride() {
 }
 
 bool DualPowerSupply::isOutputOn() const {
-    return _psu0.isOutputOn() || _psu1.isOutputOn();
+    for (auto *psu : _psus) {
+        if (psu->isOutputOn())
+            return true;
+    }
+    return false;
 }
 
 bool DualPowerSupply::areBothSettled() const {
@@ -208,20 +221,22 @@ bool DualPowerSupply::areBothSettled() const {
     if (!areBothConnected())
         return false;
 
-    return _psu0.isSettled() && _psu1.isSettled();
+    for (auto *psu : _psus) {
+        if (!psu->isSettled())
+            return false;
+    }
+    return true;
 }
 
 float DualPowerSupply::getAverageOutputCurrent() const {
     float sum = 0.0f;
     int count = 0;
 
-    if (_psu0.isConnected()) {
-        sum += _psu0.getOutputCurrent();
-        count++;
-    }
-    if (_psu1.isConnected()) {
-        sum += _psu1.getOutputCurrent();
-        count++;
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            sum += psu->getOutputCurrent();
+            count++;
+        }
     }
 
     return count > 0 ? (sum / count) : 0.0f;
@@ -229,51 +244,32 @@ float DualPowerSupply::getAverageOutputCurrent() const {
 
 float DualPowerSupply::getTotalPower() const {
     float power = 0.0f;
-    if (_psu0.isConnected())
-        power += _psu0.getOutputPower();
-    if (_psu1.isConnected())
-        power += _psu1.getOutputPower();
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            power += psu->getOutputPower();
+        }
+    }
     return power;
 }
 
 float DualPowerSupply::getOutputCurrent(size_t channel) const {
-    if (channel == 0)
-        return _psu0.getOutputCurrent();
-    if (channel == 1)
-        return _psu1.getOutputCurrent();
-    return 0.0f;
+    return (channel < 2) ? _psus[channel]->getOutputCurrent() : 0.0f;
 }
 
 float DualPowerSupply::getOutputVoltage(size_t channel) const {
-    if (channel == 0)
-        return _psu0.getOutputVoltage();
-    if (channel == 1)
-        return _psu1.getOutputVoltage();
-    return 0.0f;
+    return (channel < 2) ? _psus[channel]->getOutputVoltage() : 0.0f;
 }
 
 float DualPowerSupply::getOutputPower(size_t channel) const {
-    if (channel == 0)
-        return _psu0.getOutputPower();
-    if (channel == 1)
-        return _psu1.getOutputPower();
-    return 0.0f;
+    return (channel < 2) ? _psus[channel]->getOutputPower() : 0.0f;
 }
 
 bool DualPowerSupply::isConnected(size_t channel) const {
-    if (channel == 0)
-        return _psu0.isConnected();
-    if (channel == 1)
-        return _psu1.isConnected();
-    return false;
+    return (channel < 2) ? _psus[channel]->isConnected() : false;
 }
 
 bool DualPowerSupply::isOutputOn(size_t channel) const {
-    if (channel == 0)
-        return _psu0.isOutputOn();
-    if (channel == 1)
-        return _psu1.isOutputOn();
-    return false;
+    return (channel < 2) ? _psus[channel]->isOutputOn() : false;
 }
 
 float DualPowerSupply::getCurrentImbalance() const {
@@ -281,10 +277,11 @@ float DualPowerSupply::getCurrentImbalance() const {
         return 0.0f;
 
     // Only check if we commanded same current to both
-    if (fabs(_psu0.getCommandedCurrent() - _psu1.getCommandedCurrent()) > 0.1f)
+    if (fabs(_psus[0]->getCommandedCurrent() -
+             _psus[1]->getCommandedCurrent()) > 0.1f)
         return 0.0f;
 
-    return fabs(_psu0.getOutputCurrent() - _psu1.getOutputCurrent());
+    return fabs(_psus[0]->getOutputCurrent() - _psus[1]->getOutputCurrent());
 }
 
 float DualPowerSupply::getPowerImbalance() const {
@@ -292,10 +289,11 @@ float DualPowerSupply::getPowerImbalance() const {
         return 0.0f;
 
     // Only check if we commanded same current to both
-    if (fabs(_psu0.getCommandedCurrent() - _psu1.getCommandedCurrent()) > 0.1f)
+    if (fabs(_psus[0]->getCommandedCurrent() -
+             _psus[1]->getCommandedCurrent()) > 0.1f)
         return 0.0f;
 
-    return fabs(_psu0.getOutputPower() - _psu1.getOutputPower());
+    return fabs(_psus[0]->getOutputPower() - _psus[1]->getOutputPower());
 }
 
 void DualPowerSupply::checkAndLogImbalance(float current_threshold,
@@ -305,8 +303,10 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
         return;
 
     // Skip check if either PSU is in grace period (just received a command)
-    if (_psu0.isInGracePeriod() || _psu1.isInGracePeriod())
-        return;
+    for (auto *psu : _psus) {
+        if (psu->isInGracePeriod())
+            return;
+    }
 
     unsigned long now = millis();
     if (now - _last_imbalance_log_time < interval_ms)
@@ -331,7 +331,11 @@ bool DualPowerSupply::hasAnyMismatch() const {
     // Note: This ignores the grace period! It is a raw check.
     // If we are in a grace period, we shouldn't be attempting an optimization
     // step anyway.
-    return _psu0.hasAnyMismatch() || _psu1.hasAnyMismatch();
+    for (auto *psu : _psus) {
+        if (psu->hasAnyMismatch())
+            return true;
+    }
+    return false;
 }
 
 float DualPowerSupply::detectHotReset(float min_threshold) {
@@ -341,13 +345,11 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
     float current_sum = 0.0f;
     int count = 0;
 
-    if (_psu0.isConnected() && _psu0.isOutputOn()) {
-        current_sum += _psu0.getOutputCurrent();
-        count++;
-    }
-    if (_psu1.isConnected() && _psu1.isOutputOn()) {
-        current_sum += _psu1.getOutputCurrent();
-        count++;
+    for (auto *psu : _psus) {
+        if (psu->isConnected() && psu->isOutputOn()) {
+            current_sum += psu->getOutputCurrent();
+            count++;
+        }
     }
 
     if (count == 0)
@@ -385,20 +387,21 @@ SelfTestResult DualPowerSupply::runSelfTest() {
     switch (phase) {
     case SelfTestPhase::START:
         _logger.log("DPS: Self-test start");
-        _psu0.setVoltage(ST_VOLTAGE);
-        _psu0.setCurrent(ST_CURRENT);
-        _psu0.setOutput(false);
-        _psu1.setVoltage(ST_VOLTAGE);
-        _psu1.setCurrent(ST_CURRENT);
-        _psu1.setOutput(false);
+        for (auto *psu : _psus) {
+            psu->setVoltage(ST_VOLTAGE);
+            psu->setCurrent(ST_CURRENT);
+            psu->setOutput(false);
+        }
         _selftest_phase = static_cast<int>(SelfTestPhase::WAIT_WRITES);
         _selftest_phase_start = now;
         break;
 
     case SelfTestPhase::WAIT_WRITES:
         // Wait for all pending writes to complete before checking
-        if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
-            return SelfTestResult::IN_PROGRESS;
+        for (auto *psu : _psus) {
+            if (psu->hasPendingWrites())
+                return SelfTestResult::IN_PROGRESS;
+        }
         // Writes done - start settle timer
         _selftest_phase = static_cast<int>(SelfTestPhase::CHECK_SETTINGS);
         _selftest_phase_start = now;
@@ -415,11 +418,13 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             return SelfTestResult::FAILED;
         }
 
-        if (fabs(_psu0.getSetVoltage() - ST_VOLTAGE) > ST_VOLTAGE_TOLERANCE ||
-            fabs(_psu1.getSetVoltage() - ST_VOLTAGE) > ST_VOLTAGE_TOLERANCE) {
-            _logger.log("DPS: Self-test FAIL: V mismatch");
-            CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
-            return SelfTestResult::FAILED;
+        for (auto *psu : _psus) {
+            if (fabs(psu->getSetVoltage() - ST_VOLTAGE) >
+                ST_VOLTAGE_TOLERANCE) {
+                _logger.log("DPS: Self-test FAIL: V mismatch");
+                CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
+                return SelfTestResult::FAILED;
+            }
         }
 
         _selftest_phase = static_cast<int>(SelfTestPhase::ENABLE_PSU0);
@@ -427,7 +432,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         break;
 
     case SelfTestPhase::ENABLE_PSU0:
-        _psu0.setOutput(true);
+        _psus[0]->setOutput(true);
         _selftest_phase = static_cast<int>(SelfTestPhase::VERIFY_PSU0);
         _selftest_phase_start = now;
         break;
@@ -436,9 +441,9 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 
-        if (_psu0.isOutputOn()) {
+        if (_psus[0]->isOutputOn()) {
             _selftest_passed[0] = true;
-            _psu0.setOutput(false);
+            _psus[0]->setOutput(false);
             _selftest_phase = static_cast<int>(SelfTestPhase::ENABLE_PSU1);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {
@@ -451,7 +456,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
     case SelfTestPhase::ENABLE_PSU1:
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
-        _psu1.setOutput(true);
+        _psus[1]->setOutput(true);
         _selftest_phase = static_cast<int>(SelfTestPhase::VERIFY_PSU1);
         _selftest_phase_start = now;
         break;
@@ -460,9 +465,9 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 
-        if (_psu1.isOutputOn()) {
+        if (_psus[1]->isOutputOn()) {
             _selftest_passed[1] = true;
-            _psu1.setOutput(false);
+            _psus[1]->setOutput(false);
             _selftest_phase = static_cast<int>(SelfTestPhase::COMPLETE);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {

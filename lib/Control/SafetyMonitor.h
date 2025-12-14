@@ -27,14 +27,15 @@
  * @brief Result of a safety check
  *
  * Provides consistent error handling across all safety checks.
+ * Ordered by severity (higher value = more severe) for priority comparison.
  */
 enum class SafetyStatus {
     OK,               // All checks passed
-    THERMAL_FAULT,    // Critical temperature exceeded
-    SENSOR_FAULT,     // Sensor failure detected
-    DPS_DISCONNECTED, // Lost communication with PSU
+    WARNING,          // Non-critical issue (logged but not blocking)
     MANUAL_OVERRIDE,  // User has taken control
-    WARNING           // Non-critical issue (logged but not blocking)
+    DPS_DISCONNECTED, // Lost communication with PSU
+    SENSOR_FAULT,     // Sensor failure detected
+    THERMAL_FAULT     // Critical temperature exceeded (most severe)
 };
 
 /**

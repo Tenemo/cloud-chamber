@@ -52,8 +52,6 @@ constexpr float HOT_RESET_CURRENT_THRESHOLD_A = STARTUP_CURRENT;
 // =============================================================================
 
 namespace Tolerance {
-constexpr float MIN_CURRENT_THRESHOLD = 0.1f;        // Output considered "off"
-constexpr float NVS_FLOAT_TOLERANCE = 0.01f;         // NVS comparison tolerance
 constexpr float TEMP_IMPROVEMENT_THRESHOLD_C = 0.1f; // Min improvement to count
 } // namespace Tolerance
 

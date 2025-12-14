@@ -21,22 +21,49 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
     // Update hysteresis state before running checks
     updateHysteresis();
 
-    // Priority order: sensor health → sanity → thermal → DPS → override
+    // Run all checks and track the most severe fault
+    // Priority: THERMAL_FAULT > DPS_DISCONNECTED > SENSOR_FAULT
+    SafetyStatus worst_status = SafetyStatus::OK;
+    const char *worst_reason = nullptr;
+
+    // Helper to update worst status (higher enum value = more severe)
+    auto updateWorst = [&](SafetyStatus status, const char *reason) {
+        if (static_cast<int>(status) > static_cast<int>(worst_status)) {
+            worst_status = status;
+            worst_reason = reason;
+        }
+    };
+
+    // Check sensor health
     SafetyStatus status = checkSensorHealth();
     if (status != SafetyStatus::OK)
-        return {status, _last_fault_reason};
+        updateWorst(status, _last_fault_reason);
 
+    // Check sensor sanity
     status = checkSensorSanity();
     if (status != SafetyStatus::OK)
-        return {status, _last_fault_reason};
+        updateWorst(status, _last_fault_reason);
 
+    // Check thermal limits
     status = checkThermalLimits();
     if (status != SafetyStatus::OK)
-        return {status, _last_fault_reason};
+        updateWorst(status, _last_fault_reason);
 
+    // Check DPS connection
     status = checkDpsConnection();
     if (status != SafetyStatus::OK)
-        return {status, _last_fault_reason};
+        updateWorst(status, _last_fault_reason);
+
+    // Return the most severe fault found
+    if (worst_status != SafetyStatus::OK) {
+        // Restore worst reason to _last_fault_reason for caller
+        if (worst_reason) {
+            strncpy(_last_fault_reason, worst_reason,
+                    sizeof(_last_fault_reason) - 1);
+            _last_fault_reason[sizeof(_last_fault_reason) - 1] = '\0';
+        }
+        return {worst_status, _last_fault_reason};
+    }
 
     // Manual override via DualPowerSupply
     OverrideStatus override = _dps.checkManualOverride();
@@ -116,10 +143,19 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     }
 
     // Hot side rate check (thermal runaway detection)
+    // Note: _metrics must be set via setMetrics() for runaway detection to work
     if (_metrics != nullptr && _metrics->hasMinimumHistory(60)) {
         float hot_rate = _metrics->getHotPlateRate();
         if (hot_rate > HOT_SIDE_RATE_FAULT_C_PER_MIN) {
             return setFault(SafetyStatus::THERMAL_FAULT, "RUNAWAY");
+        }
+    } else if (_metrics == nullptr) {
+        // Log warning once if metrics not configured (runaway detection
+        // disabled)
+        static bool warned_once = false;
+        if (!warned_once) {
+            _logger.log("WARN: Metrics null - runaway detection disabled");
+            warned_once = true;
         }
     }
 
@@ -185,11 +221,14 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current) {
         _logger.logf("PT100 implausible! C=%.1f H=%.1f", cold_temp, hot_temp);
 
         // Check if current draw supports the cold temperature claim
+        // If we're drawing significant current, we expect a temperature delta
         float expected_min_delta =
             avg_current * PLAUSIBILITY_MIN_DELTA_T_PER_AMP;
         float actual_delta = hot_temp - cold_temp;
 
-        if (actual_delta > expected_min_delta * 3) {
+        // Fault if delta is implausibly SMALL - PT100 claims extreme cold but
+        // hot side shows no corresponding heat buildup (sensor failure)
+        if (actual_delta < expected_min_delta) {
             return setFault(SafetyStatus::THERMAL_FAULT, "PT100 failed low");
         }
 
