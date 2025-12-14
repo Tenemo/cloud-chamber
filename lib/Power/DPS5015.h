@@ -114,10 +114,6 @@ class DPS5015 {
     bool _in_error_state;
     unsigned long _last_update_time;
 
-    // Display line IDs (initialized once in registerDisplayLines)
-    char _current_line_id[16];
-    char _power_line_id[16];
-
     // Cached values (read from DPS)
     float _set_voltage;
     float _set_current;

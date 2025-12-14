@@ -27,29 +27,12 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     _serial.begin(actual_baud, SERIAL_8N1, rxPin, txPin);
     delay(100); // Allow UART hardware to stabilize after configuration
 
-    // Register placeholder display line for initial state
-    char labelBuf[16];
-    Logger::formatLabel(labelBuf, sizeof(labelBuf), _label);
-    _logger.registerTextLine(_label, labelBuf, "INIT...");
-
     _initialized = true;
     _last_update_time = 0; // Force immediate first read attempt
 }
 
 void DPS5015::registerDisplayLines() {
-    // Initialize line IDs once
-    snprintf(_current_line_id, sizeof(_current_line_id), "%s_I", _label);
-    snprintf(_power_line_id, sizeof(_power_line_id), "%s_P", _label);
-
-    char labelBuf[16];
-    snprintf(labelBuf, sizeof(labelBuf), "%s V:", _label);
-    _logger.registerLine(_label, labelBuf, "V", _output_voltage);
-
-    snprintf(labelBuf, sizeof(labelBuf), "%s I:", _label);
-    _logger.registerLine(_current_line_id, labelBuf, "A", _output_current);
-
-    snprintf(labelBuf, sizeof(labelBuf), "%s P:", _label);
-    _logger.registerLine(_power_line_id, labelBuf, "W", _output_power);
+    // Display lines removed - V/I/P now only logged to serial
 }
 
 void DPS5015::update() {
@@ -159,7 +142,6 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
         _ever_seen = true;
         _currently_online = true;
         _in_error_state = false;
-        registerDisplayLines();
         _logger.log("DPS5015 connected.");
         applyPendingConfig();
         return;
@@ -169,14 +151,8 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     if (_in_error_state) {
         _in_error_state = false;
         _currently_online = true;
-        registerDisplayLines();
         _logger.log("DPS5015 recovered");
     }
-
-    // Update display
-    _logger.updateLine(_label, _output_voltage);
-    _logger.updateLine(_current_line_id, _output_current);
-    _logger.updateLine(_power_line_id, _output_power);
 }
 
 void DPS5015::handleCommError() {
@@ -194,9 +170,6 @@ void DPS5015::handleCommError() {
         _in_error_state = true;
         _currently_online = false;
         _logger.log("DPS5015 comm error");
-        _logger.updateLineText(_label, "ERROR");
-        _logger.updateLineText(_current_line_id, "ERROR");
-        _logger.updateLineText(_power_line_id, "ERROR");
     }
 }
 
@@ -419,6 +392,12 @@ bool DPS5015::hasAnyMismatch() const {
 }
 
 void DPS5015::applyPendingConfig() {
+    // Always set hardware protection limits on connection (even without other
+    // config)
+    queueWrite(REG_LOCK, 0); // Unlock first
+    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
+    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
+
     if (!_pending_config.has_config)
         return;
 
@@ -427,15 +406,7 @@ void DPS5015::applyPendingConfig() {
     _commanded_current = _pending_config.current;
     _commanded_output = _pending_config.output_on;
 
-    // Queue all the configuration writes
-    queueWrite(REG_LOCK, 0); // Unlock first
-
-    // Set hardware protection limits as failsafes
-    // OVP: Protect against Modbus errors commanding excessive voltage
-    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
-    // OCP: Protect against software commanding excessive current
-    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
-
+    // Queue voltage, current, and output settings
     queueWrite(REG_SET_VOLTAGE,
                static_cast<uint16_t>(_pending_config.voltage * 100.0f));
     queueWrite(REG_SET_CURRENT,

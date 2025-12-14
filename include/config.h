@@ -22,7 +22,8 @@
 // Control Loop Enable
 // =============================================================================
 // When false, the system runs as a simple sensor logger without PSU control
-constexpr bool CONTROL_LOOP_ENABLED = true;
+// Note: Must be a preprocessor macro (not constexpr) for #if directives
+#define CONTROL_LOOP_ENABLED 1
 
 // =============================================================================
 // Sensor Update Intervals
