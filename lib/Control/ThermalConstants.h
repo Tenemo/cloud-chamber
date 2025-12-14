@@ -44,8 +44,9 @@ static_assert(HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES <= HISTORY_BUFFER_SIZE,
 // Threshold for skipping ramp after hot reset (near max current)
 constexpr float HOT_RESET_NEAR_MAX_A = MAX_CURRENT_PER_CHANNEL - 0.5f;
 
-// Hot reset detection threshold
-constexpr float HOT_RESET_CURRENT_THRESHOLD_A = STARTUP_CURRENT;
+// Hot reset detection threshold (skip self-test if DPS running above this)
+// Low threshold catches any meaningful TEC operation for seamless recovery
+constexpr float HOT_RESET_CURRENT_THRESHOLD_A = 0.5f;
 
 // =============================================================================
 // Tolerance Constants
