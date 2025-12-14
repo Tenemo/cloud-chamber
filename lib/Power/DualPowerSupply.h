@@ -247,6 +247,18 @@ class DualPowerSupply {
      */
     void resetOverrideCounter() { _consecutive_mismatches = 0; }
 
+    /**
+     * @brief Check if any PSU has a mismatch between commanded and actual
+     * values
+     *
+     * Used for immediate "pre-flight" checks before automated adjustments.
+     * This is a raw check that ignores grace periods - caller must ensure
+     * PSUs are settled before calling this.
+     *
+     * @return true if any mismatch detected on any connected PSU
+     */
+    bool hasAnyMismatch() const;
+
     // =========================================================================
     // Channel Imbalance Detection
     // =========================================================================

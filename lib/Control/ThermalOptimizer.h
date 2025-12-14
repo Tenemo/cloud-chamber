@@ -255,13 +255,33 @@ class ThermalOptimizer {
                       ThermalControlPhase phase);
 
     /**
-     * @brief Calculate adaptive step size based on conditions
+     * @brief Calculate adaptive step size for RAMP_UP (current-based)
+     *
+     * During ramp-up, step size is based on current setpoint:
+     * - Below 6A: coarse steps (0.5A) for fast approach
+     * - 6-10A: medium steps (0.25A)
+     * - Above 10A: fine steps (0.1A) for careful approach
+     *
+     * @param current_setpoint Current setpoint
+     * @param is_hot_side_warning True if hot side in warning zone
+     * @return Step size in amps
+     */
+    float calculateRampStepSize(float current_setpoint,
+                                bool is_hot_side_warning) const;
+
+    /**
+     * @brief Calculate adaptive step size for STEADY_STATE (rate-based)
+     *
+     * During steady-state probing, step size is based on cooling rate:
+     * - Fast rate: system not near equilibrium, use coarse steps
+     * - Slow rate: near equilibrium, use fine steps
      *
      * @param cooling_rate Current cooling rate magnitude
      * @param is_hot_side_warning True if hot side in warning zone
      * @return Step size in amps
      */
-    float calculateStepSize(float cooling_rate, bool is_hot_side_warning) const;
+    float calculateSteadyStepSize(float cooling_rate,
+                                  bool is_hot_side_warning) const;
 
     /**
      * @brief Attempt a current adjustment in RAMP_UP mode

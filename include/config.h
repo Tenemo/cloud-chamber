@@ -22,7 +22,6 @@
 // Control Loop Enable
 // =============================================================================
 // When false, the system runs as a simple sensor logger without PSU control
-// Note: Must be a preprocessor macro (not constexpr) for #if directives
 #define CONTROL_LOOP_ENABLED 1
 
 // =============================================================================
@@ -98,7 +97,7 @@ constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
 // Thermal Controller - Voltage and Current Limits
 // =============================================================================
 constexpr float TEC_VOLTAGE_SETPOINT = 15.0f; // Fixed voltage for cascade TECs
-constexpr float MAX_CURRENT_PER_CHANNEL = 12.0f; // Maximum current per DPS
+constexpr float MAX_CURRENT_PER_CHANNEL = 13.0f; // Maximum current per DPS
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
 constexpr float DEGRADED_MODE_CURRENT =
@@ -156,12 +155,17 @@ constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS =
 // =============================================================================
 // Thermal Controller - Adaptive Step Sizes
 // =============================================================================
-// Use coarse steps when far from optimum, fine steps when near optimum
-constexpr float COARSE_STEP_A = 0.5f;  // Far from optimum (rate > 1 K/min)
-constexpr float MEDIUM_STEP_A = 0.25f; // Approaching optimum (rate 0.5-1 K/min)
-constexpr float FINE_STEP_A = 0.1f;    // Near optimum (rate < 0.5 K/min)
+// Step sizes for current adjustments
+constexpr float COARSE_STEP_A = 0.5f;  // Below RAMP_COARSE_BELOW_A
+constexpr float MEDIUM_STEP_A = 0.25f; // Below RAMP_MEDIUM_BELOW_A
+constexpr float FINE_STEP_A = 0.1f;    // Above RAMP_MEDIUM_BELOW_A
 
-// Rate thresholds for step size selection
+// Current thresholds for step size selection during RAMP_UP
+constexpr float RAMP_COARSE_BELOW_A = 7.0f; // Below = coarse steps
+constexpr float RAMP_MEDIUM_BELOW_A =
+    9.0f; // Below = medium steps, above = fine
+
+// Rate thresholds for step size selection during STEADY_STATE probing
 constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min - above = coarse
 constexpr float STEP_MEDIUM_RATE_THRESHOLD = 0.5f; // K/min - above = medium
 

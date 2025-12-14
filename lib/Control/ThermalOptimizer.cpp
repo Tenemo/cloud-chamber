@@ -289,27 +289,47 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
 // Step Size Calculation
 // =============================================================================
 
-float ThermalOptimizer::calculateStepSize(float cooling_rate,
-                                          bool is_hot_side_warning) const {
-    float rate_magnitude = fabs(cooling_rate);
+float ThermalOptimizer::calculateRampStepSize(float current_setpoint,
+                                              bool is_hot_side_warning) const {
+    // RAMP_UP: Use current-based step sizing
+    // Coarse steps at low current, fine steps near max
 
-    // Hot-side in warning zone: cap at medium step regardless of rate
+    // Hot-side in warning zone: cap at medium step for safety
     if (is_hot_side_warning) {
-        if (_consecutive_bounces >= 2) {
-            return FINE_STEP_A;
-        }
-        return MEDIUM_STEP_A;
+        return (_consecutive_bounces >= 2) ? FINE_STEP_A : MEDIUM_STEP_A;
     }
 
-    // If we've bounced multiple times, use finer steps
+    // If we've bounced multiple times, we're near optimum - use fine steps
     if (_consecutive_bounces >= 2) {
         return FINE_STEP_A;
     }
 
-    // Select based on cooling rate magnitude
-    // Note: If insufficient history, rate may be large
-    // (RATE_INSUFFICIENT_HISTORY) which correctly biases towards COARSE_STEP_A
-    // during early ramp
+    // Current-based selection: aggressive at low current, cautious at high
+    if (current_setpoint < RAMP_COARSE_BELOW_A) {
+        return COARSE_STEP_A; // Low current - go fast
+    } else if (current_setpoint < RAMP_MEDIUM_BELOW_A) {
+        return MEDIUM_STEP_A; // Getting higher - moderate
+    } else {
+        return FINE_STEP_A; // Near max - be careful
+    }
+}
+
+float ThermalOptimizer::calculateSteadyStepSize(
+    float cooling_rate, bool is_hot_side_warning) const {
+    // STEADY_STATE: Use rate-based step sizing for fine-tuning
+    float rate_magnitude = fabs(cooling_rate);
+
+    // Hot-side in warning zone: cap at medium step for safety
+    if (is_hot_side_warning) {
+        return (_consecutive_bounces >= 2) ? FINE_STEP_A : MEDIUM_STEP_A;
+    }
+
+    // If we've bounced multiple times, use fine steps
+    if (_consecutive_bounces >= 2) {
+        return FINE_STEP_A;
+    }
+
+    // Rate-based selection for steady-state probing
     if (rate_magnitude > STEP_COARSE_RATE_THRESHOLD) {
         return COARSE_STEP_A;
     } else if (rate_magnitude > STEP_MEDIUM_RATE_THRESHOLD) {
@@ -330,8 +350,7 @@ ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
                                             false, false, nullptr};
 
     float current = snapshot.current_setpoint;
-    float step =
-        calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
+    float step = calculateRampStepSize(current, snapshot.hot_in_warning);
 
     // Record baseline before step
     _baseline_current = current;
@@ -366,7 +385,7 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
 
     float current = snapshot.current_setpoint;
     float step =
-        calculateStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
+        calculateSteadyStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
 
     // Record baseline before step
     _baseline_current = current;
