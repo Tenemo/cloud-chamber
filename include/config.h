@@ -22,7 +22,7 @@
 // Control Loop Enable
 // =============================================================================
 // When false, the system runs as a simple sensor logger without PSU control
-constexpr bool CONTROL_LOOP_ENABLED = false;
+constexpr bool CONTROL_LOOP_ENABLED = true;
 
 // =============================================================================
 // Sensor Update Intervals

@@ -10,7 +10,7 @@ TemperatureSensors::TemperatureSensors(Logger &logger)
     : _logger(logger), _oneWire(PIN_DS18B20), _dallasSensors(&_oneWire),
       _pt100(logger, "Cold plate"),
       _hotPlate(logger, _dallasSensors, DS18B20_1_ADDRESS, "Hot plate"),
-      _glassTop(logger, _dallasSensors, DS18B20_2_ADDRESS, "Glass top"),
+      _glassTop(logger, _dallasSensors, DS18B20_2_ADDRESS, "External"),
       _internal(logger, _dallasSensors, DS18B20_3_ADDRESS, "Internal") {}
 
 void TemperatureSensors::begin() {
