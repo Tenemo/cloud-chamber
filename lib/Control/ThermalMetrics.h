@@ -242,6 +242,10 @@ class ThermalMetrics {
     unsigned long _session_start_time;
     unsigned long _last_metrics_save_time;
     unsigned long _last_runtime_save_time;
+    unsigned long _last_temp_log_time;
+
+    // Periodic temperature log interval
+    static constexpr unsigned long TEMP_LOG_INTERVAL_MS = 10000; // 10 seconds
 
     // NVS namespace and keys
     static constexpr const char *NVS_NAMESPACE = "tc_metrics";

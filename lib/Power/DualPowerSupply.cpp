@@ -317,23 +317,49 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
     }
 }
 
+bool DualPowerSupply::hasAnyMismatch() const {
+    // If not connected, we can't determine mismatch, assume safe (false)
+    // or let safety monitor handle disconnection.
+    if (!areBothConnected())
+        return false;
+
+    // Delegate to individual PSUs
+    // Note: This ignores the grace period! It is a raw check.
+    // If we are in a grace period, we shouldn't be attempting an optimization
+    // step anyway.
+    return _psu0.hasAnyMismatch() || _psu1.hasAnyMismatch();
+}
+
 float DualPowerSupply::detectHotReset(float min_threshold) {
-    if (!isEitherConnected() || !isOutputOn())
+    // We might be called when only one is connected.
+    // We want to know if *any* connected PSU is outputting power.
+
+    float current_sum = 0.0f;
+    int count = 0;
+
+    if (_psu0.isConnected() && _psu0.isOutputOn()) {
+        current_sum += _psu0.getOutputCurrent();
+        count++;
+    }
+    if (_psu1.isConnected() && _psu1.isOutputOn()) {
+        current_sum += _psu1.getOutputCurrent();
+        count++;
+    }
+
+    if (count == 0)
         return 0.0f;
 
-    float actual_current = getAverageOutputCurrent();
+    float avg_current = current_sum / count;
 
-    // Wait for Modbus read to complete (current not yet available)
-    if (actual_current < Tolerance::MIN_CURRENT_THRESHOLD)
+    // Wait for valid reading (Modbus defaults to 0 before first read)
+    // We assume if output is ON, current should be non-zero if working,
+    // but check threshold just in case.
+    if (avg_current <= min_threshold)
         return 0.0f;
 
-    // Below threshold - not considered a hot reset
-    if (actual_current <= min_threshold)
-        return 0.0f;
-
-    // Hot reset detected - return the current to adopt
+    // Hot reset detected - return current to adopt
     _logger.log("DPS: Hot reset detected");
-    return fmin(actual_current, MAX_CURRENT_PER_CHANNEL);
+    return fmin(avg_current, MAX_CURRENT_PER_CHANNEL);
 }
 
 void DualPowerSupply::resetSelfTest() {

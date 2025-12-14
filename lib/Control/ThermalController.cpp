@@ -257,41 +257,62 @@ void ThermalController::handleInitializing() {
     bool hot_plate_ok = _sensors.isHotPlateConnected();
     bool both_psu_ok = _dps.areBothConnected();
 
-    // Check for hot reset (DPS already running)
-    float adopted = _dps.detectHotReset(HOT_RESET_CURRENT_THRESHOLD_A);
-    if (adopted > 0.0f) {
-        CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
+    // 1. Detect Hot Reset (Run only once)
+    // We check if we haven't already activated hot reset logic
+    if (!_hot_reset_active) {
+        // Check if ANY connected PSU is running
+        float adopted = _dps.detectHotReset(HOT_RESET_CURRENT_THRESHOLD_A);
 
-        // Track hot reset state for recovery if DPS disconnects
-        _hot_reset_active = true;
-        _hot_reset_current = adopted;
+        if (adopted > 0.0f) {
+            CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
+            _logger.logf(true, "TC: Hot Reset detected, adopting %.2fA",
+                         adopted);
 
-        _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
+            _hot_reset_active = true;
+            _hot_reset_current = adopted;
 
-        // Seed the optimizer with current state as starting best point
-        float current_temp = _sensors.getColdPlateTemperature();
-        _optimizer.seedWithCurrent(adopted, current_temp);
+            // Configure expected state, but DO NOT transition yet.
+            // This queues writes for currently connected PSUs and sets
+            // pending config for the ones yet to connect.
+            _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
 
-        if (adopted >= HOT_RESET_NEAR_MAX_A) {
-            transitionTo(ThermalState::STEADY_STATE, "Hot reset near max");
+            // Seed optimizer immediately so we don't start from 0
+            float current_temp = _sensors.getColdPlateTemperature();
+            _optimizer.seedWithCurrent(adopted, current_temp);
+        }
+    }
+
+    // 2. Wait for ALL hardware to be ready
+    if (cold_plate_ok && hot_plate_ok && both_psu_ok) {
+
+        // If we are in hot reset mode, we skip self-test but we MUST ensure
+        // the PSUs are settled (commands processed) before entering RAMP_UP
+        if (_hot_reset_active) {
+            if (!_dps.areBothSettled()) {
+                // Wait for grace periods and pending writes to clear
+                return;
+            }
+
+            if (_hot_reset_current >= HOT_RESET_NEAR_MAX_A) {
+                transitionTo(ThermalState::STEADY_STATE, "Hot reset near max");
+            } else {
+                transitionTo(ThermalState::RAMP_UP, "Hot reset recovery");
+            }
         } else {
-            transitionTo(ThermalState::RAMP_UP, "Hot reset recovery");
+            // Normal boot -> Go to Self Test
+            transitionTo(ThermalState::SELF_TEST);
         }
         return;
     }
 
-    // All hardware ready?
-    if (cold_plate_ok && hot_plate_ok && both_psu_ok) {
-        transitionTo(ThermalState::SELF_TEST);
-        return;
-    }
-
-    // Timeout
+    // 3. Timeout Logic
     if (elapsed > INIT_TIMEOUT_MS) {
         if (!cold_plate_ok || !hot_plate_ok) {
             CrashLog::logCritical("INIT_FAIL", "Sensor timeout");
             transitionTo(ThermalState::SENSOR_FAULT);
         } else {
+            // Note: In hot reset, if one PSU is dead, we might want to try
+            // running on one? For now, stick to safe symmetric policy.
             CrashLog::logCritical("INIT_FAIL", "DPS timeout");
             transitionTo(ThermalState::DPS_DISCONNECTED);
         }
@@ -340,6 +361,17 @@ void ThermalController::applyOptimizationDecision(
 
     // Execute current change if requested
     if (decision.change_current) {
+
+        // --- Pre-flight Integrity Check ---
+        // Before changing current, verify reality matches our last expectation.
+        // We use a stateless check here (no counters) for immediate rejection.
+        if (_dps.hasAnyMismatch()) {
+            _logger.log("TC: Pre-flight mismatch detected!");
+            transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+            return;
+        }
+        // -----------------------------------
+
         _dps.setSymmetricCurrent(decision.new_current);
         _dps.resetOverrideCounter();
         _last_adjustment_time = snapshot_now;

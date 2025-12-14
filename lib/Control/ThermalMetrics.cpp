@@ -20,7 +20,8 @@ ThermalMetrics::ThermalMetrics(Logger &logger)
     : _logger(logger), _head(0), _count(0), _all_time_min_temp(100.0f),
       _all_time_optimal_current(0.0f), _total_runtime_seconds(0),
       _session_count(0), _session_min_temp(100.0f), _session_start_time(0),
-      _last_metrics_save_time(0), _last_runtime_save_time(0) {}
+      _last_metrics_save_time(0), _last_runtime_save_time(0),
+      _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
     _session_start_time = millis();
@@ -75,6 +76,36 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
     dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
                              CHANNEL_POWER_IMBALANCE_W,
                              Timing::IMBALANCE_LOG_INTERVAL_MS);
+
+    // Periodic comprehensive temperature log (serial only)
+    unsigned long now = millis();
+    if (now - _last_temp_log_time >= TEMP_LOG_INTERVAL_MS) {
+        _last_temp_log_time = now;
+
+        float cold = sample.cold_plate_temp;
+        float hot = sample.hot_plate_temp;
+        float delta = hot - cold;
+        float rate = getColdPlateRate();
+        float current = sample.set_current;
+
+        unsigned long total_secs = now / 1000;
+        unsigned int hours = (total_secs / 3600) % 24;
+        unsigned int mins = (total_secs / 60) % 60;
+        unsigned int secs = total_secs % 60;
+
+        // Format rate string (handle insufficient history)
+        char rate_str[12];
+        if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
+            snprintf(rate_str, sizeof(rate_str), "---");
+        } else {
+            snprintf(rate_str, sizeof(rate_str), "%.2f", rate);
+        }
+
+        _logger.logf(true,
+                     "[%02u:%02u:%02u] Cold:%.1fC Hot:%.1fC dT:%.1fC "
+                     "Rate:%sK/m I:%.2fA",
+                     hours, mins, secs, cold, hot, delta, rate_str, current);
+    }
 }
 
 ThermalSnapshot ThermalMetrics::buildSnapshot(TemperatureSensors &sensors,
@@ -351,6 +382,6 @@ void ThermalMetrics::updateDisplay(const char *state_string,
 
     // Format current as text
     char current_buf[16];
-    snprintf(current_buf, sizeof(current_buf), "%.1f A", target_current);
+    snprintf(current_buf, sizeof(current_buf), "%.2f A", target_current);
     _logger.updateLineText(LINE_CURRENT, current_buf);
 }
