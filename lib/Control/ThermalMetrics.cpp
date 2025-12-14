@@ -223,6 +223,7 @@ void ThermalMetrics::loadFromNvs() {
         _total_runtime_seconds = 0;
         _session_count = 1;
 
+#if NVS_WRITES_ENABLED
         if (!checkNvsSpace()) {
             _logger.log("NVS: No space for init!");
             return;
@@ -242,6 +243,7 @@ void ThermalMetrics::loadFromNvs() {
                 _logger.log("NVS: Init write failed!");
             }
         }
+#endif
         return;
     }
 
@@ -255,10 +257,12 @@ void ThermalMetrics::loadFromNvs() {
     // Increment session count
     _session_count++;
 
+#if NVS_WRITES_ENABLED
     if (checkNvsSpace() && _prefs.begin(NVS_NAMESPACE, false)) {
         _prefs.putULong(KEY_SESSIONS, _session_count);
         _prefs.end();
     }
+#endif
 
     // Log loaded values
     _logger.logf("TC: Best=%.1fC@%.1fA", _all_time_min_temp,
@@ -270,6 +274,10 @@ void ThermalMetrics::loadFromNvs() {
 }
 
 void ThermalMetrics::saveToNvs(bool force) {
+#if !NVS_WRITES_ENABLED
+    (void)force; // Suppress unused parameter warning
+    return;
+#else
     unsigned long now = millis();
 
     if (!force &&
@@ -295,6 +303,7 @@ void ThermalMetrics::saveToNvs(bool force) {
 
     _prefs.end();
     _last_metrics_save_time = now;
+#endif
 }
 
 void ThermalMetrics::updateRuntime() {
@@ -308,6 +317,7 @@ void ThermalMetrics::updateRuntime() {
     _total_runtime_seconds += elapsed_ms / 1000;
     _last_runtime_save_time = now;
 
+#if NVS_WRITES_ENABLED
     if (!checkNvsSpace()) {
         return;
     }
@@ -316,6 +326,7 @@ void ThermalMetrics::updateRuntime() {
         _prefs.putULong(KEY_RUNTIME, _total_runtime_seconds);
         _prefs.end();
     }
+#endif
 }
 
 void ThermalMetrics::registerDisplayLines() {

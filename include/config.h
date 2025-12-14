@@ -205,6 +205,10 @@ constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS = 180000; // 3 min grace
 // =============================================================================
 // NVS Metrics Persistence
 // =============================================================================
+// Master enable for NVS writes - set to false to completely disable flash
+// writes Useful during development/testing to preserve flash endurance
+#define NVS_WRITES_ENABLED 0
+
 // Write intervals are long to avoid wearing out flash (limited writes)
 constexpr unsigned long NVS_METRICS_SAVE_INTERVAL_MS = 300000; // 5 minutes
 constexpr unsigned long NVS_RUNTIME_SAVE_INTERVAL_MS = 60000;  // 1 minute
