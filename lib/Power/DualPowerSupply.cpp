@@ -30,6 +30,7 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
     // Clamp to valid range
     current = Clamp::current(current);
     _target_current = current;
+    _last_setpoint_change_time = millis(); // Record for imbalance suppression
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -296,6 +297,12 @@ void DualPowerSupply::checkAndLogImbalance(float current_threshold,
     }
 
     unsigned long now = millis();
+
+    // Skip if we recently changed the setpoint - PSUs may ramp at different
+    // rates
+    if (now - _last_setpoint_change_time < IMBALANCE_SETTLE_MS)
+        return;
+
     if (now - _last_imbalance_log_time < interval_ms)
         return;
 

@@ -329,6 +329,8 @@ class DualPowerSupply {
 
     // Imbalance logging rate limiting
     unsigned long _last_imbalance_log_time = 0;
+    unsigned long _last_setpoint_change_time = 0; // For imbalance suppression
+    static constexpr unsigned long IMBALANCE_SETTLE_MS = 3000; // 3s settle time
 
     // Self-test state
     int _selftest_phase = 0;
