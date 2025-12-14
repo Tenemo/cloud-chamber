@@ -187,6 +187,14 @@ class ThermalOptimizer {
     }
 
     /**
+     * @brief Clear any pending step evaluation (used when changing phases)
+     */
+    void clearPendingEvaluation() {
+        _awaiting_evaluation = false;
+        _eval_start_time = 0;
+    }
+
+    /**
      * @brief Update best tracking with new optimal point
      */
     void updateBest(float current, float temp) {

@@ -214,6 +214,7 @@ void ThermalController::transitionTo(ThermalState newState,
         _hot_reset_active = false;
         _hot_reset_current = 0.0f;
         _steady_state_start_time = millis();
+        _optimizer.clearPendingEvaluation(); // avoid carrying ramp evaluation
 
         // If no adjustment was ever made (e.g., hot reset recovery that
         // immediately exited ramp), allow immediate first probe since we
