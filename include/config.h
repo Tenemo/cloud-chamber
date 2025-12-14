@@ -101,7 +101,7 @@ constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
 // =============================================================================
 // Thermal Controller - Voltage and Current Limits
 // =============================================================================
-constexpr float TEC_VOLTAGE_SETPOINT = 16.0f; // Fixed voltage for cascade TECs
+constexpr float TEC_VOLTAGE_SETPOINT = 15.0f; // Fixed voltage for cascade TECs
 constexpr float MAX_CURRENT_PER_CHANNEL = 12.0f; // Maximum current per DPS
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
 constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
@@ -109,8 +109,8 @@ constexpr float DEGRADED_MODE_CURRENT =
     5.0f; // Max current when one DPS disconnects
 
 // Hardware protection limits (failsafe in case of software/Modbus errors)
-constexpr float DPS_OCP_LIMIT = 12.5f; // Over Current Protection
-constexpr float DPS_OVP_LIMIT = 16.5f; // Over Voltage Protection
+constexpr float DPS_OVP_LIMIT = 16.0f; // Over Voltage Protection (V)
+constexpr float DPS_OCP_LIMIT = 13.0f; // Over Current Protection (A)
 
 // =============================================================================
 // Thermal Controller - Temperature Thresholds (Celsius)
@@ -131,6 +131,12 @@ constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
 constexpr float COOLING_STALL_THRESHOLD_C = 0.5f; // Rate below this = stalled
 constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f; // Back off if warming
 constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.3f; // K/min degradation
+constexpr float MIN_CURRENT_FOR_STALL_CHECK_A =
+    4.0f; // Don't check stall below this
+constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A =
+    6.0f; // Min current before allowing ramp exit due to degradation
+constexpr int CONSECUTIVE_DEGRADED_FOR_REVERT =
+    2; // Require multiple degraded evals before reverting during ramp
 
 // =============================================================================
 // Thermal Controller - Timing Intervals (milliseconds)

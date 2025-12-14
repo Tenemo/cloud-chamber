@@ -86,6 +86,10 @@ void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
 
     _psu0.configure(voltage, current, outputOn);
     _psu1.configure(voltage, current, outputOn);
+
+    // Reset override counter - we just intentionally changed settings
+    // so any temporary mismatch should not trigger override detection
+    resetOverrideCounter();
 }
 
 void DualPowerSupply::startEmergencyShutdown() {
@@ -353,15 +357,21 @@ SelfTestResult DualPowerSupply::runSelfTest() {
         _psu1.setVoltage(ST_VOLTAGE);
         _psu1.setCurrent(ST_CURRENT);
         _psu1.setOutput(false);
+        _selftest_phase = static_cast<int>(SelfTestPhase::WAIT_WRITES);
+        _selftest_phase_start = now;
+        break;
+
+    case SelfTestPhase::WAIT_WRITES:
+        // Wait for all pending writes to complete before checking
+        if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
+            return SelfTestResult::IN_PROGRESS;
+        // Writes done - start settle timer
         _selftest_phase = static_cast<int>(SelfTestPhase::CHECK_SETTINGS);
         _selftest_phase_start = now;
         break;
 
     case SelfTestPhase::CHECK_SETTINGS:
-        // Wait for any pending writes (OVP/OCP from initial config) to complete
-        if (_psu0.hasPendingWrites() || _psu1.hasPendingWrites())
-            return SelfTestResult::IN_PROGRESS;
-
+        // Wait for settle time (allows Modbus read to update values)
         if (phase_elapsed < ST_SETTLE_MS)
             return SelfTestResult::IN_PROGRESS;
 

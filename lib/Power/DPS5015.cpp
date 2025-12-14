@@ -399,14 +399,17 @@ bool DPS5015::hasAnyMismatch() const {
 }
 
 void DPS5015::applyPendingConfig() {
-    // Always set hardware protection limits on connection (even without other
-    // config)
-    queueWrite(REG_LOCK, 0); // Unlock first
-    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
-    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
-
     if (!_pending_config.has_config)
         return;
+
+    // Unlock first to allow changes
+    queueWrite(REG_LOCK, 0);
+
+    // Set hardware protection limits (preset registers 0x52-0x54)
+    // These act as failsafes against software/Modbus errors
+    // Scale: 0.01V for OVP, 0.01A for OCP, 0.01W for OPP
+    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
+    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
 
     // Track commanded values
     _commanded_voltage = _pending_config.voltage;
@@ -419,6 +422,10 @@ void DPS5015::applyPendingConfig() {
     queueWrite(REG_SET_CURRENT,
                static_cast<uint16_t>(_pending_config.current * 100.0f));
     queueWrite(REG_OUTPUT, _pending_config.output_on ? 1 : 0);
+
+    // Start grace period - prevents false manual override detection
+    // while queued writes are being processed
+    _last_command_time = millis();
 
     _pending_config.has_config = false; // Only apply once
 }

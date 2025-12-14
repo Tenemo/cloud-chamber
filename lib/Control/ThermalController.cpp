@@ -23,7 +23,8 @@ ThermalController::ThermalController(Logger &logger,
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
-      _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0) {}
+      _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
+      _startup_configured(false) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -34,7 +35,7 @@ void ThermalController::begin() {
     _safety.setMetrics(&_metrics);
 
     registerDisplayLines();
-    _logger.log("ThermalCtrl: init");
+    _logger.log("Controller initialized.");
 }
 
 void ThermalController::registerDisplayLines() {
@@ -151,10 +152,12 @@ bool ThermalController::isOperationalState() const {
     // - SELF_TEST: Running DPS verification, not operational
     // - THERMAL_FAULT: Already in fault state, shutdown in progress
     // - DPS_DISCONNECTED: No PSU communication, can't check or control
+    // - MANUAL_OVERRIDE: Already detected, don't keep re-checking/logging
     return _state != ThermalState::INITIALIZING &&
            _state != ThermalState::SELF_TEST &&
            _state != ThermalState::THERMAL_FAULT &&
-           _state != ThermalState::DPS_DISCONNECTED;
+           _state != ThermalState::DPS_DISCONNECTED &&
+           _state != ThermalState::MANUAL_OVERRIDE;
 }
 
 bool ThermalController::canControlPower() const {
@@ -188,6 +191,14 @@ void ThermalController::transitionTo(ThermalState newState) {
 
     // State entry actions
     switch (newState) {
+    case ThermalState::STARTUP:
+        // Configure PSUs immediately on entering STARTUP
+        _startup_configured = false;
+        _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
+        _startup_configured = true;
+        _logger.logf(false, "TC: Config %.0fV %.1fA", TEC_VOLTAGE_SETPOINT,
+                     STARTUP_CURRENT);
+        break;
     case ThermalState::STEADY_STATE:
         _steady_state_start_time = millis();
         break;
@@ -295,16 +306,8 @@ void ThermalController::handleSelfTest() {
 void ThermalController::handleStartup() {
     unsigned long elapsed = millis() - _state_entry_time;
 
-    // Configure PSUs at start of window
-    if (elapsed < Timing::STARTUP_CONFIG_WINDOW_MS) {
-        if (elapsed < Timing::STARTUP_CONFIG_SEND_MS) {
-            _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
-            _logger.logf("TC: Start %.1fA", STARTUP_CURRENT);
-        }
-        return;
-    }
-
-    // Hold for startup duration
+    // Configuration is done in transitionTo() when entering STARTUP
+    // Just wait for the startup hold duration
     if (elapsed >= STARTUP_HOLD_DURATION_MS) {
         transitionTo(ThermalState::RAMP_UP);
     }

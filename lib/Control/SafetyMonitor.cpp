@@ -61,9 +61,13 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
     }
 
     // Cross-sensor validation with grace period (warning-only, no state change)
+    // Skip during SELF_TEST, STARTUP, and early RAMP_UP when cold=hot is
+    // expected
     bool in_cross_check_grace =
-        (current_state == ThermalState::RAMP_UP &&
-         (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS);
+        (current_state == ThermalState::SELF_TEST ||
+         current_state == ThermalState::STARTUP ||
+         (current_state == ThermalState::RAMP_UP &&
+          (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS));
     logCrossSensorWarnings(in_cross_check_grace);
 
     return {SafetyStatus::OK, nullptr};

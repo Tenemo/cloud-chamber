@@ -161,7 +161,7 @@ class DPS5015 {
     };
     PendingConfig _pending_config;
 
-    // Modbus register addresses
+    // Modbus register addresses (basic registers 0x00-0x09)
     static constexpr uint16_t REG_SET_VOLTAGE = 0x0000;
     static constexpr uint16_t REG_SET_CURRENT = 0x0001;
     static constexpr uint16_t REG_OUT_VOLTAGE = 0x0002;
@@ -172,10 +172,12 @@ class DPS5015 {
     static constexpr uint16_t REG_PROTECTION = 0x0007;
     static constexpr uint16_t REG_CV_CC = 0x0008;
     static constexpr uint16_t REG_OUTPUT = 0x0009;
-    // DPS5015 protection settings (may vary by firmware version)
-    static constexpr uint16_t REG_OVP = 0x0010; // Over Voltage Protection
-    static constexpr uint16_t REG_OCP = 0x0011; // Over Current Protection
-    static constexpr uint16_t REG_OPP = 0x0012; // Over Power Protection
+
+    // Preset registers (0x50+) - protection settings
+    // From libsigrok rdtech-dps driver
+    static constexpr uint16_t REG_OVP = 0x0052; // Over Voltage Protection
+    static constexpr uint16_t REG_OCP = 0x0053; // Over Current Protection
+    static constexpr uint16_t REG_OPP = 0x0054; // Over Power Protection
 
     // Timing constants
     static constexpr unsigned long RESPONSE_TIMEOUT_MS = 500;
