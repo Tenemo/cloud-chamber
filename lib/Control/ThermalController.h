@@ -29,6 +29,7 @@
 #include "ThermalMetrics.h"
 #include "ThermalOptimizer.h"
 #include "ThermalTypes.h"
+#include <cstdint>
 
 // ThermalState enum is defined in ThermalTypes.h (shared for context-aware
 // checks)
@@ -70,6 +71,7 @@ class ThermalController {
     unsigned long _steady_state_start_time;
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
+    uint8_t _consecutive_stall_detects = 0;
 
     // Configuration flags
     bool _startup_configured;
