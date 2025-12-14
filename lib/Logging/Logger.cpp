@@ -466,27 +466,27 @@ void Logger::drawLogArea() {
 void Logger::log(const char *message, bool serialOnly) {
     const char *iso = TimeService::getIsoTimestamp();
 
-    // If wall time is valid, prefix ISO8601 timestamp. Otherwise keep
-    // the log format exactly as-is.
-    const char *out = message;
+    // Serial output: prefix ISO8601 when wall time is valid.
+    // Display output: keep the original message (no timestamps added).
+    const char *serial_out = message;
     char stamped[160];
     if (iso != nullptr) {
         snprintf(stamped, sizeof(stamped), "%s %s", iso, message);
-        out = stamped;
+        serial_out = stamped;
     }
 
     // Add to PSRAM circular buffer (even for serialOnly messages)
-    addToLogBuffer(out);
+    addToLogBuffer(serial_out);
 
     // Output to Serial
-    Serial.println(out);
+    Serial.println(serial_out);
 
     if (serialOnly || !_display_initialized || !_screen)
         return;
 
     // Use local buffer for word wrap processing
     char remaining[128];
-    strncpy(remaining, out, sizeof(remaining) - 1);
+    strncpy(remaining, message, sizeof(remaining) - 1);
     remaining[sizeof(remaining) - 1] = '\0';
 
     size_t remaining_len = strlen(remaining);
