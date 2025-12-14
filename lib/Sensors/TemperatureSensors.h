@@ -126,6 +126,9 @@ class TemperatureSensors {
     DS18B20Sensor _hotPlate;
     DS18B20Sensor _glassTop;
     DS18B20Sensor _internal;
+
+    // Periodic logging
+    unsigned long _last_temp_log_time;
 };
 
 #endif // TEMPERATURE_SENSORS_H
