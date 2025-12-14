@@ -74,6 +74,11 @@ class ThermalController {
     // Configuration flags
     bool _startup_configured;
 
+    // Hot reset recovery tracking
+    bool _hot_reset_active;   // True if we detected hot reset and haven't
+                              // completed normal startup
+    float _hot_reset_current; // Adopted current from hot reset detection
+
     // =========================================================================
     // State handlers (contain only state-specific logic)
     // =========================================================================

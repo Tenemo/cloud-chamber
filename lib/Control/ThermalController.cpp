@@ -24,7 +24,8 @@ ThermalController::ThermalController(Logger &logger,
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
       _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
-      _startup_configured(false) {}
+      _startup_configured(false), _hot_reset_active(false),
+      _hot_reset_current(0.0f) {}
 
 void ThermalController::begin() {
     _state_entry_time = millis();
@@ -197,6 +198,10 @@ void ThermalController::transitionTo(ThermalState newState,
     // State entry actions
     switch (newState) {
     case ThermalState::STARTUP:
+        // Normal boot path - clear hot reset state since we're starting fresh
+        _hot_reset_active = false;
+        _hot_reset_current = 0.0f;
+
         // Configure PSUs immediately on entering STARTUP
         _startup_configured = false;
         _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
@@ -205,6 +210,9 @@ void ThermalController::transitionTo(ThermalState newState,
                      STARTUP_CURRENT);
         break;
     case ThermalState::STEADY_STATE:
+        // Reached stable operation - clear hot reset recovery state
+        _hot_reset_active = false;
+        _hot_reset_current = 0.0f;
         _steady_state_start_time = millis();
         break;
     case ThermalState::RAMP_UP:
@@ -253,6 +261,11 @@ void ThermalController::handleInitializing() {
     float adopted = _dps.detectHotReset(HOT_RESET_CURRENT_THRESHOLD_A);
     if (adopted > 0.0f) {
         CrashLog::logCritical("HOT_RESET", "DPS was running on boot");
+
+        // Track hot reset state for recovery if DPS disconnects
+        _hot_reset_active = true;
+        _hot_reset_current = adopted;
+
         _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
 
         // Seed the optimizer with current state as starting best point
@@ -260,9 +273,9 @@ void ThermalController::handleInitializing() {
         _optimizer.seedWithCurrent(adopted, current_temp);
 
         if (adopted >= HOT_RESET_NEAR_MAX_A) {
-            transitionTo(ThermalState::STEADY_STATE);
+            transitionTo(ThermalState::STEADY_STATE, "Hot reset near max");
         } else {
-            transitionTo(ThermalState::RAMP_UP);
+            transitionTo(ThermalState::RAMP_UP, "Hot reset recovery");
         }
         return;
     }
@@ -427,7 +440,15 @@ void ThermalController::handleSensorFault() {
 void ThermalController::handleDpsDisconnected() {
     if (_dps.areBothConnected()) {
         _logger.log("TC: DPS reconnected");
-        transitionTo(ThermalState::STARTUP);
+
+        // If we were in hot reset recovery, restore the adopted current
+        // instead of going through STARTUP which would reset to STARTUP_CURRENT
+        if (_hot_reset_active && _hot_reset_current > 0.0f) {
+            _dps.configure(TEC_VOLTAGE_SETPOINT, _hot_reset_current, true);
+            transitionTo(ThermalState::RAMP_UP, "Hot reset restore");
+        } else {
+            transitionTo(ThermalState::STARTUP);
+        }
         return;
     }
 
