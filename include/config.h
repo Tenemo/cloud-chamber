@@ -26,6 +26,12 @@
 #define CONTROL_LOOP_ENABLED 1
 
 // =============================================================================
+// WiFi Time Sync Enable
+// =============================================================================
+// When false, skip WiFi/NTP time sync on boot (faster startup)
+#define WIFI_TIME_SYNC_ENABLED 0
+
+// =============================================================================
 // Sensor Update Intervals
 // =============================================================================
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;

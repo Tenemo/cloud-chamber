@@ -67,9 +67,11 @@ static void initializeHardware() {
     // modes
     CrashLog::begin();
 
+#if WIFI_TIME_SYNC_ENABLED
     // Optional one-shot wall-clock sync via home WiFi + NTP
     TimeService::trySyncFromWifi(
         [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
+#endif
 
     initializeWatchdog();
     sensors.begin();
