@@ -28,7 +28,7 @@
 // WiFi Time Sync Enable
 // =============================================================================
 // When false, skip WiFi/NTP time sync on boot (faster startup)
-#define WIFI_TIME_SYNC_ENABLED 0
+#define WIFI_TIME_SYNC_ENABLED 1
 
 // =============================================================================
 // Sensor Update Intervals

@@ -141,6 +141,13 @@ class DPS5015 {
     // Write tracking for manual override detection
     size_t _pending_writes; // Number of writes queued but not confirmed
 
+    // Transaction-based grace period: count successful reads since last command
+    // Override detection is suppressed until enough reads have occurred to
+    // ensure fresh data. This is more reliable than time-based grace periods.
+    int _reads_since_command; // Successful Modbus reads since last write
+    static constexpr int READS_REQUIRED_FOR_SETTLE =
+        2; // Min reads before checking
+
     // Write queue for non-blocking writes
     static constexpr size_t WRITE_QUEUE_SIZE = 8;
     struct WriteRequest {

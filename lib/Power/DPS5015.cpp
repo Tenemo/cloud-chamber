@@ -13,8 +13,9 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _commanded_output(false), _state(ModbusState::IDLE),
       _request_start_time(0), _expected_response_length(0),
       _consecutive_errors(0), _write_retry_count(0), _last_command_time(0),
-      _current_write{0, 0}, _pending_writes(0), _write_queue_head(0),
-      _write_queue_tail(0), _pending_config{0.0f, 0.0f, false, false} {}
+      _reads_since_command(0), _current_write{0, 0}, _pending_writes(0),
+      _write_queue_head(0), _write_queue_tail(0),
+      _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     if (_initialized)
@@ -123,6 +124,11 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
     // Reset consecutive error count on successful read
     _consecutive_errors = 0;
 
+    // Increment read counter for transaction-based grace period
+    if (_reads_since_command < READS_REQUIRED_FOR_SETTLE + 1) {
+        _reads_since_command++;
+    }
+
     // Parse register values
     _set_voltage = buffer[0] / 100.0f;
     _set_current = buffer[1] / 100.0f;
@@ -155,6 +161,10 @@ void DPS5015::handleReadComplete(uint16_t *buffer) {
         _in_error_state = false;
         _currently_online = true;
         _logger.log("DPS5015 recovered");
+
+        // Re-apply pending config (ghost state) to restore intended state
+        // This handles the case where DPS reset to default while disconnected
+        applyPendingConfig();
     }
 }
 
@@ -234,6 +244,7 @@ bool DPS5015::setVoltage(float voltage) {
     if (queueWrite(REG_SET_VOLTAGE, value)) {
         _commanded_voltage = clamped;
         _last_command_time = millis();
+        _reads_since_command = 0; // Reset for transaction-based grace
         return true;
     }
     return false;
@@ -249,6 +260,7 @@ bool DPS5015::setCurrent(float current) {
     if (queueWrite(REG_SET_CURRENT, value)) {
         _commanded_current = clamped;
         _last_command_time = millis();
+        _reads_since_command = 0; // Reset for transaction-based grace
         return true;
     }
     return false;
@@ -261,6 +273,7 @@ bool DPS5015::setOutput(bool on) {
     if (queueWrite(REG_OUTPUT, on ? 1 : 0)) {
         _commanded_output = on;
         _last_command_time = millis();
+        _reads_since_command = 0; // Reset for transaction-based grace
         return true;
     }
     return false;
@@ -302,6 +315,7 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     // even if PSU is temporarily offline. This prevents false
     // manual override detection during state transitions.
     _last_command_time = millis();
+    _reads_since_command = 0; // Reset for transaction-based grace
 
     // If already connected, apply immediately
     if (_currently_online) {
@@ -358,11 +372,11 @@ bool DPS5015::disableOutput() {
 }
 
 bool DPS5015::isInGracePeriod() const {
-    // Returns true if a command was sent recently and we're still waiting
-    // for the DPS to process it and for us to read back the new value
-    if (_last_command_time == 0)
-        return false;
-    return (millis() - _last_command_time) < MANUAL_OVERRIDE_GRACE_MS;
+    // Transaction-based grace period: require N successful Modbus reads
+    // after last command before allowing override detection.
+    // This is more reliable than time-based because it guarantees
+    // fresh data has been read from the DPS.
+    return _reads_since_command < READS_REQUIRED_FOR_SETTLE;
 }
 
 bool DPS5015::isSettled() const {
@@ -427,8 +441,11 @@ void DPS5015::applyPendingConfig() {
     // Start grace period - prevents false manual override detection
     // while queued writes are being processed
     _last_command_time = millis();
+    _reads_since_command = 0; // Reset for transaction-based grace
 
-    _pending_config.has_config = false; // Only apply once
+    // NOTE: We do NOT clear has_config here so that on reconnection
+    // the "ghost state" can be re-applied. The config remains valid
+    // until a new configure() call overwrites it.
 }
 
 void DPS5015::clearSerialBuffer() {
