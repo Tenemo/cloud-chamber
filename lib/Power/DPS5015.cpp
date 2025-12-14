@@ -31,10 +31,6 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
     _last_update_time = 0; // Force immediate first read attempt
 }
 
-void DPS5015::registerDisplayLines() {
-    // Display lines removed - V/I/P now only logged to serial
-}
-
 void DPS5015::update() {
     if (!_initialized)
         return;

@@ -183,7 +183,6 @@ class DPS5015 {
     static constexpr unsigned long RESPONSE_TIMEOUT_MS = 500;
 
     // Modbus functions
-    void registerDisplayLines();
     void sendReadRequest(uint16_t startReg, uint16_t count);
     bool checkReadResponse(uint16_t count, uint16_t *buffer);
     void sendWriteRequest(uint16_t reg, uint16_t value);

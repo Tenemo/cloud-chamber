@@ -422,14 +422,14 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
     _awaiting_evaluation = true;
     _eval_start_time = snapshot.now;
 
-    // Flip direction for next probe (alternate by default)
-    _probe_direction *= -1;
-
-    const char *dir_str =
-        (_probe_direction < 0) ? "up" : "down"; // Already flipped
+    // Log current probe direction before flipping
+    const char *dir_str = (_probe_direction > 0) ? "up" : "down";
     snprintf(_log_buffer, sizeof(_log_buffer), "TC: Probe %s %.2fA (%+.2fA)",
              dir_str, new_current, new_current - current);
     decision.log_message = _log_buffer;
+
+    // Flip direction for next probe (alternate by default)
+    _probe_direction *= -1;
 
     return decision;
 }

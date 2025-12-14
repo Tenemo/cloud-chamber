@@ -9,7 +9,6 @@ The system uses a **hierarchical state machine with safety-first design**, autom
 **Key Features:**
 
 - Cross-sensor validation (cold plate must be colder than hot plate)
-- NVS metrics persistence (tracks all-time best temperature and runtime)
 - DPS self-test on startup (verifies communication and output control)
 - Impossible value detection (sanity checks on sensor readings)
 
@@ -19,10 +18,10 @@ The system uses a **hierarchical state machine with safety-first design**, autom
 
 ### Sensors
 
-| Sensor     | Type                         | Purpose                                                    |
-| ---------- | ---------------------------- | ---------------------------------------------------------- |
-| Cold Plate | PT100 (MAX31865)             | Primary control feedback - measures cold side of TEC stack |
-| Hot Plate  | DS18B20                      | Safety monitoring - measures hot side heat rejection       |
+| Sensor               | Type                   | Purpose                                                    |
+| -------------------- | ---------------------- | ---------------------------------------------------------- |
+| Cold Plate           | PT100 (MAX31865)       | Primary control feedback - measures cold side of TEC stack |
+| Hot Plate            | DS18B20                | Safety monitoring - measures hot side heat rejection       |
 | Glass Top / Internal | DS18B20 (display only) | Display-only reference temperatures                        |
 
 ### Power Supplies
@@ -34,10 +33,12 @@ The system uses a **hierarchical state machine with safety-first design**, autom
 
 ### Key Parameters (from `config.h`)
 
+> **Note:** The values below reflect `config.h` at time of writing. Always refer to `config.h` as the authoritative source for current parameter values.
+
 | Parameter                 | Value | Description                    |
 | ------------------------- | ----- | ------------------------------ |
-| `TEC_VOLTAGE_SETPOINT`    | 16.0V | Fixed voltage for cascade TECs |
-| `MAX_CURRENT_PER_CHANNEL` | 12.0A | Maximum current per DPS        |
+| `TEC_VOLTAGE_SETPOINT`    | 15.0V | Fixed voltage for cascade TECs |
+| `MAX_CURRENT_PER_CHANNEL` | 13.0A | Maximum current per DPS        |
 | `MIN_CURRENT_PER_CHANNEL` | 0.5A  | Minimum operational current    |
 | `STARTUP_CURRENT`         | 2.0A  | Initial soft-start current     |
 | `HOT_SIDE_FAULT_C`        | 70°C  | Emergency shutdown threshold   |
@@ -80,7 +81,6 @@ The controller operates as a finite state machine with the following states:
 - **Entry condition**: System startup
 - **Actions**:
   - Check PT100, DS18B20, and both DPS5015 connections
-  - Load persisted metrics from NVS (runtime, best temperature, session count)
   - **Hot reset detection**: If DPS is already running at >2A, adopt the current to avoid thermal shock
   - Timeout after 30 seconds to fault state
 - **Exit conditions**:
@@ -119,7 +119,7 @@ The controller operates as a finite state machine with the following states:
 #### RAMP_UP
 
 - **Purpose**: Gradually increase current to find optimal operating point
-- **Interval**: Minimum 20 seconds between *attempts* (`RAMP_ADJUSTMENT_INTERVAL_MS`); actual steps wait on evaluation/stabilization (≥60s)
+- **Interval**: Minimum 20 seconds between _attempts_ (`RAMP_ADJUSTMENT_INTERVAL_MS`); actual steps wait on evaluation/stabilization (≥60s)
 - **Algorithm**:
   1. Increase current by adaptive step size (0.5A coarse / 0.25A medium / 0.1A fine) on both channels
   2. Wait 60 seconds for thermal system to stabilize
@@ -140,9 +140,8 @@ The controller operates as a finite state machine with the following states:
 - **Purpose**: Maintain optimal operation, periodically probe for improvement
 - **Actions**:
   - Hold current at optimal level
-  - Track minimum achieved cold plate temperature (session and all-time)
+  - Track minimum achieved cold plate temperature (session)
   - Every 15 minutes, if conditions favorable, try a small current bump
-  - Persist all-time best temperature to NVS when new record achieved
 - **Periodic probing**: If hot side has headroom (<50°C) and not at max current, attempt a half-step increase and evaluate after 60 seconds
 - **Exit conditions**:
   - Safety fault → appropriate fault state
@@ -407,7 +406,7 @@ Most timing and threshold values are defined in `config.h` (internal timing cons
 | `SENSOR_RECOVERY_TIMEOUT_MS`          | 60000   | Sensor fault recovery window        |
 | `INIT_TIMEOUT_MS`                     | 30000   | Hardware initialization timeout     |
 | `MANUAL_OVERRIDE_GRACE_MS`            | 3000    | Settling window after command       |
-| `Timing::SHUTDOWN_STEP_MS`           | 500     | Ramp-down step interval (internal)  |
+| `Timing::SHUTDOWN_STEP_MS`            | 500     | Ramp-down step interval (internal)  |
 
 ### Temperature Thresholds
 
@@ -489,7 +488,6 @@ Monitor these for diagnostics:
 - Serial output for state transitions and events
 - Display shows state, cooling rate, commanded currents
 - History buffer contains 5-minute trend data
-- NVS metrics show all-time best temperature and total runtime
 - **PSRAM log buffer** contains ~12,800 log entries with timestamps (see below)
 
 ---
@@ -599,46 +597,6 @@ These indicate sensor malfunction rather than thermal issues.
 
 ---
 
-## NVS Metrics Persistence
-
-The controller persists key metrics to flash (NVS) for long-term diagnostics:
-
-### Stored Metrics
-
-| Key        | Type  | Description                         |
-| ---------- | ----- | ----------------------------------- |
-| `min_t`    | float | All-time minimum cold plate temp    |
-| `opt_i`    | float | Current that achieved best temp     |
-| `runtime`  | ulong | Total accumulated runtime (seconds) |
-| `sessions` | ulong | Number of boot cycles               |
-
-### Write Strategy (Flash Wear Prevention)
-
-NVS flash has limited write cycles (~100,000). The controller minimizes writes:
-
-- **Runtime**: Saved every 1 minute (incremental accumulation)
-- **Temperature/Current**: Saved every 5 minutes (only if changed)
-- **Force save**: When new all-time minimum temperature achieved
-
-At these intervals, the flash will last:
-
-- Runtime writes: 100,000 ÷ (60 writes/hour) = 1,666 hours = 69 days continuous
-- But NVS internally deduplicates unchanged values, so actual wear is much lower
-- Realistic expectation: Years of operation
-
-### Metrics Display on Startup
-
-On boot, the controller logs:
-
-```
-TC: Best=-32.5C@8.5A
-TC: Runtime=156h23m #47
-```
-
-This shows the best temperature ever achieved, the current that achieved it, total runtime, and session count.
-
----
-
 ## DPS Self-Test
 
 On startup (after INITIALIZING, before STARTUP), the controller runs a self-test sequence to verify DPS communication and output control:
@@ -661,8 +619,8 @@ Self-test is **skipped** on hot reset (when DPS is already running at >2A). This
 
 ### Configuration
 
-| Parameter                 | Value | Description                 |
-| ------------------------- | ----- | --------------------------- |
+| Parameter       | Value | Description                          |
+| --------------- | ----- | ------------------------------------ |
 | `ST_TIMEOUT_MS` | 3000  | Max time to verify output (internal) |
 | `ST_SETTLE_MS`  | 500   | Wait after each command (internal)   |
 | `ST_VOLTAGE`    | 1.0V  | Safe test voltage (no load)          |

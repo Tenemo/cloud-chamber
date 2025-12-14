@@ -1,6 +1,6 @@
 /**
  * @file ThermalMetrics.cpp
- * @brief Implementation of unified thermal tracking (history + NVS persistence)
+ * @brief Implementation of unified thermal tracking (history buffer only)
  */
 
 #include "ThermalMetrics.h"
@@ -17,30 +17,15 @@ constexpr const char *LINE_CURRENT = "TC_I";
 } // namespace
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
-    : _logger(logger), _head(0), _count(0), _all_time_min_temp(100.0f),
-      _all_time_optimal_current(0.0f), _total_runtime_seconds(0),
-      _session_count(0), _session_min_temp(100.0f), _session_start_time(0),
-      _last_metrics_save_time(0), _last_runtime_save_time(0),
+    : _logger(logger), _head(0), _count(0), _session_min_temp(100.0f),
       _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
-    _session_start_time = millis();
-    _last_runtime_save_time = _session_start_time;
-    loadFromNvs();
+    // Nothing to initialize - history buffer is ready
 }
 
 void ThermalMetrics::update() {
-    unsigned long now = millis();
-
-    // Update runtime counter
-    if (now - _last_runtime_save_time >= NVS_RUNTIME_SAVE_INTERVAL_MS) {
-        updateRuntime();
-    }
-
-    // Periodic metrics save
-    if (now - _last_metrics_save_time >= NVS_METRICS_SAVE_INTERVAL_MS) {
-        saveToNvs(false);
-    }
+    // Nothing to persist - history buffer updates happen in recordSample
 }
 
 // =============================================================================
@@ -199,170 +184,18 @@ bool ThermalMetrics::isHotSideStable(float max_rate_k_per_min,
 }
 
 // =============================================================================
-// NVS Persistence Implementation
+// Session Tracking (RAM only, not persisted)
 // =============================================================================
 
 void ThermalMetrics::recordNewMinimum(float temp, float current) {
-    // Update session minimum (RAM-only, instant updates for display)
+    // Update session minimum (RAM-only)
     updateSessionMin(temp);
-
-    // Check if this beats the all-time record
-    if (temp < _all_time_min_temp) {
-        _all_time_min_temp = temp;
-        _all_time_optimal_current = current;
-
-        // Throttle NVS writes to protect flash (max once per
-        // NVS_METRICS_SAVE_INTERVAL_MS) The values are already updated in RAM
-        // for display purposes
-        unsigned long now = millis();
-        if (now - _last_metrics_save_time >= NVS_METRICS_SAVE_INTERVAL_MS) {
-            _logger.logf(true, "NVS: New best=%.1fC@%.2fA", temp, current);
-            saveToNvs(true);
-        }
-        // If throttled, the new best will be saved on next periodic save or
-        // shutdown
-    }
+    (void)current; // Unused since we don't persist
 }
 
-bool ThermalMetrics::checkNvsSpace() {
-    nvs_stats_t nvs_stats;
-    esp_err_t err = nvs_get_stats(NULL, &nvs_stats);
-
-    if (err != ESP_OK) {
-        _logger.log("NVS: Stats unavailable", true);
-        return true; // Allow writes if we can't check
-    }
-
-    if (nvs_stats.free_entries < NVS_MIN_FREE_ENTRIES) {
-        static unsigned long last_warning = 0;
-        unsigned long now = millis();
-        if (now - last_warning > 60000) {
-            _logger.logf("NVS: Low space! %d free",
-                         (int)nvs_stats.free_entries);
-            last_warning = now;
-        }
-        return false;
-    }
-
-    return true;
-}
-
-void ThermalMetrics::loadFromNvs() {
-    if (!_prefs.begin(NVS_NAMESPACE, true)) { // Read-only
-        _logger.log("TC: NVS init (first run)");
-        _prefs.end();
-
-        // First run - initialize with defaults
-        _all_time_min_temp = 100.0f;
-        _all_time_optimal_current = 0.0f;
-        _total_runtime_seconds = 0;
-        _session_count = 1;
-
-#if NVS_WRITES_ENABLED
-        if (!checkNvsSpace()) {
-            _logger.log("NVS: No space for init!");
-            return;
-        }
-
-        // Write initial values
-        if (_prefs.begin(NVS_NAMESPACE, false)) {
-            bool ok = true;
-            ok &= _prefs.putFloat(KEY_MIN_TEMP, _all_time_min_temp) > 0;
-            ok &=
-                _prefs.putFloat(KEY_OPT_CURRENT, _all_time_optimal_current) > 0;
-            ok &= _prefs.putULong(KEY_RUNTIME, _total_runtime_seconds) > 0;
-            ok &= _prefs.putULong(KEY_SESSIONS, _session_count) > 0;
-            _prefs.end();
-
-            if (!ok) {
-                _logger.log("NVS: Init write failed!");
-            }
-        }
-#endif
-        return;
-    }
-
-    // Load existing values
-    _all_time_min_temp = _prefs.getFloat(KEY_MIN_TEMP, 100.0f);
-    _all_time_optimal_current = _prefs.getFloat(KEY_OPT_CURRENT, 0.0f);
-    _total_runtime_seconds = _prefs.getULong(KEY_RUNTIME, 0);
-    _session_count = _prefs.getULong(KEY_SESSIONS, 0);
-    _prefs.end();
-
-    // Increment session count
-    _session_count++;
-
-#if NVS_WRITES_ENABLED
-    if (checkNvsSpace() && _prefs.begin(NVS_NAMESPACE, false)) {
-        _prefs.putULong(KEY_SESSIONS, _session_count);
-        _prefs.end();
-    }
-#endif
-
-    // Log loaded values
-    _logger.logf("TC: Best=%.1fC@%.2fA", _all_time_min_temp,
-                 _all_time_optimal_current);
-
-    unsigned long hours = _total_runtime_seconds / 3600;
-    unsigned long mins = (_total_runtime_seconds % 3600) / 60;
-    _logger.logf("TC: Runtime=%luh%lum #%lu", hours, mins, _session_count);
-}
-
-void ThermalMetrics::saveToNvs(bool force) {
-#if !NVS_WRITES_ENABLED
-    (void)force; // Suppress unused parameter warning
-    return;
-#else
-    unsigned long now = millis();
-
-    if (!force &&
-        now - _last_metrics_save_time < NVS_METRICS_SAVE_INTERVAL_MS) {
-        return;
-    }
-
-    if (!checkNvsSpace()) {
-        return;
-    }
-
-    if (!_prefs.begin(NVS_NAMESPACE, false)) {
-        _logger.log("NVS: Failed to open for save", true);
-        return;
-    }
-
-    // Only write changed values
-    float stored_min = _prefs.getFloat(KEY_MIN_TEMP, 100.0f);
-    if (fabs(_all_time_min_temp - stored_min) > 0.01f) {
-        _prefs.putFloat(KEY_MIN_TEMP, _all_time_min_temp);
-        _prefs.putFloat(KEY_OPT_CURRENT, _all_time_optimal_current);
-    }
-
-    _prefs.end();
-    _last_metrics_save_time = now;
-#endif
-}
-
-void ThermalMetrics::updateRuntime() {
-    unsigned long now = millis();
-
-    unsigned long elapsed_ms = now - _last_runtime_save_time;
-    if (_last_runtime_save_time == 0) {
-        elapsed_ms = now - _session_start_time;
-    }
-
-    _total_runtime_seconds += elapsed_ms / 1000;
-    _last_runtime_save_time = now;
-
-#if NVS_WRITES_ENABLED
-    if (!checkNvsSpace()) {
-        return;
-    }
-
-    if (_prefs.begin(NVS_NAMESPACE, false)) {
-        _prefs.putULong(KEY_RUNTIME, _total_runtime_seconds);
-        _prefs.end();
-    }
-#endif
-}
+// =============================================================================
+// Display Integration
+// =============================================================================
 
 void ThermalMetrics::registerDisplayLines() {
     _logger.registerTextLine(LINE_STATE, "State:", "INIT");

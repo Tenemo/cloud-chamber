@@ -1,26 +1,18 @@
 /**
  * @file ThermalMetrics.h
- * @brief Thermal history buffer, trend analysis, and NVS persistence
+ * @brief Thermal history buffer and trend analysis
  *
- * This class handles data tracking and persistence:
+ * This class handles data tracking:
  * 1. **Runtime History**: Circular buffer of temperature samples for trend
  *    analysis and cooling rate calculations (volatile, lost on reset)
  * 2. **Trend Analysis**: Linear regression for cooling/heating rate
- * 3. **Persistent Metrics**: NVS storage for long-term tracking of best
- *    temperatures, optimal currents, and total runtime across sessions
+ * 3. **Session Tracking**: Best temperature during current session (RAM only)
  *
  * HISTORY BUFFER:
  * ---------------
  * - 300 samples at 1-second intervals = 5 minutes of history
  * - Linear regression for cooling rate calculation (K/min)
  * - Separate windows for cold plate (30 samples) and hot plate (60 samples)
- *
- * NVS PERSISTENCE:
- * ----------------
- * - All-time minimum temperature and corresponding current
- * - Total runtime across all sessions (hours)
- * - Session count
- * - Periodic auto-save with space checking
  *
  * NOTE: Optimization logic (hill-climbing, step sizing) is in ThermalOptimizer.
  */
@@ -30,8 +22,6 @@
 
 #include "Logger.h"
 #include "ThermalConstants.h"
-#include <Preferences.h>
-#include <nvs.h>
 
 // Forward declarations
 class TemperatureSensors;
@@ -69,12 +59,12 @@ class ThermalMetrics {
     explicit ThermalMetrics(Logger &logger);
 
     /**
-     * @brief Initialize metrics system (load from NVS, increment session count)
+     * @brief Initialize metrics system
      */
     void begin();
 
     /**
-     * @brief Periodic update (save runtime, check metrics interval)
+     * @brief Periodic update (no-op, kept for API compatibility)
      */
     void update();
 
@@ -147,11 +137,11 @@ class ThermalMetrics {
                          size_t min_samples = 60) const;
 
     // =========================================================================
-    // NVS Persistence Interface
+    // Session Tracking (RAM only)
     // =========================================================================
 
     /**
-     * @brief Record a new minimum temperature (saves immediately if better)
+     * @brief Record a new minimum temperature for this session
      */
     void recordNewMinimum(float temp, float current);
 
@@ -159,18 +149,10 @@ class ThermalMetrics {
     // Accessors
     // =========================================================================
 
-    float getAllTimeMinTemp() const { return _all_time_min_temp; }
-    float getAllTimeOptimalCurrent() const { return _all_time_optimal_current; }
-    unsigned long getTotalRuntimeSeconds() const {
-        return _total_runtime_seconds;
-    }
-    unsigned long getSessionCount() const { return _session_count; }
-
     /**
      * @brief Get session minimum temperature (reset each boot)
      *
-     * This tracks the coldest temperature achieved during the current session,
-     * distinct from the all-time minimum which persists to NVS.
+     * This tracks the coldest temperature achieved during the current session.
      */
     float getSessionMinTemp() const { return _session_min_temp; }
 
@@ -227,41 +209,15 @@ class ThermalMetrics {
                                 size_t window_samples) const;
 
     // -------------------------------------------------------------------------
-    // NVS persistence state
+    // Session tracking (RAM only)
     // -------------------------------------------------------------------------
-    Preferences _prefs;
-    float _all_time_min_temp;
-    float _all_time_optimal_current;
-    unsigned long _total_runtime_seconds;
-    unsigned long _session_count;
-
-    // Session-only tracking (not persisted)
     float _session_min_temp;
 
-    // Timing for periodic saves
-    unsigned long _session_start_time;
-    unsigned long _last_metrics_save_time;
-    unsigned long _last_runtime_save_time;
+    // Timing for periodic logs
     unsigned long _last_temp_log_time;
 
     // Periodic temperature log interval
     static constexpr unsigned long TEMP_LOG_INTERVAL_MS = 10000; // 10 seconds
-
-    // NVS namespace and keys
-    static constexpr const char *NVS_NAMESPACE = "tc_metrics";
-    static constexpr const char *KEY_MIN_TEMP = "min_t";
-    static constexpr const char *KEY_OPT_CURRENT = "opt_i";
-    static constexpr const char *KEY_RUNTIME = "runtime";
-    static constexpr const char *KEY_SESSIONS = "sessions";
-
-    // NVS space management
-    static constexpr size_t NVS_MIN_FREE_ENTRIES = 10;
-
-    // NVS helpers
-    bool checkNvsSpace();
-    void loadFromNvs();
-    void saveToNvs(bool force);
-    void updateRuntime();
 };
 
 #endif // THERMAL_METRICS_H

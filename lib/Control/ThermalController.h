@@ -6,7 +6,7 @@
  * -------------
  * The controller delegates responsibilities to specialized modules:
  * - DualPowerSupply: Symmetric control of two DPS5015 units
- * - ThermalMetrics: Unified history buffer, trend analysis, and NVS persistence
+ * - ThermalMetrics: History buffer, trend analysis, session tracking
  * - SafetyMonitor: Centralized safety checks
  * - CrashLog: SPIFFS persistence for crash diagnostics
  *

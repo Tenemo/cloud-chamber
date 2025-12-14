@@ -50,7 +50,8 @@ constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
 // - Using shielded cables for Modbus connections
 // - Increasing physical separation from high-current DC wiring
 constexpr unsigned long MODBUS_BAUD_RATE = 9600;
-constexpr unsigned long MODBUS_BYTE_TIMEOUT_MS = 10; // Per-byte timeout
+constexpr unsigned long MODBUS_BYTE_TIMEOUT_MS =
+    3;                                // At 9600 baud, 1 byte ≈ 1ms
 constexpr int MODBUS_MAX_RETRIES = 3; // Consecutive failures before error state
 
 // =============================================================================
@@ -163,6 +164,8 @@ constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN =
     0.3f; // Stable when below
 constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS =
     300000; // 5 min max
+constexpr unsigned long HOT_RESET_STABILIZATION_MS =
+    90000; // 90s stabilization after hot reset
 
 // =============================================================================
 // Thermal Controller - Adaptive Step Sizes
@@ -175,7 +178,7 @@ constexpr float FINE_STEP_A = 0.1f;    // Above RAMP_MEDIUM_BELOW_A
 // Current thresholds for step size selection during RAMP_UP
 constexpr float RAMP_COARSE_BELOW_A = 7.0f; // Below = coarse steps
 constexpr float RAMP_MEDIUM_BELOW_A =
-    9.0f; // Below = medium steps, above = fine
+    8.0f; // Below = medium steps, above = fine
 
 // Rate thresholds for step size selection during STEADY_STATE probing
 constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min - above = coarse
@@ -217,16 +220,5 @@ constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C = -35.0f; // Check if below
 constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C =
     35.0f;                                                    // Hot must exceed
 constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS = 180000; // 3 min grace
-
-// =============================================================================
-// NVS Metrics Persistence
-// =============================================================================
-// Master enable for NVS writes - set to false to completely disable flash
-// writes Useful during development/testing to preserve flash endurance
-#define NVS_WRITES_ENABLED 0
-
-// Write intervals are long to avoid wearing out flash (limited writes)
-constexpr unsigned long NVS_METRICS_SAVE_INTERVAL_MS = 300000; // 5 minutes
-constexpr unsigned long NVS_RUNTIME_SAVE_INTERVAL_MS = 60000;  // 1 minute
 
 #endif // CONFIG_H
