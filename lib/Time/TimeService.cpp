@@ -102,24 +102,13 @@ const char *getIsoTimestamp() {
         return nullptr;
     }
 
-    static char buf[32];
+    static char buf[24];
     time_t now = time(nullptr);
     struct tm tm_local;
     localtime_r(&now, &tm_local);
 
-    char base[20];
-    strftime(base, sizeof(base), "%Y-%m-%dT%H:%M:%S", &tm_local);
-
-    char tzbuf[6];
-    size_t tzlen = strftime(tzbuf, sizeof(tzbuf), "%z", &tm_local);
-    if (tzlen == 5) {
-        // tzbuf is like +0100 → format +01:00
-        snprintf(buf, sizeof(buf), "%s%c%c%c:%c%c", base, tzbuf[0], tzbuf[1],
-                 tzbuf[2], tzbuf[3], tzbuf[4]);
-    } else {
-        // Fallback to UTC-style suffix if offset unavailable
-        snprintf(buf, sizeof(buf), "%sZ", base);
-    }
+    // Format as YYYY-MM-DDTHH:MM:SS (no timezone suffix, local time)
+    strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%S", &tm_local);
     return buf;
 }
 
