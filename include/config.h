@@ -136,7 +136,7 @@ constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
     5.0f; // Max acceptable rise rate
 
 // Cooling performance thresholds
-constexpr float COOLING_STALL_THRESHOLD_C = 0.1f; // Rate below this = stalled
+constexpr float COOLING_STALL_THRESHOLD_C = 0.02f; // Rate below this = stalled
 constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f; // Back off if warming
 constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.5f; // K/min degradation
 constexpr float MIN_CURRENT_FOR_STALL_CHECK_A =
