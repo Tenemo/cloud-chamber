@@ -368,7 +368,6 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
     float rounded_current = floorf(avg_current * 10.0f) / 10.0f;
     rounded_current = fmin(rounded_current, MAX_CURRENT_PER_CHANNEL);
 
-    _logger.log("DPS: Hot reset detected");
     return rounded_current;
 }
 

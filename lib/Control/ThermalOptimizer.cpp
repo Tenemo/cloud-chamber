@@ -36,6 +36,9 @@ void ThermalOptimizer::seedWithCurrent(float current, float temp) {
     _baseline_current = current;
     _baseline_temp = temp;
 
+    // Start probing upward - we likely haven't found optimum yet
+    _probe_direction = 1;
+
     // After hot reset, wait for system to stabilize before optimizing
     _stabilization_until = millis() + HOT_RESET_STABILIZATION_MS;
 }
@@ -212,6 +215,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         _consecutive_bounces = 0;
         _consecutive_degraded = 0; // Reset degraded counter on success
         _converged = false;
+        // Direction stays the same - continue probing in this direction
 
         snprintf(_log_buffer, sizeof(_log_buffer), "TC: Opt %.2fA=%.1fC",
                  snapshot.current_setpoint, snapshot.cold_temp);
@@ -285,8 +289,13 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
                 decision.should_transition = true;
             }
         }
+    } else {
+        // UNCHANGED: Accept current setpoint as new best, flip direction to
+        // explore
+        _optimal_current = snapshot.current_setpoint;
+        _temp_at_optimal = snapshot.cold_temp;
+        _probe_direction *= -1; // Try other direction next time
     }
-    // UNCHANGED: no action needed
 
     return decision;
 }
@@ -428,14 +437,12 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
     _awaiting_evaluation = true;
     _eval_start_time = snapshot.now;
 
-    // Log current probe direction before flipping
+    // Log current probe direction (direction changes happen in
+    // processEvaluation)
     const char *dir_str = (_probe_direction > 0) ? "up" : "down";
     snprintf(_log_buffer, sizeof(_log_buffer), "TC: Probe %s %.2fA (%+.2fA)",
              dir_str, new_current, new_current - current);
     decision.log_message = _log_buffer;
-
-    // Flip direction for next probe (alternate by default)
-    _probe_direction *= -1;
 
     return decision;
 }

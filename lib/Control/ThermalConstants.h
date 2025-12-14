@@ -23,15 +23,15 @@
 // History Buffer Configuration
 // =============================================================================
 
-constexpr size_t HISTORY_BUFFER_SIZE = 300;                // 5 minutes at 1Hz
+constexpr size_t HISTORY_BUFFER_SIZE = 1800;               // 30 minutes at 1Hz
 constexpr unsigned long HISTORY_SAMPLE_INTERVAL_MS = 1000; // 1 second samples
 constexpr size_t COOLING_RATE_WINDOW_SAMPLES = 30; // 30s window for cold plate
 constexpr size_t HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES =
     60; // 60s window for hot side
 
 // Buffer size validation
-static_assert(HISTORY_BUFFER_SIZE * HISTORY_SAMPLE_INTERVAL_MS == 300000,
-              "History buffer does not hold exactly 5 minutes of data");
+static_assert(HISTORY_BUFFER_SIZE * HISTORY_SAMPLE_INTERVAL_MS == 1800000,
+              "History buffer does not hold exactly 30 minutes of data");
 static_assert(COOLING_RATE_WINDOW_SAMPLES <= HISTORY_BUFFER_SIZE,
               "Cooling rate window exceeds buffer size");
 static_assert(HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES <= HISTORY_BUFFER_SIZE,
