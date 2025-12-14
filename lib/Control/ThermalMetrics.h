@@ -9,9 +9,9 @@
  *
  * HISTORY BUFFER:
  * ---------------
- * - 300 samples at 1-second intervals = 5 minutes of history
+ * - 1800 samples at 1-second intervals = 30 minutes of history
  * - Linear regression for cooling rate calculation (K/min)
- * - Separate windows for cold plate (30 samples) and hot plate (60 samples)
+ * - Separate windows for cold plate (60 samples) and hot plate (60 samples)
  *
  * NOTE: Optimization logic (hill-climbing, step sizing) is in ThermalOptimizer.
  */

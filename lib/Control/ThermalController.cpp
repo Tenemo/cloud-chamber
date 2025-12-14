@@ -224,6 +224,7 @@ void ThermalController::transitionTo(ThermalState newState,
         break;
     case ThermalState::RAMP_UP:
         _ramp_start_time = millis();
+        _consecutive_stall_detects = 0;
         break;
     case ThermalState::SELF_TEST:
         _dps.resetSelfTest();
@@ -387,21 +388,51 @@ void ThermalController::applyOptimizationDecision(
 void ThermalController::handleRampUp() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
     float current = snapshot.current_setpoint;
+    float cooling_rate = snapshot.cooling_rate;
 
     // Check termination conditions via optimizer
     bool has_enough_history =
         _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2);
+    bool stall_detected =
+        has_enough_history &&
+        snapshot.current_setpoint >= MIN_CURRENT_FOR_STALL_CHECK_A &&
+        fabs(cooling_rate) < COOLING_STALL_THRESHOLD_C;
 
-    if (_optimizer.shouldExitRamp(snapshot, has_enough_history)) {
+    // Require multiple consecutive stall detections before exiting ramp
+    if (stall_detected) {
+        if (_consecutive_stall_detects < UINT8_MAX) {
+            _consecutive_stall_detects++;
+        }
+    } else {
+        _consecutive_stall_detects = 0;
+    }
+
+    bool should_exit = _optimizer.shouldExitRamp(snapshot, has_enough_history);
+    bool exit_on_stall = stall_detected && _consecutive_stall_detects >= 3;
+
+    char exit_reason_buf[96];
+    const char *exit_reason = "Max current";
+
+    if (should_exit &&
+        (_safety.isHotSideAlarm() ||
+         snapshot.current_setpoint >= MAX_CURRENT_PER_CHANNEL ||
+         exit_on_stall)) {
         _optimizer.updateBest(current, snapshot.cold_temp);
 
-        const char *exit_reason = "Max current";
         if (_safety.isHotSideAlarm()) {
             _optimizer.setProbeDirection(-1);
             exit_reason = "Hot side limit";
-        } else if (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C &&
-                   has_enough_history) {
-            exit_reason = "Cooling stalled";
+        } else if (exit_on_stall) {
+            // After a stall-driven exit we still want to probe upward first
+            // to continue searching for the optimum.
+            _optimizer.setProbeDirection(1);
+            unsigned long window_seconds =
+                (COOLING_RATE_WINDOW_SAMPLES * HISTORY_SAMPLE_INTERVAL_MS) /
+                1000;
+            snprintf(exit_reason_buf, sizeof(exit_reason_buf),
+                     "Cooling stalled (3x): rate %.3f K/m < %.3f over %lus",
+                     cooling_rate, COOLING_STALL_THRESHOLD_C, window_seconds);
+            exit_reason = exit_reason_buf;
         }
 
         transitionTo(ThermalState::STEADY_STATE, exit_reason);

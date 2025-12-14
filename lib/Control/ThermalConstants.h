@@ -25,7 +25,7 @@
 
 constexpr size_t HISTORY_BUFFER_SIZE = 1800;               // 30 minutes at 1Hz
 constexpr unsigned long HISTORY_SAMPLE_INTERVAL_MS = 1000; // 1 second samples
-constexpr size_t COOLING_RATE_WINDOW_SAMPLES = 30; // 30s window for cold plate
+constexpr size_t COOLING_RATE_WINDOW_SAMPLES = 60; // 60s window for cold plate
 constexpr size_t HOT_SIDE_RATE_SAMPLE_WINDOW_SAMPLES =
     60; // 60s window for hot side
 
