@@ -72,6 +72,7 @@ constexpr const char *LABEL_CURRENT = "I set";
 constexpr const char *UNIT_TEMP = "C";
 constexpr const char *UNIT_RATE = "K/m";
 constexpr const char *UNIT_CURRENT = "A";
+constexpr const char *UNIT_POWER = "W";
 
 // =============================================================================
 // Watchdog Configuration
