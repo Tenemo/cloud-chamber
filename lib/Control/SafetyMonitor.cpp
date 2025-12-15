@@ -18,55 +18,56 @@ SafetyMonitor::SafetyMonitor(Logger &logger, PT100Sensor &coldPlate,
 SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
                                      unsigned long ramp_start_time,
                                      float avg_current) {
-    // Update hysteresis state before running checks
-    updateHysteresis();
+    SafetyResult worst{SafetyStatus::OK, ""};
 
-    // Run all checks and track the most severe fault
-    // Priority: THERMAL_FAULT > DPS_DISCONNECTED > SENSOR_FAULT
-    SafetyStatus worst_status = SafetyStatus::OK;
-    const char *worst_reason = nullptr;
-
-    // Helper to update worst status (higher enum value = more severe)
-    auto updateWorst = [&](SafetyStatus status, const char *reason) {
-        if (static_cast<int>(status) > static_cast<int>(worst_status)) {
-            worst_status = status;
-            worst_reason = reason;
+    auto severity = [](SafetyStatus s) {
+        switch (s) {
+        case SafetyStatus::THERMAL_FAULT:
+            return 5;
+        case SafetyStatus::SENSOR_FAULT:
+            return 4;
+        case SafetyStatus::DPS_DISCONNECTED:
+            return 3;
+        case SafetyStatus::WARNING:
+            return 2;
+        case SafetyStatus::OK:
+        default:
+            return 1;
         }
     };
+
+    auto consider = [&](SafetyStatus status, const char *reason) {
+        if (severity(status) > severity(worst.status)) {
+            worst.status = status;
+            strncpy(worst.reason, reason ? reason : "", sizeof(worst.reason) - 1);
+            worst.reason[sizeof(worst.reason) - 1] = '\0';
+        }
+    };
+
+    // Update hysteresis state before running checks
+    updateHysteresis();
 
     // Check sensor health
     SafetyStatus status = checkSensorHealth();
     if (status != SafetyStatus::OK)
-        updateWorst(status, _last_fault_reason);
+        consider(status, _last_fault_reason);
 
     // Check sensor sanity
     status = checkSensorSanity();
     if (status != SafetyStatus::OK)
-        updateWorst(status, _last_fault_reason);
+        consider(status, _last_fault_reason);
 
     // Check thermal limits
     status = checkThermalLimits();
     if (status != SafetyStatus::OK)
-        updateWorst(status, _last_fault_reason);
+        consider(status, _last_fault_reason);
 
     // Check DPS connection
     status = checkDpsConnection();
     if (status != SafetyStatus::OK)
-        updateWorst(status, _last_fault_reason);
-
-    // Return the most severe fault found
-    if (worst_status != SafetyStatus::OK) {
-        // Restore worst reason to _last_fault_reason for caller
-        if (worst_reason) {
-            strncpy(_last_fault_reason, worst_reason,
-                    sizeof(_last_fault_reason) - 1);
-            _last_fault_reason[sizeof(_last_fault_reason) - 1] = '\0';
-        }
-        return {worst_status, _last_fault_reason};
-    }
+        consider(status, _last_fault_reason);
 
     // PT100 plausibility check with grace period
-    // Skip during STARTUP and early RAMP_UP (first 3 minutes)
     unsigned long now = millis();
     bool in_early_ramp =
         (current_state == ThermalState::RAMP_UP &&
@@ -77,13 +78,11 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
     if (!skip_plausibility) {
         status = checkPT100Plausibility(avg_current);
         if (status == SafetyStatus::THERMAL_FAULT) {
-            return {status, _last_fault_reason};
+            consider(status, _last_fault_reason);
         }
     }
 
-    // Cross-sensor validation with grace period (warning-only, no state change)
-    // Skip during SELF_TEST, STARTUP, and early RAMP_UP when cold=hot is
-    // expected
+    // Cross-sensor validation with grace period (warning-only)
     bool in_cross_check_grace =
         (current_state == ThermalState::SELF_TEST ||
          current_state == ThermalState::STARTUP ||
@@ -91,7 +90,10 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
           (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS));
     logCrossSensorWarnings(in_cross_check_grace);
 
-    return {SafetyStatus::OK, nullptr};
+    // Commit chosen reason to member for external access
+    strncpy(_last_fault_reason, worst.reason, sizeof(_last_fault_reason) - 1);
+    _last_fault_reason[sizeof(_last_fault_reason) - 1] = '\0';
+    return worst;
 }
 
 SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {

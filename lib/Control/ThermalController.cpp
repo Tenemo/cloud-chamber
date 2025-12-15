@@ -72,14 +72,31 @@ void ThermalController::update() {
         _dps.updateEmergencyShutdown();
     }
 
+    // Always enforce hot-side hard limit, even if DPS comms are down
+    float hot_temp = _sensors.getHotPlateTemperature();
+    if (_state != ThermalState::THERMAL_FAULT &&
+        hot_temp >= HOT_SIDE_FAULT_C) {
+        enterThermalFault("Hot side >= fault threshold");
+        updateDisplay();
+        return;
+    }
+
     // Run safety checks ONCE at top of loop (not in each handler)
     // Skip for non-operational states (hardware not ready or already faulted)
     if (isOperationalState()) {
         // Centralized manual override detection (outside SafetyMonitor)
-        OverrideStatus override = _dps.checkManualOverride();
-        if (override == OverrideStatus::DETECTED) {
-            _logger.log("TC: Manual override detected");
-            transitionTo(ThermalState::MANUAL_OVERRIDE);
+        OverrideInfo override = _dps.checkOverrideDetail();
+        if (override.cause == OverrideCause::HUMAN_OVERRIDE) {
+            _logger.log(override.reason[0] ? override.reason
+                                           : "TC: Manual override detected");
+            transitionTo(ThermalState::MANUAL_OVERRIDE, override.reason);
+            updateDisplay();
+            return;
+        }
+        if (override.cause == OverrideCause::CONTROL_MISMATCH) {
+            _logger.log(override.reason[0] ? override.reason
+                                           : "TC: DPS control mismatch");
+            transitionTo(ThermalState::DPS_DISCONNECTED, override.reason);
             updateDisplay();
             return;
         }
@@ -152,11 +169,9 @@ bool ThermalController::isOperationalState() const {
     // - INITIALIZING: Hardware not ready yet, sensors may not be valid
     // - SELF_TEST: Running DPS verification, not operational
     // - THERMAL_FAULT: Already in fault state, shutdown in progress
-    // - DPS_DISCONNECTED: No PSU communication, can't check or control
     return _state != ThermalState::INITIALIZING &&
            _state != ThermalState::SELF_TEST &&
-           _state != ThermalState::THERMAL_FAULT &&
-           _state != ThermalState::DPS_DISCONNECTED;
+           _state != ThermalState::THERMAL_FAULT;
 }
 
 bool ThermalController::canControlPower() const {
@@ -186,6 +201,9 @@ void ThermalController::transitionTo(ThermalState newState,
     _state_before_fault = _state;
     _state = newState;
     _state_entry_time = millis();
+    if (newState == ThermalState::DPS_DISCONNECTED) {
+        _dps_disconnect_log_time = 0; // reset rate-limit timer
+    }
 
     if (reason) {
         _logger.logf(false, "TC: -> %s (%s)", stateToString(_state), reason);
@@ -512,11 +530,12 @@ void ThermalController::handleDpsDisconnected() {
         return;
     }
 
-    // Symmetric shutdown: if one fails, shut down both
-    if (_dps.isAsymmetricFailure()) {
-        _logger.log("TC: Symmetric shutdown");
-        CrashLog::logCritical("DPS_FAIL", "Symmetric shutdown");
-        _dps.disableOutput();
+    // During comm loss we now wait quietly for reconnection; avoid spamming logs
+    unsigned long now = millis();
+    if (_dps_disconnect_log_time == 0 ||
+        now - _dps_disconnect_log_time > 5000) { // log at most every 5s
+        _logger.log("TC: DPS disconnected, waiting for reconnection");
+        _dps_disconnect_log_time = now;
     }
 }
 

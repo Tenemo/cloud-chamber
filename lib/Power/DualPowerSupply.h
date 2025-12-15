@@ -58,6 +58,17 @@ enum class SelfTestResult {
     FAILED       // Test failed (see logs for details)
 };
 
+enum class OverrideCause : uint8_t {
+    NONE = 0,
+    HUMAN_OVERRIDE,
+    CONTROL_MISMATCH
+};
+
+struct OverrideInfo {
+    OverrideCause cause = OverrideCause::NONE;
+    char reason[64] = "";
+};
+
 class DualPowerSupply {
   public:
     explicit DualPowerSupply(Logger &logger);
@@ -163,6 +174,7 @@ class DualPowerSupply {
      */
     OverrideStatus checkManualOverride();
     bool isManualOverride() { return checkManualOverride() == OverrideStatus::DETECTED; }
+    OverrideInfo checkOverrideDetail();
 
     /**
      * @brief Check if either PSU has its output enabled
@@ -313,6 +325,11 @@ class DualPowerSupply {
     // Target setpoints (commanded values)
     float _target_current;
     bool _target_output;
+
+    // Timing for override classification
+    unsigned long _last_command_ms = 0;
+    unsigned long _last_measure_ms = 0;
+    uint16_t _last_measure_mA = 0;
 
     // Emergency shutdown state
     bool _shutdown_in_progress;
