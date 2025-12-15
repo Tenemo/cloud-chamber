@@ -3,7 +3,8 @@
  * @brief Tunable configuration parameters
  *
  * Only namespaced configuration values live here. Use the namespaces directly
- * (e.g., `Limits::MAX_CURRENT_PER_CHANNEL`, `Timing::STARTUP_HOLD_DURATION_MS`).
+ * (e.g., `Limits::MAX_CURRENT_PER_CHANNEL`,
+ * `Timing::STARTUP_HOLD_DURATION_MS`).
  */
 
 #ifndef CONFIG_H
@@ -35,9 +36,8 @@ namespace Modbus {
 // - Using shielded cables for Modbus connections
 // - Increasing physical separation from high-current DC wiring
 constexpr unsigned long BAUD_RATE = 9600;
-constexpr unsigned long BYTE_TIMEOUT_MS =
-    3;                              // At 9600 baud, 1 byte ~= 1ms
-constexpr int MAX_RETRIES = 3;      // Consecutive failures before error state
+constexpr unsigned long BYTE_TIMEOUT_MS = 3; // At 9600 baud, 1 byte ~= 1ms
+constexpr int MAX_RETRIES = 3; // Consecutive failures before error state
 } // namespace Modbus
 
 // =============================================================================
@@ -153,8 +153,7 @@ namespace Timing {
 constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000;
 constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS = 20000;
 constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000;
-constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
-    15UL * 60UL * 1000UL;
+constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS = 15UL * 60UL * 1000UL;
 constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS = 60000;
 constexpr unsigned long INIT_TIMEOUT_MS = 30000;
 
@@ -189,8 +188,8 @@ constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN = 0.3f;
 
 // Adaptive step sizes (two-step approach: coarse for approach, fine for scan)
 constexpr float COARSE_STEP_A = 1.0f;
-constexpr float FINE_STEP_A = 0.2f;
-constexpr float RAMP_COARSE_BELOW_A = 8.0f;
+constexpr float FINE_STEP_A = 0.1f;
+constexpr float RAMP_COARSE_BELOW_A = 9.0f;
 constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min
 
 // Manual override tolerances
@@ -212,4 +211,3 @@ constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C = 35.0f;
 } // namespace Tuning
 
 #endif // CONFIG_H
-
