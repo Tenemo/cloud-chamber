@@ -32,7 +32,8 @@
  *
  * LIVE LOG AREA:
  * --------------
- * - Bottom of screen reserved for live logs (configurable via LOG_AREA_LINES in
+ * - Bottom of screen reserved for live logs (configurable via
+ * Display::LOG_AREA_LINES in
  * config.h)
  * - Separated from KV display with 1px white line
  * - Logs scroll up automatically when full
@@ -66,12 +67,11 @@
 #include "DFRobot_GDL.h"
 #include "config.h"
 #include <Arduino.h>
-#include <map>
 
 // Display layout
 constexpr int LINE_HEIGHT = 12;
-constexpr int VALUE_X = 60;
-constexpr int VALUE_WIDTH = 70;
+constexpr int VALUE_X = 72;  // 60 + (2 * 6) - increased by 2 char widths
+constexpr int VALUE_WIDTH = 58; // 70 - 12 - adjusted to maintain screen width
 
 // Display physical properties
 constexpr int SCREEN_WIDTH = 128;
@@ -82,15 +82,23 @@ constexpr int MAX_CHARS_PER_LINE = SCREEN_WIDTH / CHAR_WIDTH; // 21 characters
 // Serial initialization timeout
 constexpr unsigned long SERIAL_TIMEOUT_MS = 1000;
 
+// Fixed buffer sizes (avoid heap fragmentation from String)
+constexpr size_t MAX_DISPLAY_LINES = 16;  // Maximum display lines
+constexpr size_t MAX_LINE_NAME_LEN = 12;  // e.g., "TC_I1", "DC12_P"
+constexpr size_t MAX_LINE_LABEL_LEN = 12; // e.g., "DC12 V:", "State:"
+constexpr size_t MAX_LINE_VALUE_LEN = 16; // e.g., "12.34 V", "INIT..."
+constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
+
 struct DisplayLine {
-    String label;      // display label (e.g., "Temp:", "Sensor1:")
-    String value;      // current display value (formatted string)
-    String prev_value; // previous value for character-by-character comparison
-    String
-        unit; // unit suffix (e.g., "A", "C", "%") - stored for numeric updates
-    int slot; // Y position slot on screen
+    char name[MAX_LINE_NAME_LEN];        // Line identifier
+    char label[MAX_LINE_LABEL_LEN];      // display label (e.g., "Temp:")
+    char value[MAX_LINE_VALUE_LEN];      // current display value
+    char prev_value[MAX_LINE_VALUE_LEN]; // previous value for comparison
+    char unit[MAX_LINE_UNIT_LEN];        // unit suffix (e.g., "A", "C")
+    int slot;                            // Y position slot on screen
     bool uses_wrap;    // true if value wraps to next line due to overflow
     bool needs_redraw; // true if value changed and needs to be redrawn
+    bool active;       // true if this slot is in use
 };
 
 struct DisplayLayout {
@@ -111,29 +119,37 @@ class Logger {
     // Utility for formatting display labels (adds colon suffix)
     static void formatLabel(char *buf, size_t size, const char *label);
 
-    // Generic KV store interface for display lines
-    void registerLine(const String &name, const String &label,
-                      const String &unit = "", float initial_value = 0.0f);
-    void registerTextLine(const String &name, const String &label,
-                          const String &initial_text = "");
+    // Generic KV store interface for display lines (const char* versions)
+    void registerLine(const char *name, const char *label,
+                      const char *unit = "", float initial_value = 0.0f);
+    void registerTextLine(const char *name, const char *label,
+                          const char *initial_text = "");
 
-    void updateLine(const String &name, float value);
-    void updateLineText(const String &name, const String &text);
+    void updateLine(const char *name, float value);
+    void updateLineText(const char *name, const char *text);
 
     // Live log output (to screen and serial, or serial only)
-    void log(const String &message, bool serialOnly = false);
+    void log(const char *message, bool serialOnly = false);
+
+    // Formatted log output (printf-style) - convenience wrapper
+    // Usage: logger.logf("Temp: %.2f C", temp);
+    void logf(const char *format, ...);
+    void logf(bool serialOnly, const char *format, ...);
 
   private:
     void clearValueArea(int y);
-    void drawLineLabel(const String &label, int slot);
+    void drawLineLabel(const char *label, int slot);
     void drawLineValue(DisplayLine &line, bool force_full_redraw = false);
-    void drawChangedCharacters(const String &old_val, const String &new_val,
-                               int x, int y);
+    void drawChangedCharacters(const char *old_val, const char *new_val, int x,
+                               int y);
     void printLine(const char *text, int x, int y, uint8_t textSize = 1);
     void fillBox(int x, int y, int w, int h, uint16_t color);
-    void registerLineInternal(const String &name, const String &label,
-                              const String &value, const String &unit);
-    bool shouldWrap(const String &label, const String &value) const;
+    void drawDeltaChar(int x, int y); // Draw custom Δ character
+    void registerLineInternal(const char *name, const char *label,
+                              const char *value, const char *unit);
+    bool shouldWrap(const char *label, const char *value) const;
+    DisplayLine *findLine(const char *name);
+    DisplayLine *findFreeSlot();
 
     DFRobot_ST7735_128x160_HW_SPI *_screen;
     int8_t _backlight;
@@ -141,14 +157,14 @@ class Logger {
     unsigned long _last_display_update;
 
     DisplayLayout _layout;
-    std::map<String, DisplayLine> _lines;
+    DisplayLine _lines[MAX_DISPLAY_LINES]; // Fixed array instead of std::map
 
     // Spinner state
     int _spinner_index;
     unsigned long _last_spinner_update;
 
     // Live log area
-    char _log_lines[LOG_AREA_LINES][MAX_CHARS_PER_LINE + 1];
+    char _log_lines[Display::LOG_AREA_LINES][MAX_CHARS_PER_LINE + 1];
     int _log_count;
     int _log_area_y_start;
 

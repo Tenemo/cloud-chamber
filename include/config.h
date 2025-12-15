@@ -1,106 +1,213 @@
+/**
+ * @file config.h
+ * @brief Tunable configuration parameters
+ *
+ * Only namespaced configuration values live here. Use the namespaces directly
+ * (e.g., `Limits::MAX_CURRENT_PER_CHANNEL`,
+ * `Timing::STARTUP_HOLD_DURATION_MS`).
+ */
+
 #ifndef CONFIG_H
 #define CONFIG_H
 
-// Display pins (directly mapped to GPIO)
-// ============================================================================
-#define TFT_DC 3   // GPIO3 - Data/Command selection
-#define TFT_CS 18  // GPIO18 - Display chip select
-#define TFT_RST 38 // GPIO38 - Display reset
-#define LCD_BL 21  // GPIO21 - Backlight control
+#include "pins.h"
+#include <cstddef>
 
-// ============================================================================
-// Sensor pins
-// ============================================================================
-constexpr int PIN_MAX31865_CS = 10; // GPIO10 - MAX31865 chip select
-constexpr int PIN_DS18B20 = 8;      // GPIO8 - DS18B20 OneWire data
-
-// DPS5015 power supplies (Modbus RTU over UART)
-constexpr int PIN_DPS5015_1_RX = 44; // GPIO44 - Serial1 RX
-constexpr int PIN_DPS5015_1_TX = 43; // GPIO43 - Serial1 TX
-constexpr int PIN_DPS5015_2_RX = 5;  // GPIO5 - Serial2 RX
-constexpr int PIN_DPS5015_2_TX = 4;  // GPIO4 - Serial2 TX
-
-// DS18B20 sensor addresses
-constexpr uint8_t DS18B20_1_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
-                                          0x75, 0xA8, 0xDD, 0x0C};
-constexpr uint8_t DS18B20_2_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
-                                          0x75, 0xB8, 0x5F, 0xD0};
-constexpr uint8_t DS18B20_3_ADDRESS[8] = {0x28, 0xFF, 0x64, 0x1F,
-                                          0x75, 0xB7, 0x33, 0x0E};
-
-/** ============================================================================
- * Available, unused GPIO pins
- * ============================================================================
- * - A2 (GPIO6)   - ADC capable, general purpose
- * - A5 (GPIO11)  - ADC capable, general purpose
- * - D5 (GPIO7)   - FCS font chip (directly usable if not using font library)
- * - D11 (GPIO13) - INT pin (unused, no touch on DFR0928)
- * - D12 (GPIO12) - TCS pin (unused, no touch on DFR0928)
- */
-
-/** ============================================================================
- * Available GPIO pins underside the board, require soldering
- * ============================================================================
- * - GPIO39       - Digital only, directly usable
- * - GPIO40       - Digital only, directly usable
- * - GPIO41       - Digital only, directly usable
- * - GPIO42       - Digital only, directly usable
- */
-
-/** ============================================================================
- * Unavailable/used GPIO pins
- * ============================================================================
- * In use:
- * - A3 (GPIO8)   - DS18B20 OneWire data
- * - A4 (GPIO10)  - MAX31865 chip select (PT100)
- * - SCK (GPIO17) - SPI clock (shared bus between PT100 and the display)
- * - MOSI (GPIO15)- SPI MOSI (shared bus between PT100 and the display)
- * - MISO (GPIO16)- SPI MISO (shared bus between PT100 and the display)
- *
- * Display (directly connected via GDI FPC - DFR0928 non-touch):
- * - D2 (GPIO3)   - LCD_DC
- * - D3 (GPIO38)  - LCD_RST
- * - D6 (GPIO18)  - LCD_CS
- * - D13 (GPIO21) - LCD_BL (backlight)
- * - D7 (GPIO9)   - SD_CS (directly connected to screen)
- * - D10 (GPIO14) - BUSY (tear sync, directly connected)
- *
- * Unused GDI pins (no touch controller on DFR0928):
- * - D11 (GPIO13) - INT (available for other use)
- * - D12 (GPIO12) - TCS (available for other use)
- *
- * DPS5015 Power Supplies (Modbus RTU):
- * - TX (GPIO43)  - UART TX (DPS5015 #1 Modbus - Serial1)
- * - RX (GPIO44)  - UART RX (DPS5015 #1 Modbus - Serial1)
- * - A0 (GPIO4)   - UART RX (DPS5015 #2 Modbus - Serial2)
- * - A1 (GPIO5)   - UART TX (DPS5015 #2 Modbus - Serial2)
- *
- * System/Special (avoid):
- * - D9 (GPIO0)   - Boot button, strapping pin
- * - D14 (GPIO47) - User key
- * - GPIO19       - USB D-
- * - GPIO20       - USB D+
- * - GPIO46       - Strapping pin
- * - SCL (GPIO2)  - I2C clock (usable if I2C not needed)
- * - SDA (GPIO1)  - I2C data (usable if I2C not needed)
- */
-
-// Update intervals
-constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 500;
+// =============================================================================
+// Sensor Update Intervals
+// =============================================================================
+namespace Intervals {
+constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
-    800; // 12-bit resolution needs 750ms conversion
+    1000; // 12-bit resolution needs 750ms conversion
+constexpr unsigned long DS18B20_CONVERSION_TIME_MS =
+    750; // 12-bit resolution conversion time
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
+} // namespace Intervals
 
-// PT100 serial logging (serial only, not display)
-constexpr bool PT100_SERIAL_LOGGING_ENABLED = true;
-constexpr unsigned long PT100_SERIAL_LOG_INTERVAL_MS = 10000;
+// =============================================================================
+// Modbus Communication Settings
+// =============================================================================
+namespace Modbus {
+// Default baud rate is 9600. If experiencing communication errors at high
+// TEC power due to EMI from the DC lines, try:
+// - Lowering baud rate to 4800 or 2400 (more robust but slower updates)
+// - Adding ferrite cores to UART lines
+// - Using shielded cables for Modbus connections
+// - Increasing physical separation from high-current DC wiring
+constexpr unsigned long BAUD_RATE = 9600;
+constexpr int MAX_RETRIES = 3; // Consecutive failures before error state
+} // namespace Modbus
+
+// =============================================================================
+// Display and Logging Settings
+// =============================================================================
+namespace Display {
 constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
-
-// Display update timing
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
+constexpr int LOG_AREA_LINES = 2; // Lines reserved for live logs
+} // namespace Display
 
-// Live log area (bottom of screen)
-constexpr int LOG_AREA_LINES =
-    2; // number of lines reserved for live logs at bottom
+namespace Labels {
+constexpr const char *COLD_PLATE = "Cold plate";
+constexpr const char *HOT_PLATE = "Hot plate";
+constexpr const char *DELTA_T = "dT";
+constexpr const char *RATE = "dT/dt";
+constexpr const char *CURRENT = "I set";
+} // namespace Labels
 
-#endif
+namespace Units {
+constexpr const char *TEMP = "C";
+constexpr const char *RATE = "K/m";
+constexpr const char *CURRENT = "A";
+constexpr const char *POWER = "W";
+} // namespace Units
+
+// =============================================================================
+// Watchdog Configuration
+// =============================================================================
+namespace Watchdog {
+constexpr unsigned long TIMEOUT_SECONDS = 10; // Task WDT timeout
+} // namespace Watchdog
+
+// =============================================================================
+// WiFi Time Sync (boot-time, optional)
+// =============================================================================
+namespace WiFiTimeSync {
+// If WIFI_SSID from env.h is present and reachable, the system will connect
+// briefly on boot, sync wall time via NTP, then disconnect.
+// If any step fails, wall time remains invalid and logging format is unchanged.
+constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 10000; // 10s connect timeout
+constexpr unsigned long NTP_SYNC_TIMEOUT_MS = 8000;      // 8s NTP wait
+
+// NTP servers (UTC by default)
+constexpr const char *NTP_SERVER_1 = "pool.ntp.org";
+constexpr const char *NTP_SERVER_2 = "time.nist.gov";
+
+// Timezone rule string (POSIX TZ). If empty, TIME_GMT_OFFSET_SEC and
+// TIME_DAYLIGHT_OFFSET_SEC are used instead.
+// Default is Central Europe (Poland): CET/CEST with DST rules.
+constexpr const char *TIME_TZ_STRING = "CET-1CEST,M3.5.0/2,M10.5.0/3";
+
+// Timezone offsets for configTime (seconds). Keep 0 for UTC.
+constexpr long TIME_GMT_OFFSET_SEC = 0;
+constexpr int TIME_DAYLIGHT_OFFSET_SEC = 0;
+} // namespace WiFiTimeSync
+
+// =============================================================================
+// PT100 Sensor Error Detection
+// =============================================================================
+namespace PT100 {
+constexpr float ERROR_MIN_C = -100.0f; // Below this = sensor error
+constexpr float ERROR_MAX_C = 500.0f;  // Above this = sensor error
+} // namespace PT100
+
+// =============================================================================
+// Limits (hardware and safety limits)
+// =============================================================================
+namespace Limits {
+// Fixed voltage for cascade TECs
+constexpr float TEC_VOLTAGE_SETPOINT = 15.0f;
+
+// Current limits
+constexpr float MAX_CURRENT_PER_CHANNEL = 13.0f;
+constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;
+constexpr float STARTUP_CURRENT = 2.0f;
+constexpr float DEGRADED_MODE_CURRENT =
+    5.0f; // Max current when one DPS disconnects
+
+// Hardware protection limits (failsafe in case of software/Modbus errors)
+constexpr float DPS_OVP_LIMIT = 16.0f; // Over Voltage Protection (V)
+constexpr float DPS_OCP_LIMIT = 13.0f; // Over Current Protection (A)
+
+// Temperature thresholds (Celsius)
+constexpr float HOT_SIDE_WARNING_C = 55.0f;
+constexpr float HOT_SIDE_WARNING_EXIT_C = 50.0f;
+constexpr float HOT_SIDE_ALARM_C = 65.0f;
+constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f;
+constexpr float HOT_SIDE_FAULT_C = 70.0f;
+constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN = 5.0f;
+constexpr float HOT_SIDE_PROBE_HEADROOM_C = 5.0f;
+
+struct ThermalLimit {
+    float enter;
+    float exit;
+};
+
+constexpr ThermalLimit HOT_WARNING_LIMIT{HOT_SIDE_WARNING_C,
+                                         HOT_SIDE_WARNING_EXIT_C};
+constexpr ThermalLimit HOT_ALARM_LIMIT{HOT_SIDE_ALARM_C, HOT_SIDE_ALARM_EXIT_C};
+
+// Absolute sensor sanity limits
+constexpr float COLD_PLATE_MIN_VALID_C = -60.0f;
+constexpr float COLD_PLATE_MAX_VALID_C = 80.0f;
+constexpr float HOT_PLATE_MIN_VALID_C = -20.0f;
+constexpr float HOT_PLATE_MAX_VALID_C = 100.0f;
+} // namespace Limits
+
+// =============================================================================
+// Timing (milliseconds)
+// =============================================================================
+namespace Timing {
+constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000;
+constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS = 20000;
+constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000;
+constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
+    1UL * 60UL * 1000UL; // 1 min
+constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS = 60000;
+constexpr unsigned long INIT_TIMEOUT_MS = 30000;
+
+// Hot-side stabilization / thermal inertia compensation
+constexpr unsigned long THERMAL_STABILIZATION_MS = 90000;
+constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS = 300000;
+constexpr unsigned long HOT_RESET_STABILIZATION_MS = THERMAL_STABILIZATION_MS;
+
+// Manual override detection
+constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS = 3000;
+
+// Cross-check / plausibility grace
+constexpr unsigned long SENSOR_CROSS_CHECK_GRACE_MS = 120000;
+constexpr unsigned long SENSOR_CROSS_CHECK_LOG_INTERVAL_MS = 30000;
+constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS = THERMAL_STABILIZATION_MS;
+} // namespace Timing
+
+// =============================================================================
+// Tuning (algorithm thresholds and steps)
+// =============================================================================
+namespace Tuning {
+// Cooling performance thresholds
+constexpr float COOLING_STALL_THRESHOLD_C = 0.02f;
+constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f;
+constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.1f;
+constexpr float MIN_CURRENT_FOR_STALL_CHECK_A = 4.0f;
+constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A = 6.0f;
+constexpr int CONSECUTIVE_DEGRADED_FOR_REVERT = 2;
+
+// Hot-side "stable" threshold
+constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN = 0.3f;
+
+// Adaptive step sizes (two-step approach: coarse for approach, fine for scan)
+constexpr float COARSE_STEP_A = 1.0f;
+constexpr float FINE_STEP_A = 0.1f;
+constexpr float RAMP_COARSE_BELOW_A = 9.0f;
+constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min
+
+// Manual override tolerances
+constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V = 0.15f;
+constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A = 0.15f;
+constexpr int MANUAL_OVERRIDE_MISMATCH_COUNT = 3;
+
+// Channel imbalance detection
+constexpr float CHANNEL_CURRENT_IMBALANCE_A = 1.0f;
+constexpr float CHANNEL_POWER_IMBALANCE_W = 5.0f;
+
+// Sensor validation
+constexpr float SENSOR_CROSS_CHECK_MARGIN_C = 2.0f;
+
+// PT100 plausibility check (physics-based validation)
+constexpr float PLAUSIBILITY_MIN_DELTA_T_PER_AMP = 2.0f;
+constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C = -35.0f;
+constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C = 35.0f;
+} // namespace Tuning
+
+#endif // CONFIG_H
