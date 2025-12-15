@@ -20,6 +20,7 @@
 #define THERMAL_METRICS_H
 
 #include "Logger.h"
+#include "RingBuffer.h"
 #include "ThermalConstants.h"
 
 // Forward declarations
@@ -105,12 +106,6 @@ class ThermalMetrics {
     bool hasMinimumHistory(size_t min_samples) const;
 
     /**
-     * @brief Get a sample from history (0 = most recent)
-     * @return Pointer to sample, or nullptr if out of range
-     */
-    const ThermalSample *getSample(size_t samples_ago) const;
-
-    /**
      * @brief Get cold plate cooling rate in K/min (negative = cooling)
      * @return Rate, or RATE_INSUFFICIENT_HISTORY if not enough data
      */
@@ -165,9 +160,7 @@ class ThermalMetrics {
     // -------------------------------------------------------------------------
     // History buffer (circular)
     // -------------------------------------------------------------------------
-    ThermalSample _buffer[HISTORY_BUFFER_SIZE];
-    size_t _head;  // Next write position
-    size_t _count; // Number of valid samples (up to HISTORY_BUFFER_SIZE)
+    RingBuffer<ThermalSample, HISTORY_BUFFER_SIZE> _history;
 
     // Cached measurements for display/log convenience
     float _last_actual_current; // Average actual output current (A)

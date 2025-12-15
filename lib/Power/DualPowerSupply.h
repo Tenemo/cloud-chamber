@@ -36,6 +36,7 @@
 
 #include "DPS5015.h"
 #include "Logger.h"
+#include "Counter.h"
 #include "ThermalConstants.h"
 #include "config.h"
 
@@ -161,6 +162,7 @@ class DualPowerSupply {
      * so it is intentionally non-const.
      */
     OverrideStatus checkManualOverride();
+    bool isManualOverride() { return checkManualOverride() == OverrideStatus::DETECTED; }
 
     /**
      * @brief Check if either PSU has its output enabled
@@ -219,13 +221,6 @@ class DualPowerSupply {
     bool isOutputOn(size_t channel) const;
 
     /**
-     * @brief Get raw PSU reference for direct access (e.g., self-test)
-     * @param channel 0 or 1
-     * @return Reference to the requested PSU
-     */
-    DPS5015 &getPsu(size_t channel) { return *_psus[channel & 1]; }
-
-    /**
      * @brief Reset manual override counter
      *
      * Call this immediately after intentionally changing current to prevent
@@ -233,7 +228,7 @@ class DualPowerSupply {
      * between commanded and actual values - an intentional change will cause
      * a temporary mismatch that should not trigger override detection.
      */
-    void resetOverrideCounter() { _consecutive_mismatches = 0; }
+    void resetOverrideCounter() { _consecutive_mismatches.reset(); }
 
     /**
      * @brief Check if any PSU has a mismatch between commanded and actual
@@ -325,7 +320,7 @@ class DualPowerSupply {
     unsigned long _last_shutdown_step_time;
 
     // Manual override tracking
-    int _consecutive_mismatches;
+    Counter _consecutive_mismatches;
 
     // Imbalance logging rate limiting
     unsigned long _last_imbalance_log_time = 0;

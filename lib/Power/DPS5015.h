@@ -79,6 +79,7 @@ class DPS5015 {
     float getOutputVoltage() const { return _output_voltage; }
     float getOutputCurrent() const { return _output_current; }
     float getOutputPower() const { return _output_power; }
+    float getSetCurrent() const { return _set_current; }
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _currently_online; }
     bool isInGracePeriod() const;
@@ -184,7 +185,6 @@ class DPS5015 {
     // From libsigrok rdtech-dps driver
     static constexpr uint16_t REG_OVP = 0x0052; // Over Voltage Protection
     static constexpr uint16_t REG_OCP = 0x0053; // Over Current Protection
-    static constexpr uint16_t REG_OPP = 0x0054; // Over Power Protection
 
     // Timing constants
     static constexpr unsigned long RESPONSE_TIMEOUT_MS = 500;

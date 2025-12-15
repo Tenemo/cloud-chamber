@@ -20,7 +20,7 @@ constexpr const char *LABEL_CURRENT_ACTUAL = "I actual";
 } // namespace
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
-    : _logger(logger), _head(0), _count(0), _last_actual_current(0.0f),
+    : _logger(logger), _history(), _last_actual_current(0.0f),
       _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
@@ -36,11 +36,7 @@ void ThermalMetrics::update() {
 // =============================================================================
 
 void ThermalMetrics::recordSample(const ThermalSample &sample) {
-    _buffer[_head] = sample;
-    _head = (_head + 1) % HISTORY_BUFFER_SIZE;
-    if (_count < HISTORY_BUFFER_SIZE) {
-        _count++;
-    }
+    _history.push(sample);
 }
 
 void ThermalMetrics::recordSample(TemperatureSensors &sensors,
@@ -124,21 +120,12 @@ ThermalSnapshot ThermalMetrics::buildSnapshot(TemperatureSensors &sensors,
 }
 
 bool ThermalMetrics::hasMinimumHistory(size_t min_samples) const {
-    return _count >= min_samples;
-}
-
-const ThermalSample *ThermalMetrics::getSample(size_t samples_ago) const {
-    if (samples_ago >= _count) {
-        return nullptr;
-    }
-    size_t idx =
-        (_head + HISTORY_BUFFER_SIZE - 1 - samples_ago) % HISTORY_BUFFER_SIZE;
-    return &_buffer[idx];
+    return _history.size() >= min_samples;
 }
 
 float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
                                             size_t window_samples) const {
-    if (_count < window_samples) {
+    if (_history.size() < window_samples) {
         return RATE_INSUFFICIENT_HISTORY;
     }
 
@@ -148,11 +135,11 @@ float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
     size_t n = window_samples;
 
     for (size_t i = 0; i < n; i++) {
-        size_t idx =
-            (_head + HISTORY_BUFFER_SIZE - n + i) % HISTORY_BUFFER_SIZE;
+        const ThermalSample *s = _history.getFromNewest(n - 1 - i);
+        if (!s)
+            return RATE_INSUFFICIENT_HISTORY;
         float x = static_cast<float>(i);
-        float y = use_hot_plate ? _buffer[idx].hot_plate_temp
-                                : _buffer[idx].cold_plate_temp;
+        float y = use_hot_plate ? s->hot_plate_temp : s->cold_plate_temp;
 
         sum_x += x;
         sum_y += y;
