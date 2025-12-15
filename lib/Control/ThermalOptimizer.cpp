@@ -182,7 +182,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         _converged = false;
         // Direction stays the same - continue probing in this direction
 
-        snprintf(_log_buffer, sizeof(_log_buffer), "TC: Opt %.2fA=%.1fC",
+        snprintf(_log_buffer, sizeof(_log_buffer), "TC: Opt %.2fA=%.2fC",
                  snapshot.current_setpoint, snapshot.cold_temp);
         decision.log_message = _log_buffer;
 
@@ -241,7 +241,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
                 decision.converged = true;
 
                 snprintf(_log_buffer, sizeof(_log_buffer),
-                         "TC: Converged at %.2fA (%.1fC)", _optimal_current,
+                         "TC: Converged at %.2fA (%.2fC)", _optimal_current,
                          _temp_at_optimal);
                 decision.log_message = _log_buffer;
             } else {
