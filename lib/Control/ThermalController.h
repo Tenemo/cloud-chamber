@@ -8,7 +8,6 @@
  * - DualPowerSupply: Symmetric control of two DPS5015 units
  * - ThermalMetrics: History buffer, trend analysis, session tracking
  * - SafetyMonitor: Centralized safety checks
- * - CrashLog: SPIFFS persistence for crash diagnostics
  *
  * DESIGN PRINCIPLES:
  * ------------------
@@ -21,7 +20,6 @@
 #ifndef THERMAL_CONTROLLER_H
 #define THERMAL_CONTROLLER_H
 
-#include "CrashLog.h"
 #include "DualPowerSupply.h"
 #include "SafetyMonitor.h"
 #include "TemperatureSensors.h"

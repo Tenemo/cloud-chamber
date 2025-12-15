@@ -136,19 +136,10 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     }
 
     // Hot side rate check (thermal runaway detection)
-    // Note: _metrics must be set via setMetrics() for runaway detection to work
-    if (_metrics != nullptr && _metrics->hasMinimumHistory(60)) {
+    if (_metrics && _metrics->hasMinimumHistory(60)) {
         float hot_rate = _metrics->getHotPlateRate();
         if (hot_rate > HOT_SIDE_RATE_FAULT_C_PER_MIN) {
             return setFault(SafetyStatus::THERMAL_FAULT, "RUNAWAY");
-        }
-    } else if (_metrics == nullptr) {
-        // Log warning once if metrics not configured (runaway detection
-        // disabled)
-        static bool warned_once = false;
-        if (!warned_once) {
-            _logger.log("WARN: Metrics null - runaway detection disabled");
-            warned_once = true;
         }
     }
 

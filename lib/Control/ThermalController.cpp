@@ -259,7 +259,7 @@ void ThermalController::transitionTo(ThermalState newState,
 
 void ThermalController::enterThermalFault(const char *reason) {
     _logger.logf(false, "TC FAULT: %s", reason);
-    CrashLog::logCritical("THERMAL_FAULT", reason);
+    _logger.logf(true, "CRIT: THERMAL_FAULT %s", reason);
 
     float hot_temp = _sensors.getHotPlateTemperature();
 
@@ -330,12 +330,12 @@ void ThermalController::handleInitializing() {
     // 3. Timeout Logic
     if (elapsed > INIT_TIMEOUT_MS) {
         if (!cold_plate_ok || !hot_plate_ok) {
-            CrashLog::logCritical("INIT_FAIL", "Sensor timeout");
+            _logger.log("CRIT: INIT_FAIL Sensor timeout", true);
             transitionTo(ThermalState::SENSOR_FAULT);
         } else {
             // Note: In hot reset, if one PSU is dead, we might want to try
             // running on one? For now, stick to safe symmetric policy.
-            CrashLog::logCritical("INIT_FAIL", "DPS timeout");
+            _logger.log("CRIT: INIT_FAIL DPS timeout", true);
             transitionTo(ThermalState::DPS_DISCONNECTED);
         }
     }
@@ -357,7 +357,7 @@ void ThermalController::handleSelfTest() {
         // Still running, check for overall timeout
         if (millis() - _state_entry_time > Timing::SELFTEST_TIMEOUT_MS * 3) {
             _logger.log("TC: Self-test timeout");
-            CrashLog::logCritical("SELFTEST_FAIL", "Timeout");
+            _logger.log("CRIT: SELFTEST_FAIL Timeout", true);
             transitionTo(ThermalState::DPS_DISCONNECTED);
         }
         break;
@@ -510,7 +510,7 @@ void ThermalController::handleSensorFault() {
     }
 
     if (elapsed > SENSOR_RECOVERY_TIMEOUT_MS) {
-        CrashLog::logCritical("SENSOR_FAULT", "Recovery timeout");
+        _logger.log("CRIT: SENSOR_FAULT Recovery timeout", true);
         enterThermalFault("Sensor timeout");
     }
 }

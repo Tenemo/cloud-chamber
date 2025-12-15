@@ -4,7 +4,6 @@
  */
 
 #include "DualPowerSupply.h"
-#include "CrashLog.h"
 #include <cmath>
 
 DualPowerSupply::DualPowerSupply(Logger &logger)
@@ -99,7 +98,6 @@ void DualPowerSupply::startEmergencyShutdown() {
         return;
 
     _logger.log("DPS: Emergency shutdown");
-    CrashLog::logCritical("SHUTDOWN", "Emergency ramp-down");
 
     // Immediately set target to 0 to prevent any further increases
     _target_current = 0.0f;
@@ -138,7 +136,6 @@ bool DualPowerSupply::updateEmergencyShutdown() {
         _target_output = false;
         _shutdown_in_progress = false;
         _logger.log("DPS: Shutdown complete");
-        CrashLog::logCritical("SHUTDOWN", "Complete");
         return false;
     } else {
         // Continue ramp-down with immediate writes
@@ -151,7 +148,6 @@ bool DualPowerSupply::updateEmergencyShutdown() {
 
 bool DualPowerSupply::hardShutdown() {
     _logger.log("DPS: HARD CUT!");
-    CrashLog::logCritical("SHUTDOWN", "Hard cut");
 
     _shutdown_in_progress = false;
     _target_current = 0;
@@ -467,16 +463,14 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             return SelfTestResult::IN_PROGRESS;
 
         if (!areBothConnected()) {
-            _logger.log("DPS: Self-test FAIL: offline");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS offline");
+            _logger.log("CRIT: Self-test FAIL: offline");
             return SelfTestResult::FAILED;
         }
 
         for (auto *psu : _psus) {
             if (fabs(psu->getSetVoltage() - ST_VOLTAGE) >
                 ST_VOLTAGE_TOLERANCE) {
-                _logger.log("DPS: Self-test FAIL: V mismatch");
-                CrashLog::logCritical("SELFTEST_FAIL", "Voltage mismatch");
+                _logger.log("CRIT: Self-test FAIL: V mismatch");
                 return SelfTestResult::FAILED;
             }
         }
@@ -501,8 +495,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             _selftest_phase = static_cast<int>(SelfTestPhase::ENABLE_PSU1);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {
-            _logger.log("DPS: Self-test FAIL: DPS0 output");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS0 output");
+            _logger.log("CRIT: Self-test FAIL: DPS0 output");
             return SelfTestResult::FAILED;
         }
         break;
@@ -525,8 +518,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             _selftest_phase = static_cast<int>(SelfTestPhase::COMPLETE);
             _selftest_phase_start = now;
         } else if (phase_elapsed > ST_TIMEOUT_MS) {
-            _logger.log("DPS: Self-test FAIL: DPS1 output");
-            CrashLog::logCritical("SELFTEST_FAIL", "DPS1 output");
+            _logger.log("CRIT: Self-test FAIL: DPS1 output");
             return SelfTestResult::FAILED;
         }
         break;
@@ -539,8 +531,7 @@ SelfTestResult DualPowerSupply::runSelfTest() {
             _logger.log("DPS: Self-test PASS");
             return SelfTestResult::PASSED;
         } else {
-            _logger.log("DPS: Self-test incomplete");
-            CrashLog::logCritical("SELFTEST_FAIL", "Incomplete");
+            _logger.log("CRIT: Self-test incomplete");
             return SelfTestResult::FAILED;
         }
 
