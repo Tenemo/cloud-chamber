@@ -68,8 +68,8 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
     _last_avg_voltage = (connected > 0) ? (voltage_sum / connected) : 0.0f;
     _last_total_power = power_sum;
 
-    dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
-                             CHANNEL_POWER_IMBALANCE_W,
+    dps.checkAndLogImbalance(Tuning::CHANNEL_CURRENT_IMBALANCE_A,
+                             Tuning::CHANNEL_POWER_IMBALANCE_W,
                              Timing::IMBALANCE_LOG_INTERVAL_MS);
 
     // Periodic comprehensive temperature log (serial only)
@@ -88,9 +88,9 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         // Format rate string (handle insufficient history)
         char rate_str[16];
         if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
-            snprintf(rate_str, sizeof(rate_str), "--- %s", UNIT_RATE);
+            snprintf(rate_str, sizeof(rate_str), "--- %s", Units::RATE);
         } else {
-            snprintf(rate_str, sizeof(rate_str), "%.2f %s", rate, UNIT_RATE);
+            snprintf(rate_str, sizeof(rate_str), "%.2f %s", rate, Units::RATE);
         }
 
         // Use same labels as display, two spaces between values
@@ -98,10 +98,10 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         _logger.logf(true,
                      "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s  "
                      "V: %.2f V  P total: %.1f%s",
-                     LABEL_COLD_PLATE, cold, UNIT_TEMP, LABEL_HOT_PLATE, hot,
-                     UNIT_TEMP, LABEL_DELTA_T, delta, UNIT_TEMP, LABEL_RATE,
-                     rate_str, LABEL_CURRENT, set_current, UNIT_CURRENT,
-                     avg_voltage, total_power, UNIT_POWER);
+                     Labels::COLD_PLATE, cold, Units::TEMP, Labels::HOT_PLATE,
+                     hot, Units::TEMP, Labels::DELTA_T, delta, Units::TEMP,
+                     Labels::RATE, rate_str, Labels::CURRENT, set_current,
+                     Units::CURRENT, avg_voltage, total_power, Units::POWER);
     }
 }
 
@@ -116,7 +116,7 @@ ThermalSnapshot ThermalMetrics::buildSnapshot(TemperatureSensors &sensors,
         dps.getTargetCurrent(),
         safety.isHotSideWarning(),
         safety.isHotSideAlarm(),
-        isHotSideStable(HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN),
+        isHotSideStable(Tuning::HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN),
         millis()};
 }
 
@@ -191,15 +191,16 @@ void ThermalMetrics::registerDisplayLines() {
 
     // Build label with colon for display
     char rate_label[16];
-    snprintf(rate_label, sizeof(rate_label), "%s:", LABEL_RATE);
+    snprintf(rate_label, sizeof(rate_label), "%s:", Labels::RATE);
     char rate_default[16];
-    snprintf(rate_default, sizeof(rate_default), "--- %s", UNIT_RATE);
+    snprintf(rate_default, sizeof(rate_default), "--- %s", Units::RATE);
     _logger.registerTextLine(LINE_RATE, rate_label, rate_default);
 
     char current_label[16];
-    snprintf(current_label, sizeof(current_label), "%s:", LABEL_CURRENT);
+    snprintf(current_label, sizeof(current_label), "%s:", Labels::CURRENT);
     char current_default[16];
-    snprintf(current_default, sizeof(current_default), "0.0 %s", UNIT_CURRENT);
+    snprintf(current_default, sizeof(current_default), "0.0 %s",
+             Units::CURRENT);
     _logger.registerTextLine(LINE_CURRENT, current_label, current_default);
 
     char voltage_label[12];
@@ -223,16 +224,16 @@ void ThermalMetrics::updateDisplay(const char *state_string,
     float rate = getColdPlateRate();
     char rate_buf[16];
     if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
-        snprintf(rate_buf, sizeof(rate_buf), "--- %s", UNIT_RATE);
+        snprintf(rate_buf, sizeof(rate_buf), "--- %s", Units::RATE);
     } else {
-        snprintf(rate_buf, sizeof(rate_buf), "%.2f %s", rate, UNIT_RATE);
+        snprintf(rate_buf, sizeof(rate_buf), "%.2f %s", rate, Units::RATE);
     }
     _logger.updateLineText(LINE_RATE, rate_buf);
 
     // Format current as text
     char current_buf[16];
     snprintf(current_buf, sizeof(current_buf), "%.2f %s", target_current,
-             UNIT_CURRENT);
+             Units::CURRENT);
     _logger.updateLineText(LINE_CURRENT, current_buf);
 
     // Voltage and power averages
@@ -242,6 +243,6 @@ void ThermalMetrics::updateDisplay(const char *state_string,
 
     char power_buf[16];
     snprintf(power_buf, sizeof(power_buf), "%.1f %s", _last_total_power,
-             UNIT_POWER);
+             Units::POWER);
     _logger.updateLineText(LINE_POWER, power_buf);
 }

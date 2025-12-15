@@ -262,7 +262,7 @@ Hot side temperature zones use hysteresis to prevent oscillation:
    - Track previous connection state
    - Detect disconnection → DPS_DISCONNECTED
 
-4. **Manual override** (`checkManualOverride()`):
+4. **Manual override** (`DualPowerSupply::checkOverrideDetail()`):
    - Detect when user adjusts DPS dial
    - Requires **3 consecutive mismatches** to avoid false positives
    - Checks current, voltage, and output state mismatches
@@ -443,7 +443,6 @@ Most timing and threshold values are defined in `config.h` (internal timing cons
 #include "ThermalController.h"
 #include "TemperatureSensors.h"
 #include "Logger.h"
-#include "CrashLog.h"
 
 // Hardware instances
 Logger logger;
@@ -452,7 +451,6 @@ ThermalController controller(logger, sensors);
 
 void setup() {
     logger.initializeDisplay();
-    CrashLog::begin();
     sensors.begin();
     controller.begin();
 }
@@ -486,86 +484,8 @@ void loop() {
 Monitor these for diagnostics:
 
 - Serial output for state transitions and events
-- Display shows state, cooling rate, commanded currents
-- History buffer contains 5-minute trend data
-- **PSRAM log buffer** contains ~12,800 log entries with timestamps (see below)
-
----
-
-## PSRAM Log Buffer
-
-The Logger maintains a circular buffer in PSRAM (volatile memory with unlimited writes) that stores ~12,800 log entries with timestamps. This is invaluable for post-mortem diagnostics after an issue occurs.
-
-### Characteristics
-
-| Property        | Value                                      |
-| --------------- | ------------------------------------------ |
-| Location        | PSRAM (external DRAM)                      |
-| Size            | 1MB (~12,800 entries × 80 chars)           |
-| Write endurance | Unlimited (DRAM, not flash)                |
-| Persistence     | **Volatile** - lost on power cycle / reset |
-| Timestamps      | Milliseconds since boot                    |
-
-### Accessing the Log Buffer
-
-**Via Serial command** (future enhancement - not yet implemented):
-
-```
-// TODO: Add serial command handler
-```
-
-**Programmatically**:
-
-```cpp
-// Dump all logs to Serial
-logger.dumpLogBuffer();
-
-// Check how many entries are stored
-size_t count = logger.getLogBufferCount();
-```
-
-**Output format**:
-
-```
-=== BEGIN LOG BUFFER DUMP ===
-Total entries: 347
----
-[1234] TC: init
-[1289] DS18B20 initialized.
-[1345] DPS5015 connected.
-[2100] TC: -> TEST
-[5234] TC: Self-test PASS
-[5235] TC: -> START
-...
----
-=== END LOG BUFFER DUMP ===
-```
-
-### When to Use
-
-- **After THERMAL_FAULT**: Dump logs to understand what led to the fault
-- **After unexpected behavior**: See the sequence of events
-- **Debugging sensor issues**: Track when warnings/errors occurred
-- **Performance analysis**: Correlate state transitions with timestamps
-
-### Limitations
-
-- Buffer is **circular** - oldest entries overwritten when full
-- Lost on any reset (power cycle, watchdog, brownout)
-- All entries dump at once (~12,800 when full) - no filtering
-- For persistent logging, use SPIFFS data logging (future enhancement)
-
-### Implementation Notes
-
-The buffer is allocated in PSRAM using `heap_caps_malloc(MALLOC_CAP_SPIRAM)`. If PSRAM is unavailable (allocation fails), logging continues normally to Serial only and `getLogBufferCount()` returns 0.
-
-Each log entry stores:
-
-```
-[timestamp_ms] original_message
-```
-
-Where `timestamp_ms` is `millis()` at the time of logging.
+- Display shows state, cooling rate, set current, voltage, and power
+- History buffer contains ~30 minutes of trend data (1 Hz)
 
 ---
 

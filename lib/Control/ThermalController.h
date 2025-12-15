@@ -71,6 +71,10 @@ class ThermalController {
     unsigned long _sensor_fault_time;
     Counter _consecutive_stall_detects;
     unsigned long _dps_disconnect_log_time = 0;
+    bool _dps_restore_in_progress = false;
+    unsigned long _dps_restore_start_time = 0;
+    float _dps_restore_current = 0.0f;
+    ThermalState _dps_restore_state = ThermalState::STARTUP;
 
     // Hot reset recovery tracking
     bool _hot_reset_active;   // True if we detected hot reset and haven't
@@ -109,14 +113,13 @@ class ThermalController {
      * @brief Check if controller is in an operational state
      *
      * Returns true for states where safety checks should run:
-     * STARTUP, RAMP_UP, STEADY_STATE, MANUAL_OVERRIDE, SENSOR_FAULT
+     * STARTUP, RAMP_UP, STEADY_STATE, MANUAL_OVERRIDE, SENSOR_FAULT,
+     * DPS_DISCONNECTED
      *
      * Returns false for:
      * - INITIALIZING: Hardware not ready yet, sensors may not be valid
      * - SELF_TEST: Running DPS verification, not operational
      * - THERMAL_FAULT: Already in fault state, shutdown in progress
-     * - DPS_DISCONNECTED: No PSU communication, can't check or control
-     *
      * @return true if in operational state requiring safety monitoring
      */
     bool isOperationalState() const;

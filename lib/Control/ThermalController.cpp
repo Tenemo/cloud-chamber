@@ -75,7 +75,7 @@ void ThermalController::update() {
     // Always enforce hot-side hard limit, even if DPS comms are down
     float hot_temp = _sensors.getHotPlateTemperature();
     if (_state != ThermalState::THERMAL_FAULT &&
-        hot_temp >= HOT_SIDE_FAULT_C) {
+        hot_temp >= Limits::HOT_SIDE_FAULT_C) {
         enterThermalFault("Hot side >= fault threshold");
         updateDisplay();
         return;
@@ -203,6 +203,10 @@ void ThermalController::transitionTo(ThermalState newState,
     _state_entry_time = millis();
     if (newState == ThermalState::DPS_DISCONNECTED) {
         _dps_disconnect_log_time = 0; // reset rate-limit timer
+        _dps_restore_in_progress = false;
+        _dps_restore_start_time = 0;
+        _dps_restore_current = 0.0f;
+        _dps_restore_state = ThermalState::STARTUP;
     }
 
     if (reason) {
@@ -219,9 +223,10 @@ void ThermalController::transitionTo(ThermalState newState,
         _hot_reset_current = 0.0f;
 
         // Configure PSUs immediately on entering STARTUP
-        _dps.configure(TEC_VOLTAGE_SETPOINT, STARTUP_CURRENT, true);
-        _logger.logf(false, "TC: Config %.0fV %.2fA", TEC_VOLTAGE_SETPOINT,
-                     STARTUP_CURRENT);
+        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT,
+                       true);
+        _logger.logf(false, "TC: Config %.0fV %.2fA",
+                     Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT);
         break;
     case ThermalState::STEADY_STATE:
         // Reached stable operation - clear hot reset recovery state
@@ -234,7 +239,8 @@ void ThermalController::transitionTo(ThermalState newState,
         // immediately exited ramp), allow immediate first probe since we
         // already waited during stabilization
         if (_last_adjustment_time == 0) {
-            _last_adjustment_time = millis() - STEADY_STATE_RECHECK_INTERVAL_MS;
+            _last_adjustment_time =
+                millis() - Timing::STEADY_STATE_RECHECK_INTERVAL_MS;
         }
         break;
     case ThermalState::RAMP_UP:
@@ -263,7 +269,7 @@ void ThermalController::enterThermalFault(const char *reason) {
 
     float hot_temp = _sensors.getHotPlateTemperature();
 
-    if (hot_temp >= HOT_SIDE_FAULT_C) {
+    if (hot_temp >= Limits::HOT_SIDE_FAULT_C) {
         _dps.hardShutdown();
     } else {
         _dps.startEmergencyShutdown();
@@ -296,7 +302,7 @@ void ThermalController::handleInitializing() {
             // Configure expected state, but DO NOT transition yet.
             // This queues writes for currently connected PSUs and sets
             // pending config for the ones yet to connect.
-            _dps.configure(TEC_VOLTAGE_SETPOINT, adopted, true);
+            _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, adopted, true);
 
             // Seed optimizer immediately so we don't start from 0
             float current_temp = _sensors.getColdPlateTemperature();
@@ -328,7 +334,7 @@ void ThermalController::handleInitializing() {
     }
 
     // 3. Timeout Logic
-    if (elapsed > INIT_TIMEOUT_MS) {
+    if (elapsed > Timing::INIT_TIMEOUT_MS) {
         if (!cold_plate_ok || !hot_plate_ok) {
             _logger.log("CRIT: INIT_FAIL Sensor timeout", true);
             transitionTo(ThermalState::SENSOR_FAULT);
@@ -369,7 +375,7 @@ void ThermalController::handleStartup() {
 
     // Configuration is done in transitionTo() when entering STARTUP
     // Just wait for the startup hold duration
-    if (elapsed >= STARTUP_HOLD_DURATION_MS) {
+    if (elapsed >= Timing::STARTUP_HOLD_DURATION_MS) {
         transitionTo(ThermalState::RAMP_UP);
     }
 }
@@ -410,8 +416,8 @@ void ThermalController::handleRampUp() {
         _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2);
     bool stall_detected =
         has_enough_history &&
-        snapshot.current_setpoint >= MIN_CURRENT_FOR_STALL_CHECK_A &&
-        fabs(cooling_rate) < COOLING_STALL_THRESHOLD_C;
+        snapshot.current_setpoint >= Tuning::MIN_CURRENT_FOR_STALL_CHECK_A &&
+        fabs(cooling_rate) < Tuning::COOLING_STALL_THRESHOLD_C;
 
     // Require multiple consecutive stall detections before exiting ramp
     if (stall_detected) {
@@ -428,7 +434,7 @@ void ThermalController::handleRampUp() {
 
     if (should_exit &&
         (_safety.isHotSideAlarm() ||
-         snapshot.current_setpoint >= MAX_CURRENT_PER_CHANNEL ||
+         snapshot.current_setpoint >= Limits::MAX_CURRENT_PER_CHANNEL ||
          exit_on_stall)) {
         _optimizer.updateBest(current, snapshot.cold_temp);
 
@@ -444,7 +450,8 @@ void ThermalController::handleRampUp() {
                 1000;
             snprintf(exit_reason_buf, sizeof(exit_reason_buf),
                      "Cooling stalled (3x): rate %.3f K/m < %.3f over %lus",
-                     cooling_rate, COOLING_STALL_THRESHOLD_C, window_seconds);
+                     cooling_rate, Tuning::COOLING_STALL_THRESHOLD_C,
+                     window_seconds);
             exit_reason = exit_reason_buf;
         }
 
@@ -456,7 +463,7 @@ void ThermalController::handleRampUp() {
     bool psus_ready = canControlPower() && _dps.areBothSettled();
     ThermalOptimizationDecision decision = _optimizer.update(
         snapshot, ThermalControlPhase::RAMP_UP, _last_adjustment_time,
-        RAMP_ADJUSTMENT_INTERVAL_MS, psus_ready);
+        Timing::RAMP_ADJUSTMENT_INTERVAL_MS, psus_ready);
 
     applyOptimizationDecision(decision, snapshot.now);
 
@@ -472,7 +479,7 @@ void ThermalController::handleSteadyState() {
     // Reset converged state at recheck interval
     if (_optimizer.isConverged()) {
         if (_metrics.isTimeForAdjustment(_last_adjustment_time,
-                                         STEADY_STATE_RECHECK_INTERVAL_MS)) {
+                                         Timing::STEADY_STATE_RECHECK_INTERVAL_MS)) {
             _optimizer.clearConverged();
             _logger.log("TC: Recheck, probing again", true);
         }
@@ -482,7 +489,7 @@ void ThermalController::handleSteadyState() {
     bool psus_ready = canControlPower() && _dps.areBothSettled();
     ThermalOptimizationDecision decision = _optimizer.update(
         snapshot, ThermalControlPhase::STEADY_STATE, _last_adjustment_time,
-        STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
+        Timing::STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
 
     applyOptimizationDecision(decision, snapshot.now);
 }
@@ -495,8 +502,8 @@ void ThermalController::handleSensorFault() {
     unsigned long elapsed = millis() - _sensor_fault_time;
 
     // Reduce to safe current
-    if (_dps.getTargetCurrent() > DEGRADED_MODE_CURRENT / 2) {
-        _dps.setSymmetricCurrent(DEGRADED_MODE_CURRENT / 2);
+    if (_dps.getTargetCurrent() > Limits::DEGRADED_MODE_CURRENT / 2) {
+        _dps.setSymmetricCurrent(Limits::DEGRADED_MODE_CURRENT / 2);
     }
 
     // Check recovery
@@ -509,33 +516,85 @@ void ThermalController::handleSensorFault() {
         return;
     }
 
-    if (elapsed > SENSOR_RECOVERY_TIMEOUT_MS) {
+    if (elapsed > Timing::SENSOR_RECOVERY_TIMEOUT_MS) {
         _logger.log("CRIT: SENSOR_FAULT Recovery timeout", true);
         enterThermalFault("Sensor timeout");
     }
 }
 
 void ThermalController::handleDpsDisconnected() {
-    if (_dps.areBothConnected()) {
-        _logger.log("TC: DPS reconnected");
+    unsigned long now = millis();
 
-        // If we were in hot reset recovery, restore the adopted current
-        // instead of going through STARTUP which would reset to STARTUP_CURRENT
-        if (_hot_reset_active && _hot_reset_current > 0.0f) {
-            _dps.configure(TEC_VOLTAGE_SETPOINT, _hot_reset_current, true);
-            transitionTo(ThermalState::RAMP_UP, "Hot reset restore");
-        } else {
-            transitionTo(ThermalState::STARTUP);
+    // If we are not fully reconnected, wait quietly and cancel any restore
+    // attempt.
+    if (!_dps.areBothConnected()) {
+        _dps_restore_in_progress = false;
+
+        if (_dps_disconnect_log_time == 0 ||
+            now - _dps_disconnect_log_time > 5000) { // log at most every 5s
+            _logger.log("TC: DPS disconnected, waiting for reconnection");
+            _dps_disconnect_log_time = now;
         }
         return;
     }
 
-    // During comm loss we now wait quietly for reconnection; avoid spamming logs
-    unsigned long now = millis();
-    if (_dps_disconnect_log_time == 0 ||
-        now - _dps_disconnect_log_time > 5000) { // log at most every 5s
-        _logger.log("TC: DPS disconnected, waiting for reconnection");
-        _dps_disconnect_log_time = now;
+    // Reconnected - restore last known setpoint/state and resume.
+    if (!_dps_restore_in_progress) {
+        _logger.log("TC: DPS reconnected");
+
+        ThermalState resume_state = _state_before_fault;
+        float resume_current = _dps.getTargetCurrent();
+
+        // Hot reset recovery: prefer adopted current and resume path
+        if (_hot_reset_active && _hot_reset_current > 0.0f) {
+            resume_current = _hot_reset_current;
+            resume_state = (_hot_reset_current >= HOT_RESET_NEAR_MAX_A)
+                               ? ThermalState::STEADY_STATE
+                               : ThermalState::RAMP_UP;
+        }
+
+        // Defensive fallbacks
+        if (resume_state == ThermalState::INITIALIZING ||
+            resume_state == ThermalState::SELF_TEST) {
+            _dps_restore_in_progress = false;
+            transitionTo(ThermalState::SELF_TEST, "DPS reconnected");
+            return;
+        }
+        if (resume_state == ThermalState::DPS_DISCONNECTED ||
+            resume_state == ThermalState::THERMAL_FAULT) {
+            resume_state = ThermalState::STARTUP;
+            resume_current = Limits::STARTUP_CURRENT;
+        }
+
+        // Clamp to sane operational range (per-channel setpoint)
+        if (resume_current < Limits::MIN_CURRENT_PER_CHANNEL) {
+            resume_current = Limits::STARTUP_CURRENT;
+        } else if (resume_current > Limits::MAX_CURRENT_PER_CHANNEL) {
+            resume_current = Limits::MAX_CURRENT_PER_CHANNEL;
+        }
+
+        _dps_restore_state = resume_state;
+        _dps_restore_current = resume_current;
+        _dps_restore_in_progress = true;
+        _dps_restore_start_time = now;
+
+        // STARTUP transition handles its own PSU configuration.
+        if (_dps_restore_state == ThermalState::STARTUP) {
+            _dps_restore_in_progress = false;
+            transitionTo(ThermalState::STARTUP, "DPS reconnected");
+            return;
+        }
+
+        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, _dps_restore_current,
+                       true);
+        return;
+    }
+
+    // Wait until both PSUs have processed our restore commands, then resume.
+    if (_dps.areBothSettled()) {
+        _dps_restore_in_progress = false;
+        transitionTo(_dps_restore_state, "DPS restored");
+        return;
     }
 }
 

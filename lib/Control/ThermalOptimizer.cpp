@@ -44,7 +44,7 @@ void ThermalOptimizer::seedWithCurrent(float current, float temp) {
     _probe_direction = 1;
 
     // After hot reset, wait for system to stabilize before optimizing
-    _stabilization_until = millis() + HOT_RESET_STABILIZATION_MS;
+    _stabilization_until = millis() + Timing::HOT_RESET_STABILIZATION_MS;
 }
 
 // =============================================================================
@@ -101,7 +101,7 @@ bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
     }
 
     // At maximum current
-    if (snapshot.current_setpoint >= MAX_CURRENT_PER_CHANNEL)
+    if (snapshot.current_setpoint >= Limits::MAX_CURRENT_PER_CHANNEL)
         return true;
 
     // Hot side limiting
@@ -114,8 +114,8 @@ bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
     // This prevents false "stall" detection at low currents when TECs
     // haven't started producing significant cooling yet
     if (has_enough_history &&
-        snapshot.current_setpoint >= MIN_CURRENT_FOR_STALL_CHECK_A) {
-        if (fabs(snapshot.cooling_rate) < COOLING_STALL_THRESHOLD_C)
+        snapshot.current_setpoint >= Tuning::MIN_CURRENT_FOR_STALL_CHECK_A) {
+        if (fabs(snapshot.cooling_rate) < Tuning::COOLING_STALL_THRESHOLD_C)
             return true;
     }
 
@@ -125,12 +125,13 @@ bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
 ThermalEvaluationResult
 ThermalOptimizer::evaluateEffect(const ThermalSnapshot &snapshot) {
     // Minimum delay before evaluation
-    if (snapshot.now - _eval_start_time < CURRENT_EVALUATION_DELAY_MS)
+    if (snapshot.now - _eval_start_time < Timing::CURRENT_EVALUATION_DELAY_MS)
         return ThermalEvaluationResult::WAITING;
 
     // Wait for hot-side stabilization (or timeout)
     bool timeout =
-        (snapshot.now - _eval_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
+        (snapshot.now - _eval_start_time >
+         Timing::HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
     if (!snapshot.hot_side_stable && !timeout)
         return ThermalEvaluationResult::WAITING;
 
@@ -140,8 +141,10 @@ ThermalOptimizer::evaluateEffect(const ThermalSnapshot &snapshot) {
     bool temp_improved =
         (snapshot.cold_temp < _baseline_temp - TEMP_IMPROVEMENT_THRESHOLD_C);
     bool temp_worsened =
-        (snapshot.cold_temp > _baseline_temp + OVERCURRENT_WARMING_THRESHOLD_C);
-    bool rate_degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
+        (snapshot.cold_temp >
+         _baseline_temp + Tuning::OVERCURRENT_WARMING_THRESHOLD_C);
+    bool rate_degraded =
+        (rate_delta > Tuning::COOLING_RATE_DEGRADATION_THRESHOLD);
 
     if (temp_improved)
         return ThermalEvaluationResult::IMPROVED;
@@ -193,16 +196,18 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
             // Only revert if:
             // 1. We've reached minimum ramp current, AND
             // 2. We've seen multiple consecutive degraded evaluations
-            if (snapshot.current_setpoint >= MIN_RAMP_CURRENT_BEFORE_EXIT_A &&
-                _consecutive_degraded.atLeast(CONSECUTIVE_DEGRADED_FOR_REVERT)) {
+            if (snapshot.current_setpoint >=
+                    Tuning::MIN_RAMP_CURRENT_BEFORE_EXIT_A &&
+                _consecutive_degraded.atLeast(
+                    Tuning::CONSECUTIVE_DEGRADED_FOR_REVERT)) {
                 should_revert = true;
             } else {
                 // Not ready to revert yet - log but continue ramping
                 snprintf(_log_buffer, sizeof(_log_buffer),
                          "TC: Degraded #%d at %.2fA (need %d @ %.2fA+)",
                          _consecutive_degraded, snapshot.current_setpoint,
-                         CONSECUTIVE_DEGRADED_FOR_REVERT,
-                         MIN_RAMP_CURRENT_BEFORE_EXIT_A);
+                         Tuning::CONSECUTIVE_DEGRADED_FOR_REVERT,
+                         Tuning::MIN_RAMP_CURRENT_BEFORE_EXIT_A);
                 decision.log_message = _log_buffer;
                 return decision;
             }
@@ -214,7 +219,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         if (should_revert) {
             // Revert to baseline (local), not global best
             float revert_current = _baseline_current;
-            if (revert_current < MIN_CURRENT_PER_CHANNEL) {
+            if (revert_current < Limits::MIN_CURRENT_PER_CHANNEL) {
                 revert_current = _optimal_current;
             }
             revert_current = Clamp::current(revert_current);
@@ -273,24 +278,24 @@ float ThermalOptimizer::calculateStepSize(
 
     // Hot-side warning caps aggressiveness
     if (snapshot.hot_in_warning) {
-        return FINE_STEP_A;
+        return Tuning::FINE_STEP_A;
     }
 
     // If we've bounced multiple times, we're near optimum
     if (_consecutive_bounces.atLeast(2)) {
-        return FINE_STEP_A;
+        return Tuning::FINE_STEP_A;
     }
 
     // Rate-based guidance first (when rate data is meaningful)
-    if (rate_mag > STEP_COARSE_RATE_THRESHOLD) {
-        return COARSE_STEP_A; // Still far from equilibrium
+    if (rate_mag > Tuning::STEP_COARSE_RATE_THRESHOLD) {
+        return Tuning::COARSE_STEP_A; // Still far from equilibrium
     }
 
     // Fallback to current-based sizing
-    if (current < RAMP_COARSE_BELOW_A) {
-        return COARSE_STEP_A; // Approach quickly
+    if (current < Tuning::RAMP_COARSE_BELOW_A) {
+        return Tuning::COARSE_STEP_A; // Approach quickly
     }
-    return FINE_STEP_A; // Scan gently
+    return Tuning::FINE_STEP_A; // Scan gently
 }
 
 // =============================================================================
@@ -351,15 +356,15 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
 
     if (_probe_direction > 0) {
         // Try increasing (if we have room and thermal headroom)
-        if (current < MAX_CURRENT_PER_CHANNEL &&
+        if (current < Limits::MAX_CURRENT_PER_CHANNEL &&
             snapshot.hot_temp <
-                HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
+                Limits::HOT_SIDE_WARNING_C - Limits::HOT_SIDE_PROBE_HEADROOM_C) {
             new_current = Clamp::current(current + step);
             can_step = true;
         }
     } else {
         // Try decreasing (if we have room)
-        if (current > STARTUP_CURRENT + step) {
+        if (current > Limits::STARTUP_CURRENT + step) {
             new_current = current - step;
             can_step = true;
         }

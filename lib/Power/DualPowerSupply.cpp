@@ -177,20 +177,6 @@ bool DualPowerSupply::isAsymmetricFailure() const {
     return _psus[0]->isConnected() != _psus[1]->isConnected();
 }
 
-OverrideStatus DualPowerSupply::checkManualOverride() {
-    OverrideInfo info = checkOverrideDetail();
-    if (info.cause == OverrideCause::NONE) {
-        _consecutive_mismatches.reset();
-        return OverrideStatus::NONE;
-    }
-
-    _consecutive_mismatches.inc();
-    if (_consecutive_mismatches.atLeast(OVERRIDE_CONFIRM_COUNT)) {
-        return OverrideStatus::DETECTED;
-    }
-    return OverrideStatus::PENDING;
-}
-
 OverrideInfo DualPowerSupply::checkOverrideDetail() {
     OverrideInfo info;
 
@@ -214,7 +200,7 @@ OverrideInfo DualPowerSupply::checkOverrideDetail() {
     const float cmdA = _target_current;
 
     const bool current_mismatch =
-        fabs(actualA - cmdA) > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+        fabs(actualA - cmdA) > Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
     const bool output_mismatch = _target_output != isOutputOn();
     const bool mismatch = current_mismatch || output_mismatch;
 
@@ -224,8 +210,13 @@ OverrideInfo DualPowerSupply::checkOverrideDetail() {
     }
 
     // Give time to settle after last command
-    if (now - _last_command_ms < MANUAL_OVERRIDE_GRACE_MS) {
+    if (now - _last_command_ms < Timing::MANUAL_OVERRIDE_GRACE_MS) {
         return info; // treat as pending
+    }
+
+    _consecutive_mismatches.inc();
+    if (!_consecutive_mismatches.atLeast(OVERRIDE_CONFIRM_COUNT)) {
+        return info; // not confirmed yet
     }
 
     // Human override heuristic: current changed without a command in flight
@@ -233,10 +224,10 @@ OverrideInfo DualPowerSupply::checkOverrideDetail() {
     const bool actual_changed =
         measured_recently &&
         (abs((int)(actualA * 1000) - (int)_last_measure_mA) >
-         (int)lround(MANUAL_OVERRIDE_CURRENT_TOLERANCE_A * 1000.0f));
+         (int)lround(Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A * 1000.0f));
 
     if (!any_busy && actual_changed &&
-        (now - _last_command_ms) > MANUAL_OVERRIDE_GRACE_MS) {
+        (now - _last_command_ms) > Timing::MANUAL_OVERRIDE_GRACE_MS) {
         info.cause = OverrideCause::HUMAN_OVERRIDE;
         snprintf(info.reason, sizeof(info.reason),
                  "PSU changed externally: cmd=%.2fA act=%.2fA", cmdA, actualA);
@@ -417,7 +408,7 @@ float DualPowerSupply::detectHotReset(float min_threshold) {
 
     // Hot reset detected - round down to nearest 0.1A for clean values
     float rounded_current = floorf(avg_current * 10.0f) / 10.0f;
-    rounded_current = fmin(rounded_current, MAX_CURRENT_PER_CHANNEL);
+    rounded_current = fmin(rounded_current, Limits::MAX_CURRENT_PER_CHANNEL);
 
     return rounded_current;
 }

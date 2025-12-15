@@ -98,7 +98,7 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
 
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-    if (!waitForConnection(WIFI_CONNECT_TIMEOUT_MS)) {
+    if (!waitForConnection(WiFiTimeSync::WIFI_CONNECT_TIMEOUT_MS)) {
         WiFi.disconnect(true, true);
         WiFi.mode(WIFI_OFF);
         log("Wi-Fi time sync failed (connect timeout)");
@@ -106,14 +106,17 @@ bool trySyncFromWifi(TimeLogCallback logCb) {
     }
 
     // Sync via NTP and set timezone (rules configurable in config.h)
-    if (TIME_TZ_STRING != nullptr && TIME_TZ_STRING[0] != '\0') {
-        configTzTime(TIME_TZ_STRING, NTP_SERVER_1, NTP_SERVER_2);
+    if (WiFiTimeSync::TIME_TZ_STRING != nullptr &&
+        WiFiTimeSync::TIME_TZ_STRING[0] != '\0') {
+        configTzTime(WiFiTimeSync::TIME_TZ_STRING, WiFiTimeSync::NTP_SERVER_1,
+                     WiFiTimeSync::NTP_SERVER_2);
     } else {
-        configTime(TIME_GMT_OFFSET_SEC, TIME_DAYLIGHT_OFFSET_SEC, NTP_SERVER_1,
-                   NTP_SERVER_2);
+        configTime(WiFiTimeSync::TIME_GMT_OFFSET_SEC,
+                   WiFiTimeSync::TIME_DAYLIGHT_OFFSET_SEC,
+                   WiFiTimeSync::NTP_SERVER_1, WiFiTimeSync::NTP_SERVER_2);
     }
 
-    bool ok = waitForTimeValid(NTP_SYNC_TIMEOUT_MS);
+    bool ok = waitForTimeValid(WiFiTimeSync::NTP_SYNC_TIMEOUT_MS);
 
     WiFi.disconnect(true, true);
     WiFi.mode(WIFI_OFF);
