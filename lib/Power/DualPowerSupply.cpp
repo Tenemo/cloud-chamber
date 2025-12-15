@@ -13,7 +13,7 @@ DualPowerSupply::DualPowerSupply(Logger &logger)
       _psus{&_psu_storage[0], &_psu_storage[1]}, _target_current(0.0f),
       _target_output(false), _shutdown_in_progress(false),
       _shutdown_current(0.0f), _last_shutdown_step_time(0),
-      _consecutive_mismatches(0) {}
+    _consecutive_mismatches() {}
 
 void DualPowerSupply::begin() {
     _psus[0]->begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
@@ -183,16 +183,16 @@ OverrideStatus DualPowerSupply::checkManualOverride() {
     }
 
     if (has_mismatch) {
-        _consecutive_mismatches++;
+        _consecutive_mismatches.inc();
 
-        if (_consecutive_mismatches >= OVERRIDE_CONFIRM_COUNT) {
+        if (_consecutive_mismatches.atLeast(OVERRIDE_CONFIRM_COUNT)) {
             return OverrideStatus::DETECTED;
         }
         return OverrideStatus::PENDING;
     }
 
     // No mismatch - reset counter
-    _consecutive_mismatches = 0;
+    _consecutive_mismatches.reset();
     return OverrideStatus::NONE;
 }
 

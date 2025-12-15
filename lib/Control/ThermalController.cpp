@@ -75,6 +75,15 @@ void ThermalController::update() {
     // Run safety checks ONCE at top of loop (not in each handler)
     // Skip for non-operational states (hardware not ready or already faulted)
     if (isOperationalState()) {
+        // Centralized manual override detection (outside SafetyMonitor)
+        OverrideStatus override = _dps.checkManualOverride();
+        if (override == OverrideStatus::DETECTED) {
+            _logger.log("TC: Manual override detected");
+            transitionTo(ThermalState::MANUAL_OVERRIDE);
+            updateDisplay();
+            return;
+        }
+
         runSafetyChecks();
     }
 
@@ -130,11 +139,6 @@ void ThermalController::runSafetyChecks() {
 
     case SafetyStatus::DPS_DISCONNECTED:
         transitionTo(ThermalState::DPS_DISCONNECTED);
-        break;
-
-    case SafetyStatus::MANUAL_OVERRIDE:
-        _logger.log("TC: Manual override detected");
-        transitionTo(ThermalState::MANUAL_OVERRIDE);
         break;
 
     case SafetyStatus::OK:
@@ -217,7 +221,7 @@ void ThermalController::transitionTo(ThermalState newState,
         break;
     case ThermalState::RAMP_UP:
         _ramp_start_time = millis();
-        _consecutive_stall_detects = 0;
+        _consecutive_stall_detects.reset();
         break;
     case ThermalState::SELF_TEST:
         _dps.resetSelfTest();
@@ -393,15 +397,13 @@ void ThermalController::handleRampUp() {
 
     // Require multiple consecutive stall detections before exiting ramp
     if (stall_detected) {
-        if (_consecutive_stall_detects < UINT8_MAX) {
-            _consecutive_stall_detects++;
-        }
+        _consecutive_stall_detects.inc();
     } else {
-        _consecutive_stall_detects = 0;
+        _consecutive_stall_detects.reset();
     }
 
     bool should_exit = _optimizer.shouldExitRamp(snapshot, has_enough_history);
-    bool exit_on_stall = stall_detected && _consecutive_stall_detects >= 3;
+    bool exit_on_stall = stall_detected && _consecutive_stall_detects.atLeast(3);
 
     char exit_reason_buf[96];
     const char *exit_reason = "Max current";

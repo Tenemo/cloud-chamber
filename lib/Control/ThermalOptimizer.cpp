@@ -6,11 +6,15 @@
 #include "ThermalOptimizer.h"
 #include <cmath>
 
+namespace {
+constexpr float TEMP_IMPROVEMENT_THRESHOLD_C = 0.1f;
+}
+
 ThermalOptimizer::ThermalOptimizer(Logger &logger)
     : _logger(logger), _optimal_current(0.0f), _temp_at_optimal(100.0f),
       _baseline_current(0.0f), _baseline_temp(100.0f), _baseline_rate(0.0f),
       _awaiting_evaluation(false), _eval_start_time(0), _probe_direction(1),
-      _consecutive_bounces(0), _consecutive_degraded(0), _converged(false),
+      _consecutive_bounces(), _consecutive_degraded(), _converged(false),
       _stabilization_until(0) {
     _log_buffer[0] = '\0';
 }
@@ -24,8 +28,8 @@ void ThermalOptimizer::reset() {
     _awaiting_evaluation = false;
     _eval_start_time = 0;
     _probe_direction = 1;
-    _consecutive_bounces = 0;
-    _consecutive_degraded = 0;
+    _consecutive_bounces.reset();
+    _consecutive_degraded.reset();
     _converged = false;
     _stabilization_until = 0;
 }
@@ -118,77 +122,37 @@ bool ThermalOptimizer::shouldExitRamp(const ThermalSnapshot &snapshot,
     return false;
 }
 
-// =============================================================================
-// Evaluation Logic
-// =============================================================================
-
 ThermalEvaluationResult
-ThermalOptimizer::evaluateRampEffect(const ThermalSnapshot &snapshot) {
-    // RAMP_UP evaluation: Focus on TEMPERATURE, not rate
-    // During ramp, rate naturally decreases as cold plate gets colder.
-    // Only declare degradation if temperature actually RISES (true
-    // overcurrent).
-
+ThermalOptimizer::evaluateEffect(const ThermalSnapshot &snapshot) {
     // Minimum delay before evaluation
     if (snapshot.now - _eval_start_time < CURRENT_EVALUATION_DELAY_MS)
         return ThermalEvaluationResult::WAITING;
 
-    // Wait for hot-side stabilization
+    // Wait for hot-side stabilization (or timeout)
     bool timeout =
         (snapshot.now - _eval_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
-
-    if (!snapshot.hot_side_stable && !timeout)
-        return ThermalEvaluationResult::WAITING;
-
-    // Temperature-based evaluation only during ramp
-    bool improved = (snapshot.cold_temp <
-                     _baseline_temp - Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
-    bool worsened =
-        (snapshot.cold_temp > _baseline_temp + OVERCURRENT_WARMING_THRESHOLD_C);
-
-    // During ramp: if temperature dropped or stayed same, that's success
-    // Only true warming (overcurrent) counts as degradation
-    if (improved)
-        return ThermalEvaluationResult::IMPROVED;
-    if (worsened)
-        return ThermalEvaluationResult::DEGRADED;
-
-    // Temperature unchanged - consider it success during ramp
-    // (we're pushing toward optimum, slight pauses are OK)
-    return ThermalEvaluationResult::IMPROVED;
-}
-
-ThermalEvaluationResult
-ThermalOptimizer::evaluateSteadyEffect(const ThermalSnapshot &snapshot) {
-    // STEADY_STATE evaluation: Rate-based fine-tuning is appropriate here
-    // because we're near equilibrium and looking for marginal improvements.
-
-    // Minimum delay before evaluation
-    if (snapshot.now - _eval_start_time < CURRENT_EVALUATION_DELAY_MS)
-        return ThermalEvaluationResult::WAITING;
-
-    // Wait for hot-side stabilization
-    bool timeout =
-        (snapshot.now - _eval_start_time > HOT_SIDE_STABILIZATION_MAX_WAIT_MS);
-
     if (!snapshot.hot_side_stable && !timeout)
         return ThermalEvaluationResult::WAITING;
 
     // Compare against baseline
     float rate_delta = snapshot.cooling_rate - _baseline_rate;
 
-    bool improved = (snapshot.cold_temp <
-                     _baseline_temp - Tolerance::TEMP_IMPROVEMENT_THRESHOLD_C);
-    bool degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
-    bool worsened =
+    bool temp_improved =
+        (snapshot.cold_temp < _baseline_temp - TEMP_IMPROVEMENT_THRESHOLD_C);
+    bool temp_worsened =
         (snapshot.cold_temp > _baseline_temp + OVERCURRENT_WARMING_THRESHOLD_C);
+    bool rate_degraded = (rate_delta > COOLING_RATE_DEGRADATION_THRESHOLD);
 
-    if (improved && !degraded)
+    if (temp_improved)
         return ThermalEvaluationResult::IMPROVED;
-    if (worsened || degraded)
+    if (temp_worsened || rate_degraded)
         return ThermalEvaluationResult::DEGRADED;
     return ThermalEvaluationResult::UNCHANGED;
 }
+
+// =============================================================================
+// Evaluation Logic
+// =============================================================================
 
 ThermalOptimizationDecision
 ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
@@ -198,9 +162,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
                                             false, false, nullptr};
 
     // Use phase-specific evaluation logic
-    ThermalEvaluationResult result = (phase == ThermalControlPhase::RAMP_UP)
-                                         ? evaluateRampEffect(snapshot)
-                                         : evaluateSteadyEffect(snapshot);
+    ThermalEvaluationResult result = evaluateEffect(snapshot);
     if (result == ThermalEvaluationResult::WAITING) {
         return decision;
     }
@@ -212,8 +174,8 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         // Accept new current as session best
         _optimal_current = snapshot.current_setpoint;
         _temp_at_optimal = snapshot.cold_temp;
-        _consecutive_bounces = 0;
-        _consecutive_degraded = 0; // Reset degraded counter on success
+        _consecutive_bounces.reset();
+        _consecutive_degraded.reset(); // Reset degraded counter on success
         _converged = false;
         // Direction stays the same - continue probing in this direction
 
@@ -222,7 +184,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
         decision.log_message = _log_buffer;
 
     } else if (result == ThermalEvaluationResult::DEGRADED) {
-        _consecutive_degraded++;
+        _consecutive_degraded.inc();
 
         // During RAMP_UP: require multiple consecutive degraded AND minimum
         // current before actually reverting. This prevents premature exit.
@@ -232,7 +194,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
             // 1. We've reached minimum ramp current, AND
             // 2. We've seen multiple consecutive degraded evaluations
             if (snapshot.current_setpoint >= MIN_RAMP_CURRENT_BEFORE_EXIT_A &&
-                _consecutive_degraded >= CONSECUTIVE_DEGRADED_FOR_REVERT) {
+                _consecutive_degraded.atLeast(CONSECUTIVE_DEGRADED_FOR_REVERT)) {
                 should_revert = true;
             } else {
                 // Not ready to revert yet - log but continue ramping
@@ -262,14 +224,14 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
 
             _optimal_current = revert_current;
             _temp_at_optimal = _baseline_temp;
-            _consecutive_degraded = 0; // Reset after revert
+            _consecutive_degraded.reset(); // Reset after revert
 
             // Bounce: flip direction and track
             _probe_direction *= -1;
-            _consecutive_bounces++;
+            _consecutive_bounces.inc();
 
             // Check for convergence (tried both directions)
-            if (_consecutive_bounces >= 2) {
+            if (_consecutive_bounces.atLeast(2)) {
                 _converged = true;
                 decision.converged = true;
 
@@ -280,7 +242,7 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
             } else {
                 snprintf(_log_buffer, sizeof(_log_buffer),
                          "TC: Revert %.2fA (bounce #%d)", revert_current,
-                         _consecutive_bounces);
+                         static_cast<int>(_consecutive_bounces.value()));
                 decision.log_message = _log_buffer;
             }
 
@@ -304,54 +266,31 @@ ThermalOptimizer::processEvaluation(const ThermalSnapshot &snapshot,
 // Step Size Calculation
 // =============================================================================
 
-float ThermalOptimizer::calculateRampStepSize(float current_setpoint,
-                                              bool is_hot_side_warning) const {
-    // RAMP_UP: Use current-based step sizing
-    // Coarse steps at low current, fine steps near max
+float ThermalOptimizer::calculateStepSize(
+    const ThermalSnapshot &snapshot) const {
+    float current = snapshot.current_setpoint;
+    float rate_mag = fabs(snapshot.cooling_rate);
 
-    // Hot-side in warning zone: cap at medium step for safety
-    if (is_hot_side_warning) {
-        return (_consecutive_bounces >= 2) ? FINE_STEP_A : MEDIUM_STEP_A;
-    }
-
-    // If we've bounced multiple times, we're near optimum - use fine steps
-    if (_consecutive_bounces >= 2) {
+    // Hot-side warning caps aggressiveness
+    if (snapshot.hot_in_warning) {
         return FINE_STEP_A;
     }
 
-    // Current-based selection: aggressive at low current, cautious at high
-    if (current_setpoint < RAMP_COARSE_BELOW_A) {
-        return COARSE_STEP_A; // Low current - go fast
-    } else if (current_setpoint < RAMP_MEDIUM_BELOW_A) {
-        return MEDIUM_STEP_A; // Getting higher - moderate
-    } else {
-        return FINE_STEP_A; // Near max - be careful
-    }
-}
-
-float ThermalOptimizer::calculateSteadyStepSize(
-    float cooling_rate, bool is_hot_side_warning) const {
-    // STEADY_STATE: Use rate-based step sizing for fine-tuning
-    float rate_magnitude = fabs(cooling_rate);
-
-    // Hot-side in warning zone: cap at medium step for safety
-    if (is_hot_side_warning) {
-        return (_consecutive_bounces >= 2) ? FINE_STEP_A : MEDIUM_STEP_A;
-    }
-
-    // If we've bounced multiple times, use fine steps
-    if (_consecutive_bounces >= 2) {
+    // If we've bounced multiple times, we're near optimum
+    if (_consecutive_bounces.atLeast(2)) {
         return FINE_STEP_A;
     }
 
-    // Rate-based selection for steady-state probing
-    if (rate_magnitude > STEP_COARSE_RATE_THRESHOLD) {
-        return COARSE_STEP_A;
-    } else if (rate_magnitude > STEP_MEDIUM_RATE_THRESHOLD) {
-        return MEDIUM_STEP_A;
-    } else {
-        return FINE_STEP_A;
+    // Rate-based guidance first (when rate data is meaningful)
+    if (rate_mag > STEP_COARSE_RATE_THRESHOLD) {
+        return COARSE_STEP_A; // Still far from equilibrium
     }
+
+    // Fallback to current-based sizing
+    if (current < RAMP_COARSE_BELOW_A) {
+        return COARSE_STEP_A; // Approach quickly
+    }
+    return FINE_STEP_A; // Scan gently
 }
 
 // =============================================================================
@@ -365,7 +304,7 @@ ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
                                             false, false, nullptr};
 
     float current = snapshot.current_setpoint;
-    float step = calculateRampStepSize(current, snapshot.hot_in_warning);
+    float step = calculateStepSize(snapshot);
 
     // Record baseline before step
     _baseline_current = current;
@@ -373,7 +312,7 @@ ThermalOptimizer::attemptRampStep(const ThermalSnapshot &snapshot) {
     _baseline_rate = snapshot.cooling_rate;
 
     // Increase current (ramp is always upward)
-    float new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
+    float new_current = Clamp::current(current + step);
 
     decision.change_current = true;
     decision.new_current = new_current;
@@ -399,8 +338,7 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
                                             false, false, nullptr};
 
     float current = snapshot.current_setpoint;
-    float step =
-        calculateSteadyStepSize(snapshot.cooling_rate, snapshot.hot_in_warning);
+    float step = calculateStepSize(snapshot);
 
     // Record baseline before step
     _baseline_current = current;
@@ -416,7 +354,7 @@ ThermalOptimizer::attemptSteadyProbe(const ThermalSnapshot &snapshot) {
         if (current < MAX_CURRENT_PER_CHANNEL &&
             snapshot.hot_temp <
                 HOT_SIDE_WARNING_C - HOT_SIDE_PROBE_HEADROOM_C) {
-            new_current = fmin(current + step, MAX_CURRENT_PER_CHANNEL);
+            new_current = Clamp::current(current + step);
             can_step = true;
         }
     } else {

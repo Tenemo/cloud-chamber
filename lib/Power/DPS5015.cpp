@@ -443,9 +443,11 @@ void DPS5015::applyPendingConfig() {
     _last_command_time = millis();
     _reads_since_command = 0; // Reset for transaction-based grace
 
-    // NOTE: We do NOT clear has_config here so that on reconnection
-    // the "ghost state" can be re-applied. The config remains valid
-    // until a new configure() call overwrites it.
+    // Clear flag so older pending values can't overwrite a newer configure()
+    _pending_config.has_config = false;
+
+    // New configure() calls will set has_config again; clearing here prevents
+    // stale configs from overwriting newer ones after multiple configure() calls.
 }
 
 void DPS5015::clearSerialBuffer() {
@@ -495,17 +497,13 @@ void DPS5015::sendReadRequest(uint16_t startReg, uint16_t count) {
 bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
     size_t expected_length = 5 + (count * 2);
 
-    // Read exactly the expected number of bytes
+    // Non-blocking: if not enough data yet, let caller retry next loop
+    if (_serial.available() < static_cast<int>(expected_length)) {
+        return false;
+    }
+
     uint8_t response[64];
     for (size_t i = 0; i < expected_length && i < sizeof(response); i++) {
-        // Wait briefly for each byte if not immediately available
-        // Timeout per byte - at 9600 baud, one byte takes ~1ms
-        unsigned long start = millis();
-        while (!_serial.available()) {
-            if (millis() - start > MODBUS_BYTE_TIMEOUT_MS) {
-                return false; // Byte timeout
-            }
-        }
         response[i] = _serial.read();
     }
 
@@ -562,15 +560,12 @@ void DPS5015::sendWriteRequest(uint16_t reg, uint16_t value) {
 }
 
 bool DPS5015::checkWriteResponse() {
-    // Read exactly 8 bytes for write response
+    // Non-blocking: require full response to be ready
+    if (_serial.available() < 8)
+        return false;
+
     uint8_t response[8];
     for (size_t i = 0; i < 8; i++) {
-        unsigned long start = millis();
-        while (!_serial.available()) {
-            if (millis() - start > MODBUS_BYTE_TIMEOUT_MS) {
-                return false; // Byte timeout
-            }
-        }
         response[i] = _serial.read();
     }
 

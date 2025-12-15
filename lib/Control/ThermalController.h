@@ -71,7 +71,7 @@ class ThermalController {
     unsigned long _steady_state_start_time;
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
-    uint8_t _consecutive_stall_detects = 0;
+    Counter _consecutive_stall_detects;
 
     // Hot reset recovery tracking
     bool _hot_reset_active;   // True if we detected hot reset and haven't

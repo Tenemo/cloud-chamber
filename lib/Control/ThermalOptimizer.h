@@ -30,6 +30,7 @@
 
 #include "Logger.h"
 #include "ThermalConstants.h"
+#include "Counter.h"
 
 /**
  * @brief Control phase for optimizer decisions
@@ -182,8 +183,8 @@ class ThermalOptimizer {
      */
     void clearConverged() {
         _converged = false;
-        _consecutive_bounces = 0;
-        _consecutive_degraded = 0;
+        _consecutive_bounces.reset();
+        _consecutive_degraded.reset();
     }
 
     /**
@@ -220,39 +221,20 @@ class ThermalOptimizer {
 
     // Adaptive step control
     int8_t _probe_direction;
-    uint8_t _consecutive_bounces;
-    uint8_t _consecutive_degraded; // Track consecutive degraded evals
+    Counter _consecutive_bounces;
+    Counter _consecutive_degraded; // Track consecutive degraded evals
     bool _converged;
 
     // Hot reset stabilization
     unsigned long _stabilization_until;
 
     // Formatting buffer for log messages
-    mutable char _log_buffer[64];
+    char _log_buffer[64];
 
     /**
-     * @brief Evaluate effect during RAMP_UP (temperature-focused)
-     *
-     * During ramp, only declare degradation if temperature actually rises.
-     * Rate-based degradation is disabled since rate naturally decreases
-     * as cold plate gets colder (basic thermodynamics).
-     *
-     * @param snapshot Current system state
-     * @return WAITING if not ready, or evaluation result
+     * @brief Unified evaluation for both phases
      */
-    ThermalEvaluationResult evaluateRampEffect(const ThermalSnapshot &snapshot);
-
-    /**
-     * @brief Evaluate effect during STEADY_STATE (rate-focused)
-     *
-     * In steady state, rate-based fine-tuning is appropriate since we're
-     * near equilibrium and looking for marginal improvements.
-     *
-     * @param snapshot Current system state
-     * @return WAITING if not ready, or evaluation result
-     */
-    ThermalEvaluationResult
-    evaluateSteadyEffect(const ThermalSnapshot &snapshot);
+    ThermalEvaluationResult evaluateEffect(const ThermalSnapshot &snapshot);
 
     /**
      * @brief Process a pending evaluation and update internal state
@@ -266,33 +248,9 @@ class ThermalOptimizer {
                       ThermalControlPhase phase);
 
     /**
-     * @brief Calculate adaptive step size for RAMP_UP (current-based)
-     *
-     * During ramp-up, step size is based on current setpoint:
-     * - Below 6A: coarse steps (0.5A) for fast approach
-     * - 6-10A: medium steps (0.25A)
-     * - Above 10A: fine steps (0.1A) for careful approach
-     *
-     * @param current_setpoint Current setpoint
-     * @param is_hot_side_warning True if hot side in warning zone
-     * @return Step size in amps
+     * @brief Unified adaptive step size
      */
-    float calculateRampStepSize(float current_setpoint,
-                                bool is_hot_side_warning) const;
-
-    /**
-     * @brief Calculate adaptive step size for STEADY_STATE (rate-based)
-     *
-     * During steady-state probing, step size is based on cooling rate:
-     * - Fast rate: system not near equilibrium, use coarse steps
-     * - Slow rate: near equilibrium, use fine steps
-     *
-     * @param cooling_rate Current cooling rate magnitude
-     * @param is_hot_side_warning True if hot side in warning zone
-     * @return Step size in amps
-     */
-    float calculateSteadyStepSize(float cooling_rate,
-                                  bool is_hot_side_warning) const;
+    float calculateStepSize(const ThermalSnapshot &snapshot) const;
 
     /**
      * @brief Attempt a current adjustment in RAMP_UP mode

@@ -131,6 +131,15 @@ constexpr float HOT_SIDE_FAULT_C = 70.0f;        // Emergency shutdown
 constexpr float HOT_SIDE_PROBE_HEADROOM_C =
     5.0f; // Headroom below warning for probing
 
+struct ThermalLimit {
+    float enter;
+    float exit;
+};
+
+constexpr ThermalLimit HOT_WARNING_LIMIT{HOT_SIDE_WARNING_C,
+                                         HOT_SIDE_WARNING_EXIT_C};
+constexpr ThermalLimit HOT_ALARM_LIMIT{HOT_SIDE_ALARM_C, HOT_SIDE_ALARM_EXIT_C};
+
 // Thermal runaway detection
 constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
     5.0f; // Max acceptable rise rate
@@ -160,29 +169,26 @@ constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
 constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
 
 // Hot-side stabilization (thermal inertia compensation)
+constexpr unsigned long THERMAL_STABILIZATION_MS = 90000; // Shared grace
 constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN =
     0.3f; // Stable when below
 constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS =
     300000; // 5 min max
 constexpr unsigned long HOT_RESET_STABILIZATION_MS =
-    90000; // 90s stabilization after hot reset
+    THERMAL_STABILIZATION_MS; // 90s stabilization after hot reset
 
 // =============================================================================
-// Thermal Controller - Adaptive Step Sizes
+// Thermal Controller - Adaptive Step Sizes (flattened)
 // =============================================================================
-// Step sizes for current adjustments
-constexpr float COARSE_STEP_A = 1.0f; // Below RAMP_COARSE_BELOW_A
-constexpr float MEDIUM_STEP_A = 0.5f; // Below RAMP_MEDIUM_BELOW_A
-constexpr float FINE_STEP_A = 0.1f;   // Above RAMP_MEDIUM_BELOW_A
+// Two-step approach: coarse for approach, fine for scan
+constexpr float COARSE_STEP_A = 1.0f;
+constexpr float FINE_STEP_A = 0.1f;
 
-// Current thresholds for step size selection during RAMP_UP
-constexpr float RAMP_COARSE_BELOW_A = 7.0f; // Below = coarse steps
-constexpr float RAMP_MEDIUM_BELOW_A =
-    8.0f; // Below = medium steps, above = fine
+// Current threshold for coarse->fine handoff during ramp
+constexpr float RAMP_COARSE_BELOW_A = 8.0f;
 
-// Rate thresholds for step size selection during STEADY_STATE probing
+// Rate threshold for forcing coarse steps when far from equilibrium
 constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min - above = coarse
-constexpr float STEP_MEDIUM_RATE_THRESHOLD = 0.5f; // K/min - above = medium
 
 // =============================================================================
 // Thermal Controller - Manual Override Detection
@@ -218,7 +224,24 @@ constexpr float HOT_PLATE_MAX_VALID_C = 100.0f;  // Above fault threshold
 constexpr float PLAUSIBILITY_MIN_DELTA_T_PER_AMP = 2.0f; // Min expected K/A
 constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C = -35.0f; // Check if below
 constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C =
-    35.0f;                                                    // Hot must exceed
-constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS = 180000; // 3 min grace
+    35.0f; // Hot must exceed
+constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS =
+    THERMAL_STABILIZATION_MS; // Grace aligned to stabilization
+
+// Namespaced views for readability (non-breaking aliases)
+namespace Limits {
+constexpr float MAX_CURRENT = MAX_CURRENT_PER_CHANNEL;
+constexpr float MIN_CURRENT = MIN_CURRENT_PER_CHANNEL;
+constexpr float HOT_FAULT = HOT_SIDE_FAULT_C;
+constexpr float HOT_ALARM = HOT_SIDE_ALARM_C;
+constexpr float HOT_WARNING = HOT_SIDE_WARNING_C;
+} // namespace Limits
+
+namespace Tuning {
+constexpr float STEP_COARSE = COARSE_STEP_A;
+constexpr float STEP_FINE = FINE_STEP_A;
+constexpr float RAMP_COARSE_BELOW = RAMP_COARSE_BELOW_A;
+constexpr float RATE_COARSE_THRESHOLD = STEP_COARSE_RATE_THRESHOLD;
+} // namespace Tuning
 
 #endif // CONFIG_H

@@ -65,16 +65,6 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
         return {worst_status, _last_fault_reason};
     }
 
-    // Manual override via DualPowerSupply
-    // If we're already in MANUAL_OVERRIDE, suppress the check to avoid
-    // re-triggering/log spam while still monitoring thermal limits.
-    if (current_state != ThermalState::MANUAL_OVERRIDE) {
-        OverrideStatus override = _dps.checkManualOverride();
-        if (override == OverrideStatus::DETECTED) {
-            return {SafetyStatus::MANUAL_OVERRIDE, "Manual override"};
-        }
-    }
-
     // PT100 plausibility check with grace period
     // Skip during STARTUP and early RAMP_UP (first 3 minutes)
     unsigned long now = millis();
@@ -112,13 +102,12 @@ SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {
 
 // Helper function to update a hysteresis state
 static inline void updateHysteresisState(bool &state, float value,
-                                         float enter_threshold,
-                                         float exit_threshold) {
+                                         const ThermalLimit &limit) {
     if (state) {
-        if (value < exit_threshold)
+        if (value < limit.exit)
             state = false;
     } else {
-        if (value >= enter_threshold)
+        if (value >= limit.enter)
             state = true;
     }
 }
@@ -127,10 +116,8 @@ void SafetyMonitor::updateHysteresis() {
     float hot_temp = _hot_plate.getTemperature();
 
     // Update alarm and warning states with hysteresis
-    updateHysteresisState(_hot_side_in_alarm, hot_temp, HOT_SIDE_ALARM_C,
-                          HOT_SIDE_ALARM_EXIT_C);
-    updateHysteresisState(_hot_side_in_warning, hot_temp, HOT_SIDE_WARNING_C,
-                          HOT_SIDE_WARNING_EXIT_C);
+    updateHysteresisState(_hot_side_in_alarm, hot_temp, HOT_ALARM_LIMIT);
+    updateHysteresisState(_hot_side_in_warning, hot_temp, HOT_WARNING_LIMIT);
 }
 
 SafetyStatus SafetyMonitor::checkThermalLimits() {
@@ -217,6 +204,11 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current) {
 
     // Only check if cold plate reports very low temperature
     if (cold_temp > PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C) {
+        return SafetyStatus::OK;
+    }
+
+    // Very low current means delta expectation is meaningless (startup/idle)
+    if (avg_current < MIN_CURRENT_FOR_STALL_CHECK_A) {
         return SafetyStatus::OK;
     }
 

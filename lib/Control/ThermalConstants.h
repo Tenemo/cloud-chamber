@@ -49,14 +49,6 @@ constexpr float HOT_RESET_NEAR_MAX_A = MAX_CURRENT_PER_CHANNEL - 0.5f;
 constexpr float HOT_RESET_CURRENT_THRESHOLD_A = 0.5f;
 
 // =============================================================================
-// Tolerance Constants
-// =============================================================================
-
-namespace Tolerance {
-constexpr float TEMP_IMPROVEMENT_THRESHOLD_C = 0.1f; // Min improvement to count
-} // namespace Tolerance
-
-// =============================================================================
 // Internal Timing Constants
 // =============================================================================
 
