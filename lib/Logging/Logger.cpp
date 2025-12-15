@@ -11,14 +11,11 @@
 #include "config.h"
 #include <cstdarg>
 #include <cstring>
-#include <esp_heap_caps.h> // For PSRAM allocation
-#include <esp_task_wdt.h>  // For WDT reset during long dumps
 
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), _display_initialized(false),
       _last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0),
-      _spinner_index(0), _last_spinner_update(0), _psram_log_storage(nullptr),
-      _psram_log(), _psram_available(false) {
+      _spinner_index(0), _last_spinner_update(0) {
     // Initialize all display lines as inactive
     for (size_t i = 0; i < MAX_DISPLAY_LINES; i++) {
         _lines[i].active = false;
@@ -62,39 +59,6 @@ void Logger::initializeDisplay() {
     Serial.begin(115200);
     while (!Serial && millis() < SERIAL_TIMEOUT_MS) {
         ; // wait for serial connection
-    }
-
-    // Allocate PSRAM circular log buffer
-    // PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
-    size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
-
-    Serial.printf("Logger: PSRAM total=%dKB, free=%dKB\n", psram_total / 1024,
-                  psram_free / 1024);
-
-    if (psram_free < PSRAM_LOG_BUFFER_SIZE) {
-        // Not enough PSRAM - try smaller buffer or skip
-        _psram_available = false;
-        _psram_log_storage = nullptr;
-        Serial.printf(
-            "Logger: Insufficient PSRAM (need %dKB), logging to serial only\n",
-            PSRAM_LOG_BUFFER_SIZE / 1024);
-    } else {
-        _psram_log_storage = static_cast<LogEntry *>(heap_caps_malloc(
-            sizeof(LogEntry) * PSRAM_LOG_BUFFER_ENTRIES, MALLOC_CAP_SPIRAM));
-        if (_psram_log_storage != nullptr) {
-            memset(_psram_log_storage, 0,
-                   sizeof(LogEntry) * PSRAM_LOG_BUFFER_ENTRIES);
-            _psram_log.reset(_psram_log_storage, PSRAM_LOG_BUFFER_ENTRIES);
-            _psram_available = true;
-            Serial.printf(
-                "Logger: PSRAM log buffer allocated (%dKB, %d entries)\n",
-                PSRAM_LOG_BUFFER_SIZE / 1024, PSRAM_LOG_BUFFER_ENTRIES);
-        } else {
-            _psram_available = false;
-            Serial.println(
-                "Logger: PSRAM allocation failed, using serial only");
-        }
     }
 
     _backlight = LCD_BL;
@@ -492,9 +456,6 @@ void Logger::log(const char *message, bool serialOnly) {
         serial_out = stamped;
     }
 
-    // Add to PSRAM circular buffer (even for serialOnly messages)
-    addToLogBuffer(serial_out);
-
     // Output to Serial
     Serial.println(serial_out);
 
@@ -574,62 +535,4 @@ void Logger::logf(bool serialOnly, const char *format, ...) {
     log(buf, serialOnly);
 }
 
-/**
- * @brief Add a log entry to the PSRAM circular buffer
- *
- * Each entry includes a timestamp (ms since boot) and the message.
- * Old entries are overwritten when buffer is full (circular).
- */
-void Logger::addToLogBuffer(const char *message) {
-    if (!_psram_available || !_psram_log.valid()) {
-        return;
-    }
-
-    LogEntry entry{};
-    unsigned long timestamp = millis();
-    snprintf(entry.text, sizeof(entry.text), "[%lu] %s", timestamp, message);
-    _psram_log.push(entry);
-}
-
-/**
- * @brief Dump entire PSRAM log buffer to Serial
- *
- * Outputs logs in chronological order (oldest first).
- * Call this via serial command for post-mortem diagnostics.
- *
- * Note: Includes WDT reset in loop to prevent timeout during large dumps
- * (~12k entries can take several seconds to output over serial).
- */
-void Logger::dumpLogBuffer() {
-    if (!_psram_available || !_psram_log.valid()) {
-        Serial.println("=== LOG BUFFER UNAVAILABLE (no PSRAM) ===");
-        return;
-    }
-
-    Serial.println("=== BEGIN LOG BUFFER DUMP ===");
-    Serial.printf("Total entries: %d\n", _psram_log.size());
-    Serial.println("---");
-
-    if (_psram_log.size() == 0) {
-        Serial.println("(empty)");
-        Serial.println("=== END LOG BUFFER DUMP ===");
-        return;
-    }
-
-    // Output all entries in chronological order
-    // Reset WDT periodically to prevent timeout during large dumps
-    for (size_t i = _psram_log.size(); i-- > 0;) {
-        const LogEntry *entry = _psram_log.getFromNewest(i);
-        if (entry && entry->text[0] != '\0') {
-            Serial.println(entry->text);
-        }
-
-        // Reset WDT every 100 entries to prevent timeout
-        if (i % 100 == 0) {
-            esp_task_wdt_reset();
-        }
-    }
-
-    Serial.println("---");
-    Serial.println("=== END LOG BUFFER DUMP ===");
-}
+// PSRAM/NVM logging removed: addToLogBuffer/dumpLogBuffer now no-ops

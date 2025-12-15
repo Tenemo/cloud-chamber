@@ -83,7 +83,6 @@
 #define LOGGER_H
 
 #include "DFRobot_GDL.h"
-#include "RingBuffer.h"
 #include "config.h"
 #include <Arduino.h>
 
@@ -107,20 +106,6 @@ constexpr size_t MAX_LINE_NAME_LEN = 12;  // e.g., "TC_I1", "DC12_P"
 constexpr size_t MAX_LINE_LABEL_LEN = 12; // e.g., "DC12 V:", "State:"
 constexpr size_t MAX_LINE_VALUE_LEN = 16; // e.g., "12.34 V", "INIT..."
 constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
-
-// PSRAM circular log buffer configuration
-// PSRAM is DRAM (volatile, unlimited writes) - perfect for runtime logging
-// Buffer is lost on reset but can be dumped on demand for diagnostics
-// ESP32-S3 has 8MB PSRAM - we use 1MB for logging (~12,800 entries)
-constexpr size_t PSRAM_LOG_ENTRY_SIZE =
-    80; // Max chars per log entry (with timestamp)
-constexpr size_t PSRAM_LOG_BUFFER_SIZE = 1024 * 1024; // 1MB buffer
-constexpr size_t PSRAM_LOG_BUFFER_ENTRIES =
-    PSRAM_LOG_BUFFER_SIZE / PSRAM_LOG_ENTRY_SIZE; // ~12,800 entries
-
-struct LogEntry {
-    char text[PSRAM_LOG_ENTRY_SIZE];
-};
 
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
@@ -169,9 +154,9 @@ class Logger {
     void logf(const char *format, ...);
     void logf(bool serialOnly, const char *format, ...);
 
-    // PSRAM log buffer access (for diagnostics)
-    void dumpLogBuffer(); // Dump entire log buffer to Serial
-    size_t getLogBufferCount() const { return _psram_log.size(); }
+    // Legacy stubs (PSRAM logging removed)
+    void dumpLogBuffer() {}
+    size_t getLogBufferCount() const { return 0; }
 
   private:
     void clearValueArea(int y);
@@ -208,12 +193,7 @@ class Logger {
     void drawLogArea();
     void drawSeparatorLine();
     void updateSpinner();
-    void addToLogBuffer(const char *message); // Add to PSRAM circular buffer
-
-    // PSRAM circular log buffer
-    LogEntry *_psram_log_storage;       // Allocated in PSRAM
-    RingBufferView<LogEntry> _psram_log; // Lightweight ring view
-    bool _psram_available;              // True if PSRAM allocation succeeded
+    void addToLogBuffer(const char *message) {} // Removed (serial only)
 };
 
 #endif // LOGGER_H

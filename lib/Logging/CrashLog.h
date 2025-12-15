@@ -1,50 +1,10 @@
 /**
  * @file CrashLog.h
- * @brief SPIFFS-based persistent crash and critical event logging
- *
- * Saves critical events to flash for post-mortem diagnostics.
- * Unlike PSRAM, this data survives power cycles and resets.
- *
- * WHEN TO USE THIS vs Logger:
- * ---------------------------
- * Use CrashLog ONLY for events where you need to know what happened
- * after a power cycle or reset:
- * - Thermal faults (HOT_SIDE_FAULT)
- * - Emergency shutdowns (startEmergencyShutdown, hardShutdown)
- * - Sensor failures that may have caused a reset
- * - Self-test failures
- * - Watchdog or brownout reset detection
- * - Any safety-critical state transition
- *
- * Use Logger for everything else:
- * - Normal state transitions
- * - Debug information
- * - Optimization decisions
- * - Display updates
- *
- * CrashLog writes to SPIFFS flash which has limited write cycles.
- * Logger writes to PSRAM which is volatile but unlimited writes.
+ * @brief Crash logging stub (serial-only, no persistence)
  *
  * USAGE:
  * ------
- * 1. Initialize once during setup:
- *    CrashLog::begin();
- *
- * 2. Log critical events (faults, shutdowns, etc.):
- *    CrashLog::logCritical("THERMAL_FAULT: HOT>70C");
- *
- * 3. Dump logs via serial command or after restart:
- *    CrashLog::dumpToSerial();
- *
- * 4. Clear logs after reviewing:
- *    CrashLog::clear();
- *
- * STORAGE:
- * --------
- * - Uses SPIFFS partition for persistence
- * - Circular file rotation when full
- * - Each entry includes timestamp (millis) and message
- * - Maximum ~64 critical events stored (8192B / 128B per entry)
+ * Functions remain for compatibility but now only print to Serial.
  */
 
 #ifndef CRASH_LOG_H
@@ -113,11 +73,6 @@ class CrashLog {
     static const char *CRASH_LOG_PATH;
     static const size_t MAX_LOG_SIZE;
     static const size_t MAX_ENTRY_SIZE;
-
-    /**
-     * @brief Rotate log file if it exceeds maximum size
-     */
-    static void rotateIfNeeded();
 
     /**
      * @brief Get human-readable reset reason

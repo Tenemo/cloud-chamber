@@ -163,7 +163,8 @@ class ThermalMetrics {
     RingBuffer<ThermalSample, HISTORY_BUFFER_SIZE> _history;
 
     // Cached measurements for display/log convenience
-    float _last_actual_current; // Average actual output current (A)
+    float _last_avg_voltage = 0.0f; // Average voltage across connected PSUs
+    float _last_avg_power = 0.0f;   // Average power across connected PSUs
 
     /**
      * @brief Calculate temperature slope using linear regression
