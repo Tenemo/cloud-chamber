@@ -36,7 +36,6 @@ namespace Modbus {
 // - Using shielded cables for Modbus connections
 // - Increasing physical separation from high-current DC wiring
 constexpr unsigned long BAUD_RATE = 9600;
-constexpr unsigned long BYTE_TIMEOUT_MS = 3; // At 9600 baud, 1 byte ~= 1ms
 constexpr int MAX_RETRIES = 3; // Consecutive failures before error state
 } // namespace Modbus
 
@@ -153,7 +152,8 @@ namespace Timing {
 constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000;
 constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS = 20000;
 constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000;
-constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS = 15UL * 60UL * 1000UL;
+constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
+    1UL * 60UL * 1000UL; // 1 min
 constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS = 60000;
 constexpr unsigned long INIT_TIMEOUT_MS = 30000;
 

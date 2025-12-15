@@ -24,18 +24,34 @@ void DualPowerSupply::update() {
         psu->update();
     }
 
-    // Track latest measured current for override classification
-    float sum_current = 0.0f;
-    int count = 0;
-    for (auto *psu : _psus) {
-        if (psu->isConnected()) {
-            sum_current += psu->getOutputCurrent();
-            count++;
+    const unsigned long now = millis();
+
+    // Track PSU setpoint/output changes that happened without our command.
+    // This is used to classify mismatches as manual override vs control mismatch.
+    constexpr float SETPOINT_CHANGE_HINT_A = 0.05f;
+
+    for (size_t ch = 0; ch < 2; ch++) {
+        DPS5015 *psu = _psus[ch];
+        if (!psu->isConnected())
+            continue;
+
+        const float set_current = psu->getSetCurrent();
+        const bool output_on = psu->isOutputOn();
+
+        if (_have_last_seen_state[ch] &&
+            (now - _last_command_ms) > Timing::MANUAL_OVERRIDE_GRACE_MS) {
+            const bool setpoint_changed =
+                fabs(set_current - _last_seen_set_current[ch]) >
+                SETPOINT_CHANGE_HINT_A;
+            const bool output_changed = output_on != _last_seen_output_on[ch];
+            if (setpoint_changed || output_changed) {
+                _override_hint_external_change = true;
+            }
         }
-    }
-    if (count > 0) {
-        _last_measure_ms = millis();
-        _last_measure_mA = static_cast<uint16_t>(lround((sum_current / count) * 1000.0f));
+
+        _last_seen_set_current[ch] = set_current;
+        _last_seen_output_on[ch] = output_on;
+        _have_last_seen_state[ch] = true;
     }
 }
 
@@ -45,6 +61,7 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
     _target_current = current;
     _last_setpoint_change_time = millis(); // Record for imbalance suppression
     _last_command_ms = millis();
+    _override_hint_external_change = false;
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -58,6 +75,7 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
 bool DualPowerSupply::enableOutput() {
     _target_output = true;
     _last_command_ms = millis();
+    _override_hint_external_change = false;
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -68,21 +86,11 @@ bool DualPowerSupply::enableOutput() {
     return success;
 }
 
-bool DualPowerSupply::disableOutput() {
-    _target_output = false;
-    _last_command_ms = millis();
-
-    bool success = true;
-    for (auto *psu : _psus) {
-        success &= psu->disableOutput();
-    }
-    return success;
-}
-
 void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
     _target_current = current;
     _target_output = outputOn;
     _last_command_ms = millis();
+    _override_hint_external_change = false;
 
     for (auto *psu : _psus) {
         psu->configure(voltage, current, outputOn);
@@ -118,13 +126,13 @@ bool DualPowerSupply::updateEmergencyShutdown() {
         return false;
 
     unsigned long now = millis();
-    if (now - _last_shutdown_step_time < Timing::SHUTDOWN_STEP_MS)
+    if (now - _last_shutdown_step_time < InternalTiming::SHUTDOWN_STEP_MS)
         return true;
 
     _last_shutdown_step_time = now;
 
-    float step = Timing::EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
-                 (Timing::SHUTDOWN_STEP_MS / 1000.0f);
+    float step = InternalTiming::EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC *
+                 (InternalTiming::SHUTDOWN_STEP_MS / 1000.0f);
     _shutdown_current -= step;
 
     if (_shutdown_current <= 0.1f) {
@@ -196,16 +204,25 @@ OverrideInfo DualPowerSupply::checkOverrideDetail() {
         return info;
 
     const unsigned long now = millis();
-    const float actualA = getAverageOutputCurrent();
     const float cmdA = _target_current;
 
-    const bool current_mismatch =
-        fabs(actualA - cmdA) > Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
-    const bool output_mismatch = _target_output != isOutputOn();
+    bool current_mismatch = false;
+    bool output_mismatch = false;
+    float set_sum = 0.0f;
+    int set_count = 0;
+    for (auto *psu : _psus) {
+        if (!psu->isConnected())
+            continue;
+        current_mismatch |= psu->hasCurrentMismatch();
+        output_mismatch |= psu->hasOutputMismatch();
+        set_sum += psu->getSetCurrent();
+        set_count++;
+    }
     const bool mismatch = current_mismatch || output_mismatch;
 
     if (!mismatch) {
         _consecutive_mismatches.reset();
+        _override_hint_external_change = false;
         return info;
     }
 
@@ -219,24 +236,21 @@ OverrideInfo DualPowerSupply::checkOverrideDetail() {
         return info; // not confirmed yet
     }
 
-    // Human override heuristic: current changed without a command in flight
-    const bool measured_recently = (now - _last_measure_ms) < 2000;
-    const bool actual_changed =
-        measured_recently &&
-        (abs((int)(actualA * 1000) - (int)_last_measure_mA) >
-         (int)lround(Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A * 1000.0f));
+    float setA = (set_count > 0) ? (set_sum / set_count) : 0.0f;
 
-    if (!any_busy && actual_changed &&
-        (now - _last_command_ms) > Timing::MANUAL_OVERRIDE_GRACE_MS) {
+    // If we saw the PSU setpoint/output change without our command, treat it
+    // as human override. Otherwise treat it as a control mismatch (write not
+    // taking effect / flaky comms).
+    if (_override_hint_external_change) {
         info.cause = OverrideCause::HUMAN_OVERRIDE;
         snprintf(info.reason, sizeof(info.reason),
-                 "PSU changed externally: cmd=%.2fA act=%.2fA", cmdA, actualA);
+                 "Manual override: cmd=%.2fA set=%.2fA", cmdA, setA);
         return info;
     }
 
     info.cause = OverrideCause::CONTROL_MISMATCH;
     snprintf(info.reason, sizeof(info.reason),
-             "Command mismatch persists: cmd=%.2fA act=%.2fA", cmdA, actualA);
+             "Command mismatch persists: cmd=%.2fA set=%.2fA", cmdA, setA);
     return info;
 }
 
@@ -272,16 +286,6 @@ float DualPowerSupply::getAverageOutputCurrent() const {
     }
 
     return count > 0 ? (sum / count) : 0.0f;
-}
-
-float DualPowerSupply::getTotalPower() const {
-    float power = 0.0f;
-    for (auto *psu : _psus) {
-        if (psu->isConnected()) {
-            power += psu->getOutputPower();
-        }
-    }
-    return power;
 }
 
 float DualPowerSupply::getOutputCurrent(size_t channel) const {

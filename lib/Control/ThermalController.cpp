@@ -84,21 +84,24 @@ void ThermalController::update() {
     // Run safety checks ONCE at top of loop (not in each handler)
     // Skip for non-operational states (hardware not ready or already faulted)
     if (isOperationalState()) {
-        // Centralized manual override detection (outside SafetyMonitor)
-        OverrideInfo override = _dps.checkOverrideDetail();
-        if (override.cause == OverrideCause::HUMAN_OVERRIDE) {
-            _logger.log(override.reason[0] ? override.reason
-                                           : "TC: Manual override detected");
-            transitionTo(ThermalState::MANUAL_OVERRIDE, override.reason);
-            updateDisplay();
-            return;
-        }
-        if (override.cause == OverrideCause::CONTROL_MISMATCH) {
-            _logger.log(override.reason[0] ? override.reason
-                                           : "TC: DPS control mismatch");
-            transitionTo(ThermalState::DPS_DISCONNECTED, override.reason);
-            updateDisplay();
-            return;
+        // Centralized manual override detection (outside SafetyMonitor).
+        // Only check while we're actively controlling; once in override or
+        // disconnected states we want the state handler + safety checks to run.
+        const bool should_check_override =
+            (_state == ThermalState::STARTUP || _state == ThermalState::RAMP_UP ||
+             _state == ThermalState::STEADY_STATE);
+        if (should_check_override) {
+            OverrideInfo override = _dps.checkOverrideDetail();
+            if (override.cause == OverrideCause::HUMAN_OVERRIDE) {
+                transitionTo(ThermalState::MANUAL_OVERRIDE, override.reason);
+                updateDisplay();
+                return;
+            }
+            if (override.cause == OverrideCause::CONTROL_MISMATCH) {
+                transitionTo(ThermalState::DPS_DISCONNECTED, override.reason);
+                updateDisplay();
+                return;
+            }
         }
 
         runSafetyChecks();
@@ -361,7 +364,8 @@ void ThermalController::handleSelfTest() {
 
     case SelfTestResult::IN_PROGRESS:
         // Still running, check for overall timeout
-        if (millis() - _state_entry_time > Timing::SELFTEST_TIMEOUT_MS * 3) {
+        if (millis() - _state_entry_time >
+            InternalTiming::SELFTEST_TIMEOUT_MS * 3) {
             _logger.log("TC: Self-test timeout");
             _logger.log("CRIT: SELFTEST_FAIL Timeout", true);
             transitionTo(ThermalState::DPS_DISCONNECTED);
@@ -524,6 +528,7 @@ void ThermalController::handleSensorFault() {
 
 void ThermalController::handleDpsDisconnected() {
     unsigned long now = millis();
+    constexpr unsigned long DPS_RESTORE_TIMEOUT_MS = 10000;
 
     // If we are not fully reconnected, wait quietly and cancel any restore
     // attempt.
@@ -595,6 +600,16 @@ void ThermalController::handleDpsDisconnected() {
         _dps_restore_in_progress = false;
         transitionTo(_dps_restore_state, "DPS restored");
         return;
+    }
+
+    // If the restore never settles (e.g., due to comm flakiness), retry
+    // periodically instead of getting stuck forever.
+    if (_dps_restore_start_time != 0 &&
+        (now - _dps_restore_start_time) > DPS_RESTORE_TIMEOUT_MS) {
+        _logger.log("TC: DPS restore timeout, retrying");
+        _dps_restore_start_time = now;
+        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, _dps_restore_current,
+                       true);
     }
 }
 

@@ -147,6 +147,11 @@ class DPS5015 {
     unsigned long
         _last_command_time; // When last command was sent (for grace period)
 
+    // CRC fail streak tracking (reduces EMI noise log spam)
+    unsigned long _crc_fail_streak_start_ms = 0;
+    uint8_t _crc_fail_streak_count = 0;
+    bool _crc_fail_streak_logged = false;
+
     // Write tracking for manual override detection
     size_t _pending_writes; // Number of writes queued but not confirmed
 
@@ -208,10 +213,6 @@ class DPS5015 {
     void applyPendingConfig();
     uint16_t calculateCRC(uint8_t *buffer, size_t length);
     void clearSerialBuffer();
-
-    // Hardware protection configuration (only called internally)
-    bool setOCP(float current); // Set hardware Over Current Protection limit
-    bool setOVP(float voltage); // Set hardware Over Voltage Protection limit
 
 };
 

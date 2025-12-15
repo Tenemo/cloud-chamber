@@ -52,7 +52,7 @@ constexpr float HOT_RESET_CURRENT_THRESHOLD_A = 0.5f;
 // Internal Timing Constants
 // =============================================================================
 
-namespace Timing {
+namespace InternalTiming {
 // Emergency shutdown
 constexpr unsigned long SHUTDOWN_STEP_MS = 500;
 constexpr float EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC = 2.0f;
@@ -62,7 +62,7 @@ constexpr unsigned long IMBALANCE_LOG_INTERVAL_MS = 60000;
 
 // DPS self-test
 constexpr unsigned long SELFTEST_TIMEOUT_MS = 3000;
-} // namespace Timing
+} // namespace InternalTiming
 
 // =============================================================================
 // Utility Functions
