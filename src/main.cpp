@@ -8,60 +8,71 @@
  *
  * Architecture:
  * - Logger: Manages TFT display (KV store + live log area) and Serial output
- * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface
- * - DS18B20Sensor: Digital temperature sensors via OneWire
- * - DPS5015: Programmable power supply control via Modbus RTU
+ * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface (cold plate)
+ * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
+ * - DualPowerSupply: Symmetric control of two DPS5015 units via Modbus RTU
+ * - ThermalController: Smart control system coordinating all components
+ * persistence
+ *   - SafetyMonitor: Centralized safety checks with consistent error handling
  *
  * All modules self-manage their update timing and display registration.
+ *
+ * SAFETY:
+ * - Task Watchdog Timer (WDT) enabled - resets if loop() takes >10 seconds
+ *
+ * SHUTDOWN:
+ * - Normal shutdown is via physical OFF switch (power cut)
+ * - DPS5015 units always start in OFF state after power cycle
+ * - No software-initiated clean shutdown needed
+ * - Fault events are logged to Serial/display for visibility
  */
 
-#include "DPS5015.h"
-#include "DS18B20.h"
 #include "Logger.h"
-#include "PT100.h"
+#include "TemperatureSensors.h"
+#include "TimeService.h"
 #include "config.h"
 #include <Arduino.h>
+#include <esp_task_wdt.h>
+
+#include "ThermalController.h"
 
 Logger logger;
 
-// Shared OneWire bus for all DS18B20 sensors
-OneWire oneWire(PIN_DS18B20);
-DallasTemperature dallasSensors(&oneWire);
+// Temperature sensors (owns PT100 and DS18B20)
+TemperatureSensors sensors(logger);
 
-PT100Sensor pt100_sensor(logger, "PT100");
-DS18B20Sensor ds18b20_sensors[] = {
-    {logger, dallasSensors, DS18B20_1_ADDRESS, "TEMP_1"},
-    {logger, dallasSensors, DS18B20_2_ADDRESS, "TEMP_2"},
-    {logger, dallasSensors, DS18B20_3_ADDRESS, "TEMP_3"}};
+// Thermal controller - coordinates sensors and PSUs (owns DualPowerSupply
+// internally)
+ThermalController thermalController(logger, sensors);
 
-// DPS5015 power supplies (Serial1 and Serial2)
-DPS5015 psus[] = {{logger, "DC12", Serial1}, {logger, "DC34", Serial2}};
+static void initializeWatchdog() {
+    // Configure Task Watchdog Timer
+    // This will reset the ESP32 if loop() hangs for longer than timeout
+    // Using older API compatible with Arduino ESP32 core
+    esp_task_wdt_init(Watchdog::TIMEOUT_SECONDS, true); // timeout, panic on trigger
+    esp_task_wdt_add(NULL); // Add current task (loopTask) to watchdog
+}
 
 static void initializeHardware() {
     logger.initializeDisplay();
+    logger.log("=== BOOT ===");
 
-    dallasSensors.begin();
-    dallasSensors.setWaitForConversion(false);
-    for (auto &sensor : ds18b20_sensors)
-        sensor.begin();
+    // Optional one-shot wall-clock sync via home WiFi + NTP
+    TimeService::trySyncFromWifi(
+        [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
 
-    pt100_sensor.begin();
+    initializeWatchdog();
+    sensors.begin();
 
-    psus[0].begin(PIN_DPS5015_1_RX, PIN_DPS5015_1_TX);
-    psus[1].begin(PIN_DPS5015_2_RX, PIN_DPS5015_2_TX);
-
-    // Configure PSUs - settings are applied automatically when they connect
-    for (auto &psu : psus)
-        psu.configure(12.0f, 2.0f, true);
+    thermalController.begin();
 }
 
 void setup() { initializeHardware(); }
 
 void loop() {
+    esp_task_wdt_reset();
     logger.update();
-    pt100_sensor.update();
-    for (auto &sensor : ds18b20_sensors)
-        sensor.update();
-    for (auto &psu : psus)
-        psu.update();
+    sensors.update();
+
+    thermalController.update();
 }

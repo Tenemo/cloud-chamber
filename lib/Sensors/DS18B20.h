@@ -38,7 +38,6 @@
 #define DS18B20_H
 
 #include "Logger.h"
-#include <Arduino.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
 
@@ -57,6 +56,7 @@ class DS18B20Sensor {
     DallasTemperature &_sensors;
     uint8_t _address[8];
     const char *_label;
+    char _formatted_label[16]; // Cached formatted label with colon
     float _last_temperature;
     bool _initialized;
     bool _ever_connected; // True if sensor was successfully read at least once
@@ -66,12 +66,32 @@ class DS18B20Sensor {
     unsigned long _last_update_time;
 
     static constexpr float TEMP_ERROR_VALUE = -127.0f;
-    static constexpr unsigned long CONVERSION_DELAY_MS =
-        750; // 12-bit resolution
 
-    // Shared state for coordinating bus-wide conversions
+    // -------------------------------------------------------------------------
+    // Shared Conversion Coordination
+    // -------------------------------------------------------------------------
+    // All DS18B20 sensors share a single OneWire bus. Temperature conversion
+    // takes 750ms (12-bit mode) and affects all sensors simultaneously. To
+    // avoid redundant conversions and ensure consistent readings:
+    //
+    // 1. _shared_conversion_id increments each time requestTemperatures() is
+    //    called (by whichever sensor instance triggers first)
+    // 2. Each instance tracks _last_read_conversion_id to know if it has
+    //    already read from the current conversion cycle
+    // 3. If a sensor's last_read_id matches shared_id, it skips reading
+    //    (already has current data)
+    // 4. _shared_conversion_pending and _shared_conversion_start_time gate
+    //    the conversion timing so we wait for 750ms before reading
+    //
+    // This allows multiple sensors to share one bus efficiently without
+    // polling more often than necessary or returning stale data.
+    // -------------------------------------------------------------------------
     static unsigned long _shared_conversion_start_time;
     static bool _shared_conversion_pending;
+    static uint32_t _shared_conversion_id; // Increments each conversion cycle
+
+    // Per-instance tracking of which conversion was last read
+    uint32_t _last_read_conversion_id;
 };
 
 #endif // DS18B20_H

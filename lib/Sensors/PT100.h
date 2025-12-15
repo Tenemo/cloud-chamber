@@ -16,6 +16,19 @@
  *
  * The sensor automatically registers itself with the Logger and updates
  * the temperature display when values change.
+ *
+ * ERROR HANDLING:
+ * ---------------
+ * All PT100 error detection is centralized here. Callers should use
+ * isInError() to check sensor health rather than interpreting raw temperature
+ * values. Error conditions include:
+ * - Temperature below PT100_ERROR_MIN_C or above PT100_ERROR_MAX_C
+ * - MAX31865 fault flags (open wire, short, etc.)
+ * - Hardware communication failures
+ *
+ * When isInError() returns true, getTemperature() returns the last valid
+ * reading. The error state is logged and the display is updated to show
+ * the error condition.
  */
 
 #ifndef PT100_H
@@ -24,7 +37,6 @@
 #include "Logger.h"
 #include "config.h"
 #include <Adafruit_MAX31865.h>
-#include <Arduino.h>
 
 class PT100Sensor {
   public:
@@ -39,11 +51,11 @@ class PT100Sensor {
     Logger &_logger;
     Adafruit_MAX31865 _rtd;
     const char *_label;
+    char _formatted_label[16]; // Cached formatted label with colon
     float _last_temperature;
     bool _initialized;
     bool _in_error_state;
     unsigned long _last_update_time;
-    unsigned long _last_serial_log_time;
 
     static constexpr float RNOMINAL = 100.0f; // PT100 nominal resistance
     static constexpr float RREF = 438.0f;     // Reference resistor value
