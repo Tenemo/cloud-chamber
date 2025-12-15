@@ -17,7 +17,8 @@ void PT100Sensor::begin() {
     // Check initial reading to see if sensor is connected
     delay(100); // allow sensor to stabilize
     float temp_c = _rtd.temperature(RNOMINAL, RREF);
-    bool has_error = (temp_c < PT100_ERROR_MIN_C || temp_c > PT100_ERROR_MAX_C);
+    bool has_error =
+        (temp_c < PT100::ERROR_MIN_C || temp_c > PT100::ERROR_MAX_C);
 
     if (has_error) {
         _in_error_state = true;
@@ -37,7 +38,8 @@ void PT100Sensor::update() {
         return;
 
     unsigned long current_time = millis();
-    if (current_time - _last_update_time < PT100_UPDATE_INTERVAL_MS) {
+    if (current_time - _last_update_time <
+        Intervals::PT100_UPDATE_INTERVAL_MS) {
         return;
     }
     _last_update_time = current_time;
@@ -45,7 +47,8 @@ void PT100Sensor::update() {
     float temp_c = _rtd.temperature(RNOMINAL, RREF);
 
     // Check for error conditions (invalid reading or sensor fault)
-    bool has_error = (temp_c < PT100_ERROR_MIN_C || temp_c > PT100_ERROR_MAX_C);
+    bool has_error =
+        (temp_c < PT100::ERROR_MIN_C || temp_c > PT100::ERROR_MAX_C);
 
     if (has_error) {
         if (!_in_error_state) {

@@ -66,7 +66,7 @@ class DPS5015 {
             uint8_t slaveAddress = 1);
 
     void begin(int rxPin = PIN_DPS5015_1_RX, int txPin = PIN_DPS5015_1_TX,
-               unsigned long baud = 0); // 0 = use MODBUS_BAUD_RATE from config
+               unsigned long baud = 0); // 0 = use Modbus::BAUD_RATE from config
     void update();
 
     // Configure desired settings (applied automatically when connected)

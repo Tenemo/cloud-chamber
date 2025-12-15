@@ -2,14 +2,8 @@
  * @file config.h
  * @brief Tunable configuration parameters
  *
- * This file contains all tunable parameters that may need adjustment:
- * - Update intervals and timing
- * - Communication settings
- * - Display settings
- * - Thermal control thresholds and limits
- *
- * For pin definitions and hardware addresses, see pins.h
- * For implementation constants that rarely change, see ThermalConstants.h
+ * Only namespaced configuration values live here. Use the namespaces directly
+ * (e.g., `Limits::MAX_CURRENT_PER_CHANNEL`, `Timing::STARTUP_HOLD_DURATION_MS`).
  */
 
 #ifndef CONFIG_H
@@ -21,60 +15,71 @@
 // =============================================================================
 // Sensor Update Intervals
 // =============================================================================
+namespace Intervals {
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;
 constexpr unsigned long DS18B20_UPDATE_INTERVAL_MS =
     1000; // 12-bit resolution needs 750ms conversion
 constexpr unsigned long DS18B20_CONVERSION_TIME_MS =
     750; // 12-bit resolution conversion time
 constexpr unsigned long DPS5015_UPDATE_INTERVAL_MS = 500;
+} // namespace Intervals
 
 // =============================================================================
 // Modbus Communication Settings
 // =============================================================================
+namespace Modbus {
 // Default baud rate is 9600. If experiencing communication errors at high
 // TEC power due to EMI from the DC lines, try:
 // - Lowering baud rate to 4800 or 2400 (more robust but slower updates)
 // - Adding ferrite cores to UART lines
 // - Using shielded cables for Modbus connections
 // - Increasing physical separation from high-current DC wiring
-constexpr unsigned long MODBUS_BAUD_RATE = 9600;
-constexpr unsigned long MODBUS_BYTE_TIMEOUT_MS =
-    3;                                // At 9600 baud, 1 byte ≈ 1ms
-constexpr int MODBUS_MAX_RETRIES = 3; // Consecutive failures before error state
+constexpr unsigned long BAUD_RATE = 9600;
+constexpr unsigned long BYTE_TIMEOUT_MS =
+    3;                              // At 9600 baud, 1 byte ~= 1ms
+constexpr int MAX_RETRIES = 3;      // Consecutive failures before error state
+} // namespace Modbus
 
 // =============================================================================
 // Display and Logging Settings
 // =============================================================================
+namespace Display {
 constexpr unsigned long DISPLAY_INTERVAL_MS = 100;
 constexpr unsigned long SPINNER_UPDATE_MS = 100;
-constexpr int LOG_AREA_LINES = 2; // Lines reserved for live logs at bottom
+constexpr int LOG_AREA_LINES = 2; // Lines reserved for live logs
+} // namespace Display
 
-// Display/Log labels (used consistently across display and serial logs)
-constexpr const char *LABEL_COLD_PLATE = "Cold plate";
-constexpr const char *LABEL_HOT_PLATE = "Hot plate";
-constexpr const char *LABEL_DELTA_T = "dT";
-constexpr const char *LABEL_RATE = "dT/dt";
-constexpr const char *LABEL_CURRENT = "I set";
+namespace Labels {
+constexpr const char *COLD_PLATE = "Cold plate";
+constexpr const char *HOT_PLATE = "Hot plate";
+constexpr const char *DELTA_T = "dT";
+constexpr const char *RATE = "dT/dt";
+constexpr const char *CURRENT = "I set";
+} // namespace Labels
 
-// Units
-constexpr const char *UNIT_TEMP = "C";
-constexpr const char *UNIT_RATE = "K/m";
-constexpr const char *UNIT_CURRENT = "A";
-constexpr const char *UNIT_POWER = "W";
+namespace Units {
+constexpr const char *TEMP = "C";
+constexpr const char *RATE = "K/m";
+constexpr const char *CURRENT = "A";
+constexpr const char *POWER = "W";
+} // namespace Units
 
 // =============================================================================
 // Watchdog Configuration
 // =============================================================================
-constexpr unsigned long WDT_TIMEOUT_SECONDS = 10; // Task WDT timeout
+namespace Watchdog {
+constexpr unsigned long TIMEOUT_SECONDS = 10; // Task WDT timeout
+} // namespace Watchdog
 
 // =============================================================================
 // WiFi Time Sync (boot-time, optional)
 // =============================================================================
+namespace WiFiTimeSync {
 // If WIFI_SSID from env.h is present and reachable, the system will connect
 // briefly on boot, sync wall time via NTP, then disconnect.
 // If any step fails, wall time remains invalid and logging format is unchanged.
 constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 10000; // 10s connect timeout
-constexpr unsigned long NTP_SYNC_TIMEOUT_MS = 8000;      // 8s NTP wait timeout
+constexpr unsigned long NTP_SYNC_TIMEOUT_MS = 8000;      // 8s NTP wait
 
 // NTP servers (UTC by default)
 constexpr const char *NTP_SERVER_1 = "pool.ntp.org";
@@ -88,20 +93,27 @@ constexpr const char *TIME_TZ_STRING = "CET-1CEST,M3.5.0/2,M10.5.0/3";
 // Timezone offsets for configTime (seconds). Keep 0 for UTC.
 constexpr long TIME_GMT_OFFSET_SEC = 0;
 constexpr int TIME_DAYLIGHT_OFFSET_SEC = 0;
+} // namespace WiFiTimeSync
 
 // =============================================================================
 // PT100 Sensor Error Detection
 // =============================================================================
-constexpr float PT100_ERROR_MIN_C = -100.0f; // Below this = sensor error
-constexpr float PT100_ERROR_MAX_C = 500.0f;  // Above this = sensor error
+namespace PT100 {
+constexpr float ERROR_MIN_C = -100.0f; // Below this = sensor error
+constexpr float ERROR_MAX_C = 500.0f;  // Above this = sensor error
+} // namespace PT100
 
 // =============================================================================
-// Thermal Controller - Voltage and Current Limits
+// Limits (hardware and safety limits)
 // =============================================================================
-constexpr float TEC_VOLTAGE_SETPOINT = 15.0f; // Fixed voltage for cascade TECs
-constexpr float MAX_CURRENT_PER_CHANNEL = 13.0f; // Maximum current per DPS
-constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;  // Minimum operational current
-constexpr float STARTUP_CURRENT = 2.0f; // Initial current during startup
+namespace Limits {
+// Fixed voltage for cascade TECs
+constexpr float TEC_VOLTAGE_SETPOINT = 15.0f;
+
+// Current limits
+constexpr float MAX_CURRENT_PER_CHANNEL = 13.0f;
+constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;
+constexpr float STARTUP_CURRENT = 2.0f;
 constexpr float DEGRADED_MODE_CURRENT =
     5.0f; // Max current when one DPS disconnects
 
@@ -109,16 +121,14 @@ constexpr float DEGRADED_MODE_CURRENT =
 constexpr float DPS_OVP_LIMIT = 16.0f; // Over Voltage Protection (V)
 constexpr float DPS_OCP_LIMIT = 13.0f; // Over Current Protection (A)
 
-// =============================================================================
-// Thermal Controller - Temperature Thresholds (Celsius)
-// =============================================================================
-constexpr float HOT_SIDE_WARNING_C = 55.0f;      // Reduce ramp aggressiveness
-constexpr float HOT_SIDE_WARNING_EXIT_C = 50.0f; // Exit warning (hysteresis)
-constexpr float HOT_SIDE_ALARM_C = 65.0f;        // Stop increasing current
-constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f;   // Exit alarm (hysteresis)
-constexpr float HOT_SIDE_FAULT_C = 70.0f;        // Emergency shutdown
-constexpr float HOT_SIDE_PROBE_HEADROOM_C =
-    5.0f; // Headroom below warning for probing
+// Temperature thresholds (Celsius)
+constexpr float HOT_SIDE_WARNING_C = 55.0f;
+constexpr float HOT_SIDE_WARNING_EXIT_C = 50.0f;
+constexpr float HOT_SIDE_ALARM_C = 65.0f;
+constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f;
+constexpr float HOT_SIDE_FAULT_C = 70.0f;
+constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN = 5.0f;
+constexpr float HOT_SIDE_PROBE_HEADROOM_C = 5.0f;
 
 struct ThermalLimit {
     float enter;
@@ -129,108 +139,77 @@ constexpr ThermalLimit HOT_WARNING_LIMIT{HOT_SIDE_WARNING_C,
                                          HOT_SIDE_WARNING_EXIT_C};
 constexpr ThermalLimit HOT_ALARM_LIMIT{HOT_SIDE_ALARM_C, HOT_SIDE_ALARM_EXIT_C};
 
-// Thermal runaway detection
-constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN =
-    5.0f; // Max acceptable rise rate
-
-// Cooling performance thresholds
-constexpr float COOLING_STALL_THRESHOLD_C = 0.02f; // Rate below this = stalled
-constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f; // Back off if warming
-constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.1f; // K/min degradation
-constexpr float MIN_CURRENT_FOR_STALL_CHECK_A =
-    4.0f; // Don't check stall below this
-constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A =
-    6.0f; // Min current before allowing ramp exit due to degradation
-constexpr int CONSECUTIVE_DEGRADED_FOR_REVERT =
-    2; // Require multiple degraded evals before reverting during ramp
-
-// =============================================================================
-// Thermal Controller - Timing Intervals (milliseconds)
-// =============================================================================
-constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000; // 60s startup
-constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS =
-    20000; // 20s between steps
-constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000; // 60s evaluation
-constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
-    15UL * 60UL * 1000UL; // 15min recheck
-constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS =
-    60000;                                       // 60s sensor recovery
-constexpr unsigned long INIT_TIMEOUT_MS = 30000; // 30s init timeout
-
-// Hot-side stabilization (thermal inertia compensation)
-constexpr unsigned long THERMAL_STABILIZATION_MS = 90000; // Shared grace
-constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN =
-    0.3f; // Stable when below
-constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS =
-    300000; // 5 min max
-constexpr unsigned long HOT_RESET_STABILIZATION_MS =
-    THERMAL_STABILIZATION_MS; // 90s stabilization after hot reset
-
-// =============================================================================
-// Thermal Controller - Adaptive Step Sizes (flattened)
-// =============================================================================
-// Two-step approach: coarse for approach, fine for scan
-constexpr float COARSE_STEP_A = 1.0f;
-constexpr float FINE_STEP_A = 0.2f;
-
-// Current threshold for coarse->fine handoff during ramp
-constexpr float RAMP_COARSE_BELOW_A = 8.0f;
-
-// Rate threshold for forcing coarse steps when far from equilibrium
-constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min - above = coarse
-
-// =============================================================================
-// Thermal Controller - Manual Override Detection
-// =============================================================================
-constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V = 0.15f;
-constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A = 0.15f;
-constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS = 3000; // Settling window
-constexpr int MANUAL_OVERRIDE_MISMATCH_COUNT =
-    3; // Consecutive mismatches needed
-
-// =============================================================================
-// Thermal Controller - Channel Imbalance Detection
-// =============================================================================
-constexpr float CHANNEL_CURRENT_IMBALANCE_A = 1.0f; // Log if |I1-I2| exceeds
-constexpr float CHANNEL_POWER_IMBALANCE_W = 5.0f;   // Log if |P1-P2| exceeds
-
-// =============================================================================
-// Thermal Controller - Sensor Validation
-// =============================================================================
-
-// Cross-sensor validation (cold plate must be colder than hot plate)
-constexpr float SENSOR_CROSS_CHECK_MARGIN_C = 2.0f;           // Minimum delta
-constexpr unsigned long SENSOR_CROSS_CHECK_GRACE_MS = 120000; // 2 min grace
-constexpr unsigned long SENSOR_CROSS_CHECK_LOG_INTERVAL_MS = 30000;
-
 // Absolute sensor sanity limits
-constexpr float COLD_PLATE_MIN_VALID_C = -60.0f; // PT100 can't read below this
-constexpr float COLD_PLATE_MAX_VALID_C = 80.0f;  // Cold plate shouldn't be hot
-constexpr float HOT_PLATE_MIN_VALID_C = -20.0f;  // Hot side shouldn't freeze
-constexpr float HOT_PLATE_MAX_VALID_C = 100.0f;  // Above fault threshold
-
-// PT100 plausibility check (physics-based validation)
-constexpr float PLAUSIBILITY_MIN_DELTA_T_PER_AMP = 2.0f; // Min expected K/A
-constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C = -35.0f; // Check if below
-constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C =
-    35.0f; // Hot must exceed
-constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS =
-    THERMAL_STABILIZATION_MS; // Grace aligned to stabilization
-
-// Namespaced views for readability (non-breaking aliases)
-namespace Limits {
-constexpr float MAX_CURRENT = MAX_CURRENT_PER_CHANNEL;
-constexpr float MIN_CURRENT = MIN_CURRENT_PER_CHANNEL;
-constexpr float HOT_FAULT = HOT_SIDE_FAULT_C;
-constexpr float HOT_ALARM = HOT_SIDE_ALARM_C;
-constexpr float HOT_WARNING = HOT_SIDE_WARNING_C;
+constexpr float COLD_PLATE_MIN_VALID_C = -60.0f;
+constexpr float COLD_PLATE_MAX_VALID_C = 80.0f;
+constexpr float HOT_PLATE_MIN_VALID_C = -20.0f;
+constexpr float HOT_PLATE_MAX_VALID_C = 100.0f;
 } // namespace Limits
 
+// =============================================================================
+// Timing (milliseconds)
+// =============================================================================
+namespace Timing {
+constexpr unsigned long STARTUP_HOLD_DURATION_MS = 60000;
+constexpr unsigned long RAMP_ADJUSTMENT_INTERVAL_MS = 20000;
+constexpr unsigned long CURRENT_EVALUATION_DELAY_MS = 60000;
+constexpr unsigned long STEADY_STATE_RECHECK_INTERVAL_MS =
+    15UL * 60UL * 1000UL;
+constexpr unsigned long SENSOR_RECOVERY_TIMEOUT_MS = 60000;
+constexpr unsigned long INIT_TIMEOUT_MS = 30000;
+
+// Hot-side stabilization / thermal inertia compensation
+constexpr unsigned long THERMAL_STABILIZATION_MS = 90000;
+constexpr unsigned long HOT_SIDE_STABILIZATION_MAX_WAIT_MS = 300000;
+constexpr unsigned long HOT_RESET_STABILIZATION_MS = THERMAL_STABILIZATION_MS;
+
+// Manual override detection
+constexpr unsigned long MANUAL_OVERRIDE_GRACE_MS = 3000;
+
+// Cross-check / plausibility grace
+constexpr unsigned long SENSOR_CROSS_CHECK_GRACE_MS = 120000;
+constexpr unsigned long SENSOR_CROSS_CHECK_LOG_INTERVAL_MS = 30000;
+constexpr unsigned long PLAUSIBILITY_CHECK_GRACE_MS = THERMAL_STABILIZATION_MS;
+} // namespace Timing
+
+// =============================================================================
+// Tuning (algorithm thresholds and steps)
+// =============================================================================
 namespace Tuning {
-constexpr float STEP_COARSE = COARSE_STEP_A;
-constexpr float STEP_FINE = FINE_STEP_A;
-constexpr float RAMP_COARSE_BELOW = RAMP_COARSE_BELOW_A;
-constexpr float RATE_COARSE_THRESHOLD = STEP_COARSE_RATE_THRESHOLD;
+// Cooling performance thresholds
+constexpr float COOLING_STALL_THRESHOLD_C = 0.02f;
+constexpr float OVERCURRENT_WARMING_THRESHOLD_C = 0.3f;
+constexpr float COOLING_RATE_DEGRADATION_THRESHOLD = 0.1f;
+constexpr float MIN_CURRENT_FOR_STALL_CHECK_A = 4.0f;
+constexpr float MIN_RAMP_CURRENT_BEFORE_EXIT_A = 6.0f;
+constexpr int CONSECUTIVE_DEGRADED_FOR_REVERT = 2;
+
+// Hot-side "stable" threshold
+constexpr float HOT_SIDE_STABLE_RATE_THRESHOLD_C_PER_MIN = 0.3f;
+
+// Adaptive step sizes (two-step approach: coarse for approach, fine for scan)
+constexpr float COARSE_STEP_A = 1.0f;
+constexpr float FINE_STEP_A = 0.2f;
+constexpr float RAMP_COARSE_BELOW_A = 8.0f;
+constexpr float STEP_COARSE_RATE_THRESHOLD = 1.0f; // K/min
+
+// Manual override tolerances
+constexpr float MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V = 0.15f;
+constexpr float MANUAL_OVERRIDE_CURRENT_TOLERANCE_A = 0.15f;
+constexpr int MANUAL_OVERRIDE_MISMATCH_COUNT = 3;
+
+// Channel imbalance detection
+constexpr float CHANNEL_CURRENT_IMBALANCE_A = 1.0f;
+constexpr float CHANNEL_POWER_IMBALANCE_W = 5.0f;
+
+// Sensor validation
+constexpr float SENSOR_CROSS_CHECK_MARGIN_C = 2.0f;
+
+// PT100 plausibility check (physics-based validation)
+constexpr float PLAUSIBILITY_MIN_DELTA_T_PER_AMP = 2.0f;
+constexpr float PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C = -35.0f;
+constexpr float PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C = 35.0f;
 } // namespace Tuning
 
 #endif // CONFIG_H
+

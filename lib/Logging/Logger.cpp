@@ -76,7 +76,8 @@ void Logger::initializeDisplay() {
     _screen->setCursor(0, 0);
 
     // Calculate log area position
-    _log_area_y_start = SCREEN_HEIGHT - (LOG_AREA_LINES * LINE_HEIGHT);
+    _log_area_y_start =
+        SCREEN_HEIGHT - (Display::LOG_AREA_LINES * LINE_HEIGHT);
 
     // Draw separator line
     drawSeparatorLine();
@@ -360,7 +361,7 @@ void Logger::update() {
 
     // Throttle batch redraws
     unsigned long current_time = millis();
-    if (current_time - _last_display_update < DISPLAY_INTERVAL_MS) {
+    if (current_time - _last_display_update < Display::DISPLAY_INTERVAL_MS) {
         return;
     }
 
@@ -394,7 +395,7 @@ void Logger::updateSpinner() {
     unsigned long now = millis();
 
     // Always check if enough time has passed, regardless of when this is called
-    if (now - _last_spinner_update >= SPINNER_UPDATE_MS) {
+    if (now - _last_spinner_update >= Display::SPINNER_UPDATE_MS) {
         _last_spinner_update = now;
 
         // Unicode spinner characters: ⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏
@@ -421,11 +422,12 @@ void Logger::drawLogArea() {
         return;
 
     // Clear log area (below separator line)
-    fillBox(0, _log_area_y_start, SCREEN_WIDTH, LOG_AREA_LINES * LINE_HEIGHT,
+    fillBox(0, _log_area_y_start, SCREEN_WIDTH,
+            Display::LOG_AREA_LINES * LINE_HEIGHT,
             COLOR_RGB565_BLACK);
 
     // Draw each log line (with 1px margin from separator)
-    for (int i = 0; i < _log_count && i < LOG_AREA_LINES; i++) {
+    for (int i = 0; i < _log_count && i < Display::LOG_AREA_LINES; i++) {
         int y = _log_area_y_start + (i * LINE_HEIGHT) + 1;
         printLine(_log_lines[i], 0, y, 1);
     }
@@ -497,15 +499,15 @@ void Logger::log(const char *message, bool serialOnly) {
         }
 
         // Add line to log buffer (with scrolling)
-        if (_log_count >= LOG_AREA_LINES) {
+        if (_log_count >= Display::LOG_AREA_LINES) {
             // Shift all logs up
-            for (int i = 0; i < LOG_AREA_LINES - 1; i++) {
+            for (int i = 0; i < Display::LOG_AREA_LINES - 1; i++) {
                 strncpy(_log_lines[i], _log_lines[i + 1], MAX_CHARS_PER_LINE);
                 _log_lines[i][MAX_CHARS_PER_LINE] = '\0';
             }
-            strncpy(_log_lines[LOG_AREA_LINES - 1], line_buf,
+            strncpy(_log_lines[Display::LOG_AREA_LINES - 1], line_buf,
                     MAX_CHARS_PER_LINE);
-            _log_lines[LOG_AREA_LINES - 1][MAX_CHARS_PER_LINE] = '\0';
+            _log_lines[Display::LOG_AREA_LINES - 1][MAX_CHARS_PER_LINE] = '\0';
         } else {
             strncpy(_log_lines[_log_count], line_buf, MAX_CHARS_PER_LINE);
             _log_lines[_log_count][MAX_CHARS_PER_LINE] = '\0';
@@ -534,5 +536,3 @@ void Logger::logf(bool serialOnly, const char *format, ...) {
     va_end(args);
     log(buf, serialOnly);
 }
-
-// PSRAM/NVM logging removed: addToLogBuffer/dumpLogBuffer now no-ops

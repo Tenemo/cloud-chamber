@@ -28,7 +28,7 @@ void DS18B20Sensor::begin() {
 
     // Request initial temperature using specific address
     _sensors.requestTemperaturesByAddress(_address);
-    delay(DS18B20_CONVERSION_TIME_MS); // wait for 12-bit conversion
+    delay(Intervals::DS18B20_CONVERSION_TIME_MS); // wait for 12-bit conversion
     float temp_c = _sensors.getTempC(_address);
 
     if (temp_c == DEVICE_DISCONNECTED_C || temp_c == TEMP_ERROR_VALUE) {
@@ -55,7 +55,7 @@ void DS18B20Sensor::update() {
         // If reconnection conversion is pending, check if it's complete
         if (_reconnect_pending) {
             if (current_time - _reconnect_start_time <
-                DS18B20_CONVERSION_TIME_MS) {
+                Intervals::DS18B20_CONVERSION_TIME_MS) {
                 return; // Still converting, don't block
             }
             // Conversion complete, read result
@@ -73,7 +73,8 @@ void DS18B20Sensor::update() {
         }
 
         // Periodically try to detect the sensor (non-blocking)
-        if (current_time - _last_update_time < DS18B20_UPDATE_INTERVAL_MS) {
+        if (current_time - _last_update_time <
+            Intervals::DS18B20_UPDATE_INTERVAL_MS) {
             return;
         }
 
@@ -91,7 +92,7 @@ void DS18B20Sensor::update() {
     if (!_shared_conversion_pending) {
         // Check if enough time has passed since last conversion
         if (current_time - _shared_conversion_start_time <
-            DS18B20_UPDATE_INTERVAL_MS) {
+            Intervals::DS18B20_UPDATE_INTERVAL_MS) {
             // Not time for a new conversion yet, but we can still read
             // (conversion data is still valid)
         } else {
@@ -107,7 +108,7 @@ void DS18B20Sensor::update() {
     // If conversion is pending, wait for it to complete
     if (_shared_conversion_pending) {
         if (current_time - _shared_conversion_start_time <
-            DS18B20_CONVERSION_TIME_MS) {
+            Intervals::DS18B20_CONVERSION_TIME_MS) {
             return; // Still converting
         }
         // Conversion complete - clear the flag

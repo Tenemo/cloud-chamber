@@ -49,7 +49,7 @@ static void initializeWatchdog() {
     // Configure Task Watchdog Timer
     // This will reset the ESP32 if loop() hangs for longer than timeout
     // Using older API compatible with Arduino ESP32 core
-    esp_task_wdt_init(WDT_TIMEOUT_SECONDS, true); // timeout, panic on trigger
+    esp_task_wdt_init(Watchdog::TIMEOUT_SECONDS, true); // timeout, panic on trigger
     esp_task_wdt_add(NULL); // Add current task (loopTask) to watchdog
 }
 

@@ -71,7 +71,7 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
     unsigned long now = millis();
     bool in_early_ramp =
         (current_state == ThermalState::RAMP_UP &&
-         (now - ramp_start_time) < PLAUSIBILITY_CHECK_GRACE_MS);
+         (now - ramp_start_time) < Timing::PLAUSIBILITY_CHECK_GRACE_MS);
     bool skip_plausibility =
         (current_state == ThermalState::STARTUP || in_early_ramp);
 
@@ -87,7 +87,7 @@ SafetyResult SafetyMonitor::checkAll(ThermalState current_state,
         (current_state == ThermalState::SELF_TEST ||
          current_state == ThermalState::STARTUP ||
          (current_state == ThermalState::RAMP_UP &&
-          (now - ramp_start_time) < SENSOR_CROSS_CHECK_GRACE_MS));
+          (now - ramp_start_time) < Timing::SENSOR_CROSS_CHECK_GRACE_MS));
     logCrossSensorWarnings(in_cross_check_grace);
 
     // Commit chosen reason to member for external access
@@ -104,7 +104,7 @@ SafetyStatus SafetyMonitor::setFault(SafetyStatus status, const char *reason) {
 
 // Helper function to update a hysteresis state
 static inline void updateHysteresisState(bool &state, float value,
-                                         const ThermalLimit &limit) {
+                                         const Limits::ThermalLimit &limit) {
     if (state) {
         if (value < limit.exit)
             state = false;
@@ -118,8 +118,10 @@ void SafetyMonitor::updateHysteresis() {
     float hot_temp = _hot_plate.getTemperature();
 
     // Update alarm and warning states with hysteresis
-    updateHysteresisState(_hot_side_in_alarm, hot_temp, HOT_ALARM_LIMIT);
-    updateHysteresisState(_hot_side_in_warning, hot_temp, HOT_WARNING_LIMIT);
+    updateHysteresisState(_hot_side_in_alarm, hot_temp,
+                          Limits::HOT_ALARM_LIMIT);
+    updateHysteresisState(_hot_side_in_warning, hot_temp,
+                          Limits::HOT_WARNING_LIMIT);
 }
 
 SafetyStatus SafetyMonitor::checkThermalLimits() {
@@ -129,7 +131,7 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     float hot_temp = _hot_plate.getTemperature();
 
     // Critical hot side fault
-    if (hot_temp >= HOT_SIDE_FAULT_C) {
+    if (hot_temp >= Limits::HOT_SIDE_FAULT_C) {
         char buf[32];
         snprintf(buf, sizeof(buf), "HOT>%.0fC", hot_temp);
         return setFault(SafetyStatus::THERMAL_FAULT, buf);
@@ -138,7 +140,7 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     // Hot side rate check (thermal runaway detection)
     if (_metrics && _metrics->hasMinimumHistory(60)) {
         float hot_rate = _metrics->getHotPlateRate();
-        if (hot_rate > HOT_SIDE_RATE_FAULT_C_PER_MIN) {
+        if (hot_rate > Limits::HOT_SIDE_RATE_FAULT_C_PER_MIN) {
             return setFault(SafetyStatus::THERMAL_FAULT, "RUNAWAY");
         }
     }
@@ -165,24 +167,24 @@ SafetyStatus SafetyMonitor::checkSensorSanity() {
     float hot_temp = _hot_plate.getTemperature();
 
     // Check cold plate sanity
-    if (cold_temp < COLD_PLATE_MIN_VALID_C) {
+    if (cold_temp < Limits::COLD_PLATE_MIN_VALID_C) {
         char buf[48];
         snprintf(buf, sizeof(buf), "Cold=%.1fC impossible", cold_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
-    if (cold_temp > COLD_PLATE_MAX_VALID_C) {
+    if (cold_temp > Limits::COLD_PLATE_MAX_VALID_C) {
         char buf[48];
         snprintf(buf, sizeof(buf), "Cold=%.1fC too hot", cold_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
 
     // Check hot plate sanity
-    if (hot_temp < HOT_PLATE_MIN_VALID_C) {
+    if (hot_temp < Limits::HOT_PLATE_MIN_VALID_C) {
         char buf[48];
         snprintf(buf, sizeof(buf), "Hot=%.1fC impossible", hot_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
-    if (hot_temp > HOT_PLATE_MAX_VALID_C) {
+    if (hot_temp > Limits::HOT_PLATE_MAX_VALID_C) {
         char buf[48];
         snprintf(buf, sizeof(buf), "Hot=%.1fC extreme", hot_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
@@ -196,23 +198,23 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current) {
     float hot_temp = _hot_plate.getTemperature();
 
     // Only check if cold plate reports very low temperature
-    if (cold_temp > PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C) {
+    if (cold_temp > Tuning::PLAUSIBILITY_MAX_COLD_IMPLAUSIBLE_C) {
         return SafetyStatus::OK;
     }
 
     // Very low current means delta expectation is meaningless (startup/idle)
-    if (avg_current < MIN_CURRENT_FOR_STALL_CHECK_A) {
+    if (avg_current < Tuning::MIN_CURRENT_FOR_STALL_CHECK_A) {
         return SafetyStatus::OK;
     }
 
     // If cold plate is extremely cold, hot side MUST be significantly warm
-    if (hot_temp < PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C) {
+    if (hot_temp < Tuning::PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C) {
         _logger.logf("PT100 implausible! C=%.1f H=%.1f", cold_temp, hot_temp);
 
         // Check if current draw supports the cold temperature claim
         // If we're drawing significant current, we expect a temperature delta
         float expected_min_delta =
-            avg_current * PLAUSIBILITY_MIN_DELTA_T_PER_AMP;
+            avg_current * Tuning::PLAUSIBILITY_MIN_DELTA_T_PER_AMP;
         float actual_delta = hot_temp - cold_temp;
 
         // Fault if delta is implausibly SMALL - PT100 claims extreme cold but
@@ -236,13 +238,13 @@ void SafetyMonitor::logCrossSensorWarnings(bool skip_check) {
     unsigned long now = millis();
 
     // Cold plate should be significantly colder than hot plate
-    if (cold_temp >= hot_temp - SENSOR_CROSS_CHECK_MARGIN_C) {
+    if (cold_temp >= hot_temp - Tuning::SENSOR_CROSS_CHECK_MARGIN_C) {
         if (!_cross_check_warning_active) {
             _cross_check_warning_active = true;
             _logger.logf("WARN: Cold>=Hot! C=%.1f H=%.1f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         } else if (now - _last_cross_check_log_time >=
-                   SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
+                   Timing::SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
             _logger.logf("WARN: Cold>=Hot C=%.1f H=%.1f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         }

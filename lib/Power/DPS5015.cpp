@@ -21,7 +21,7 @@ void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
         return;
 
     // Use config baud rate if default (0) passed, otherwise use specified
-    unsigned long actual_baud = (baud == 0) ? MODBUS_BAUD_RATE : baud;
+    unsigned long actual_baud = (baud == 0) ? Modbus::BAUD_RATE : baud;
 
     // Initialize Serial for Modbus communication
     _serial.begin(actual_baud, SERIAL_8N1, rxPin, txPin);
@@ -85,9 +85,10 @@ void DPS5015::update() {
     }
 
     // No pending writes - throttle polling to update interval
-    if (current_time - _last_update_time < DPS5015_UPDATE_INTERVAL_MS) {
-        return;
-    }
+        if (current_time - _last_update_time <
+            Intervals::DPS5015_UPDATE_INTERVAL_MS) {
+            return;
+        }
 
     // Default polling read of 10 registers starting at 0x0000
     next = {TxnType::ReadHolding, REG_SET_VOLTAGE, 10};
@@ -156,9 +157,9 @@ void DPS5015::handleCommError() {
         return;
     }
 
-    // Only transition to error state after MODBUS_MAX_RETRIES consecutive
+    // Only transition to error state after Modbus::MAX_RETRIES consecutive
     // failures
-    if (_consecutive_errors >= MODBUS_MAX_RETRIES && !_in_error_state) {
+    if (_consecutive_errors >= Modbus::MAX_RETRIES && !_in_error_state) {
         _in_error_state = true;
         _currently_online = false;
         _logger.log("DPS5015 comm error");
@@ -371,19 +372,19 @@ bool DPS5015::isSettled() const {
 
     // Check if current matches commanded value (within tolerance)
     float current_diff = fabs(_set_current - _commanded_current);
-    return current_diff < MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+    return current_diff < Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
 }
 
 bool DPS5015::hasCurrentMismatch() const {
     // Returns true if DPS current doesn't match commanded current
     float current_diff = fabs(_set_current - _commanded_current);
-    return current_diff > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+    return current_diff > Tuning::MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
 }
 
 bool DPS5015::hasVoltageMismatch() const {
     // Returns true if DPS voltage doesn't match commanded voltage
     float voltage_diff = fabs(_set_voltage - _commanded_voltage);
-    return voltage_diff > MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V;
+    return voltage_diff > Tuning::MANUAL_OVERRIDE_VOLTAGE_TOLERANCE_V;
 }
 
 bool DPS5015::hasOutputMismatch() const {
@@ -405,8 +406,8 @@ void DPS5015::applyPendingConfig() {
     // Set hardware protection limits (preset registers 0x52-0x54)
     // These act as failsafes against software/Modbus errors
     // Scale: 0.01V for OVP, 0.01A for OCP, 0.01W for OPP
-    queueWrite(REG_OVP, static_cast<uint16_t>(DPS_OVP_LIMIT * 100.0f));
-    queueWrite(REG_OCP, static_cast<uint16_t>(DPS_OCP_LIMIT * 100.0f));
+    queueWrite(REG_OVP, static_cast<uint16_t>(Limits::DPS_OVP_LIMIT * 100.0f));
+    queueWrite(REG_OCP, static_cast<uint16_t>(Limits::DPS_OCP_LIMIT * 100.0f));
 
     // Track commanded values
     _commanded_voltage = _pending_config.voltage;

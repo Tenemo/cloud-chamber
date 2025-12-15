@@ -28,7 +28,7 @@
  *
  * // Status:
  * if (dps.areBothConnected()) { ... }
- * if (dps.isManualOverride()) { ... }
+ * if (dps.checkOverrideDetail().cause != OverrideCause::NONE) { ... }
  */
 
 #ifndef DUAL_POWER_SUPPLY_H
@@ -39,15 +39,6 @@
 #include "Counter.h"
 #include "ThermalConstants.h"
 #include "config.h"
-
-/**
- * @brief Result of manual override check
- */
-enum class OverrideStatus {
-    NONE,     // No override detected
-    DETECTED, // Override detected on one or both channels
-    PENDING   // Mismatch detected but waiting for confirmation
-};
 
 /**
  * @brief Result of self-test execution
@@ -172,8 +163,6 @@ class DualPowerSupply {
      * Note: This method has side effects (updates consecutive mismatch counter)
      * so it is intentionally non-const.
      */
-    OverrideStatus checkManualOverride();
-    bool isManualOverride() { return checkManualOverride() == OverrideStatus::DETECTED; }
     OverrideInfo checkOverrideDetail();
 
     /**
@@ -351,7 +340,7 @@ class DualPowerSupply {
 
     // Override confirmation count
     static constexpr int OVERRIDE_CONFIRM_COUNT =
-        MANUAL_OVERRIDE_MISMATCH_COUNT;
+        Tuning::MANUAL_OVERRIDE_MISMATCH_COUNT;
 
     // Self-test phases
     enum class SelfTestPhase {
@@ -371,7 +360,7 @@ class DualPowerSupply {
     static constexpr unsigned long ST_SETTLE_MS = 750;
     static constexpr unsigned long ST_TIMEOUT_MS = 3000;
     static constexpr float ST_VOLTAGE =
-        TEC_VOLTAGE_SETPOINT;                 // Use actual TEC voltage for test
+        Limits::TEC_VOLTAGE_SETPOINT;         // Use actual TEC voltage for test
     static constexpr float ST_CURRENT = 0.1f; // Safe test current (no load)
     static constexpr float ST_VOLTAGE_TOLERANCE = 0.5f;
 };

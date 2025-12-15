@@ -32,7 +32,8 @@
  *
  * LIVE LOG AREA:
  * --------------
- * - Bottom of screen reserved for live logs (configurable via LOG_AREA_LINES in
+ * - Bottom of screen reserved for live logs (configurable via
+ * Display::LOG_AREA_LINES in
  * config.h)
  * - Separated from KV display with 1px white line
  * - Logs scroll up automatically when full
@@ -135,10 +136,6 @@ class Logger {
     void logf(const char *format, ...);
     void logf(bool serialOnly, const char *format, ...);
 
-    // Legacy stubs (PSRAM logging removed)
-    void dumpLogBuffer() {}
-    size_t getLogBufferCount() const { return 0; }
-
   private:
     void clearValueArea(int y);
     void drawLineLabel(const char *label, int slot);
@@ -167,14 +164,13 @@ class Logger {
     unsigned long _last_spinner_update;
 
     // Live log area
-    char _log_lines[LOG_AREA_LINES][MAX_CHARS_PER_LINE + 1];
+    char _log_lines[Display::LOG_AREA_LINES][MAX_CHARS_PER_LINE + 1];
     int _log_count;
     int _log_area_y_start;
 
     void drawLogArea();
     void drawSeparatorLine();
     void updateSpinner();
-    void addToLogBuffer(const char *message) {} // Removed (serial only)
 };
 
 #endif // LOGGER_H
