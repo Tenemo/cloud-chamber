@@ -17,8 +17,8 @@
 Logger::Logger()
     : _screen(nullptr), _backlight(-1), _display_initialized(false),
       _last_display_update(0), _layout{0}, _log_count(0), _log_area_y_start(0),
-      _spinner_index(0), _last_spinner_update(0), _psram_log_buffer(nullptr),
-      _psram_log_head(0), _psram_log_count(0), _psram_available(false) {
+      _spinner_index(0), _last_spinner_update(0), _psram_log_storage(nullptr),
+      _psram_log(), _psram_available(false) {
     // Initialize all display lines as inactive
     for (size_t i = 0; i < MAX_DISPLAY_LINES; i++) {
         _lines[i].active = false;
@@ -75,16 +75,18 @@ void Logger::initializeDisplay() {
     if (psram_free < PSRAM_LOG_BUFFER_SIZE) {
         // Not enough PSRAM - try smaller buffer or skip
         _psram_available = false;
-        _psram_log_buffer = nullptr;
+        _psram_log_storage = nullptr;
         Serial.printf(
             "Logger: Insufficient PSRAM (need %dKB), logging to serial only\n",
             PSRAM_LOG_BUFFER_SIZE / 1024);
     } else {
-        _psram_log_buffer =
-            (char *)heap_caps_malloc(PSRAM_LOG_BUFFER_SIZE, MALLOC_CAP_SPIRAM);
-        if (_psram_log_buffer != nullptr) {
+        _psram_log_storage = static_cast<LogEntry *>(heap_caps_malloc(
+            sizeof(LogEntry) * PSRAM_LOG_BUFFER_ENTRIES, MALLOC_CAP_SPIRAM));
+        if (_psram_log_storage != nullptr) {
+            memset(_psram_log_storage, 0,
+                   sizeof(LogEntry) * PSRAM_LOG_BUFFER_ENTRIES);
+            _psram_log.reset(_psram_log_storage, PSRAM_LOG_BUFFER_ENTRIES);
             _psram_available = true;
-            memset(_psram_log_buffer, 0, PSRAM_LOG_BUFFER_SIZE);
             Serial.printf(
                 "Logger: PSRAM log buffer allocated (%dKB, %d entries)\n",
                 PSRAM_LOG_BUFFER_SIZE / 1024, PSRAM_LOG_BUFFER_ENTRIES);
@@ -579,22 +581,14 @@ void Logger::logf(bool serialOnly, const char *format, ...) {
  * Old entries are overwritten when buffer is full (circular).
  */
 void Logger::addToLogBuffer(const char *message) {
-    if (!_psram_available || _psram_log_buffer == nullptr) {
+    if (!_psram_available || !_psram_log.valid()) {
         return;
     }
 
-    // Calculate pointer to current entry
-    char *entry = _psram_log_buffer + (_psram_log_head * PSRAM_LOG_ENTRY_SIZE);
-
-    // Format: "[timestamp_ms] message"
+    LogEntry entry{};
     unsigned long timestamp = millis();
-    snprintf(entry, PSRAM_LOG_ENTRY_SIZE, "[%lu] %s", timestamp, message);
-
-    // Advance head (circular)
-    _psram_log_head = (_psram_log_head + 1) % PSRAM_LOG_BUFFER_ENTRIES;
-    if (_psram_log_count < PSRAM_LOG_BUFFER_ENTRIES) {
-        _psram_log_count++;
-    }
+    snprintf(entry.text, sizeof(entry.text), "[%lu] %s", timestamp, message);
+    _psram_log.push(entry);
 }
 
 /**
@@ -607,40 +601,27 @@ void Logger::addToLogBuffer(const char *message) {
  * (~12k entries can take several seconds to output over serial).
  */
 void Logger::dumpLogBuffer() {
-    if (!_psram_available || _psram_log_buffer == nullptr) {
+    if (!_psram_available || !_psram_log.valid()) {
         Serial.println("=== LOG BUFFER UNAVAILABLE (no PSRAM) ===");
         return;
     }
 
     Serial.println("=== BEGIN LOG BUFFER DUMP ===");
-    Serial.printf("Total entries: %d\n", _psram_log_count);
+    Serial.printf("Total entries: %d\n", _psram_log.size());
     Serial.println("---");
 
-    if (_psram_log_count == 0) {
+    if (_psram_log.size() == 0) {
         Serial.println("(empty)");
         Serial.println("=== END LOG BUFFER DUMP ===");
         return;
     }
 
-    // Start from oldest entry
-    size_t start_idx;
-    if (_psram_log_count < PSRAM_LOG_BUFFER_ENTRIES) {
-        // Buffer not yet full - start from 0
-        start_idx = 0;
-    } else {
-        // Buffer full - oldest entry is at head (about to be overwritten)
-        start_idx = _psram_log_head;
-    }
-
     // Output all entries in chronological order
     // Reset WDT periodically to prevent timeout during large dumps
-    for (size_t i = 0; i < _psram_log_count; i++) {
-        size_t idx = (start_idx + i) % PSRAM_LOG_BUFFER_ENTRIES;
-        char *entry = _psram_log_buffer + (idx * PSRAM_LOG_ENTRY_SIZE);
-
-        // Only print non-empty entries
-        if (entry[0] != '\0') {
-            Serial.println(entry);
+    for (size_t i = _psram_log.size(); i-- > 0;) {
+        const LogEntry *entry = _psram_log.getFromNewest(i);
+        if (entry && entry->text[0] != '\0') {
+            Serial.println(entry->text);
         }
 
         // Reset WDT every 100 entries to prevent timeout

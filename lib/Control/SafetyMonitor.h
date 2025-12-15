@@ -42,7 +42,7 @@ enum class SafetyStatus {
  */
 struct SafetyResult {
     SafetyStatus status;
-    const char *reason; // Points to internal buffer, valid until next check
+    char reason[48];
 };
 
 /**

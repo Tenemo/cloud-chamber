@@ -50,7 +50,14 @@
 enum class ModbusState {
     IDLE,             // Ready to start a new transaction
     WAITING_RESPONSE, // Request sent, waiting for response
-    WRITE_PENDING,    // Write operation waiting for response
+};
+
+enum class TxnType : uint8_t { ReadHolding, WriteSingle };
+
+struct Txn {
+    TxnType type;
+    uint16_t reg;
+    uint16_t value; // For read: number of registers to read
 };
 
 class DPS5015 {
@@ -70,9 +77,10 @@ class DPS5015 {
     bool setCurrent(float current);
     bool setOutput(bool on);
 
-    // Emergency methods - bypass queue for time-critical operations
+    // Emergency methods - high-priority writes (non-blocking)
     bool setCurrentImmediate(float current);
     bool disableOutput();
+    bool queueEmergencyWrite(uint16_t reg, uint16_t value);
 
     // Getters - return last read values (what the DPS reports)
     float getSetVoltage() const { return _set_voltage; }
@@ -83,6 +91,7 @@ class DPS5015 {
     bool isOutputOn() const { return _output_on; }
     bool isConnected() const { return _currently_online; }
     bool isInGracePeriod() const;
+    bool isBusy() const { return _state == ModbusState::WAITING_RESPONSE; }
     bool isSettled() const;
     bool hasPendingWrites() const { return _pending_writes > 0; }
 
@@ -135,7 +144,6 @@ class DPS5015 {
     unsigned long _request_start_time;
     size_t _expected_response_length;
     int _consecutive_errors; // Consecutive comm failures
-    int _write_retry_count;  // Retry counter for current write operation
     unsigned long
         _last_command_time; // When last command was sent (for grace period)
 
@@ -149,16 +157,14 @@ class DPS5015 {
     static constexpr int READS_REQUIRED_FOR_SETTLE =
         2; // Min reads before checking
 
-    // Write queue for non-blocking writes
-    static constexpr size_t WRITE_QUEUE_SIZE = 8;
-    struct WriteRequest {
-        uint16_t reg;
-        uint16_t value;
-    };
-    WriteRequest _write_queue[WRITE_QUEUE_SIZE];
-    WriteRequest _current_write; // Current write being processed (for retry)
-    size_t _write_queue_head;
-    size_t _write_queue_tail;
+    // Unified transaction queues (normal + emergency)
+    static constexpr size_t NORMAL_QUEUE_SIZE = 8;
+    static constexpr size_t EMERGENCY_QUEUE_SIZE = 4;
+    Txn _normal_q[NORMAL_QUEUE_SIZE];
+    Txn _emergency_q[EMERGENCY_QUEUE_SIZE];
+    uint8_t _normal_head = 0, _normal_tail = 0, _normal_count = 0;
+    uint8_t _emerg_head = 0, _emerg_tail = 0, _emerg_count = 0;
+    Txn _active_txn{};
 
     // Pending configuration (applied on first connection)
     struct PendingConfig {
@@ -195,7 +201,8 @@ class DPS5015 {
     void sendWriteRequest(uint16_t reg, uint16_t value);
     bool checkWriteResponse();
     bool queueWrite(uint16_t reg, uint16_t value);
-    void processWriteQueue();
+    bool popNextTxn(Txn &txn);
+    bool sendTxn(const Txn &txn);
     void handleReadComplete(uint16_t *buffer);
     void handleCommError();
     void applyPendingConfig();
@@ -206,13 +213,6 @@ class DPS5015 {
     bool setOCP(float current); // Set hardware Over Current Protection limit
     bool setOVP(float voltage); // Set hardware Over Voltage Protection limit
 
-    /**
-     * @brief Blocking write with retries for time-critical operations
-     * @param reg Register address to write
-     * @param value Value to write
-     * @return true if write succeeded, false if all retries failed
-     */
-    bool writeRegisterImmediate(uint16_t reg, uint16_t value);
 };
 
 #endif // DPS5015_H

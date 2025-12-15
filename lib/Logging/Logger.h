@@ -83,6 +83,7 @@
 #define LOGGER_H
 
 #include "DFRobot_GDL.h"
+#include "RingBuffer.h"
 #include "config.h"
 #include <Arduino.h>
 
@@ -116,6 +117,10 @@ constexpr size_t PSRAM_LOG_ENTRY_SIZE =
 constexpr size_t PSRAM_LOG_BUFFER_SIZE = 1024 * 1024; // 1MB buffer
 constexpr size_t PSRAM_LOG_BUFFER_ENTRIES =
     PSRAM_LOG_BUFFER_SIZE / PSRAM_LOG_ENTRY_SIZE; // ~12,800 entries
+
+struct LogEntry {
+    char text[PSRAM_LOG_ENTRY_SIZE];
+};
 
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
@@ -166,7 +171,7 @@ class Logger {
 
     // PSRAM log buffer access (for diagnostics)
     void dumpLogBuffer(); // Dump entire log buffer to Serial
-    size_t getLogBufferCount() const { return _psram_log_count; }
+    size_t getLogBufferCount() const { return _psram_log.size(); }
 
   private:
     void clearValueArea(int y);
@@ -206,10 +211,9 @@ class Logger {
     void addToLogBuffer(const char *message); // Add to PSRAM circular buffer
 
     // PSRAM circular log buffer
-    char *_psram_log_buffer; // Allocated in PSRAM
-    size_t _psram_log_head;  // Next write position
-    size_t _psram_log_count; // Total entries (up to max)
-    bool _psram_available;   // True if PSRAM allocation succeeded
+    LogEntry *_psram_log_storage;       // Allocated in PSRAM
+    RingBufferView<LogEntry> _psram_log; // Lightweight ring view
+    bool _psram_available;              // True if PSRAM allocation succeeded
 };
 
 #endif // LOGGER_H

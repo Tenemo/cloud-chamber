@@ -182,7 +182,7 @@ constexpr unsigned long HOT_RESET_STABILIZATION_MS =
 // =============================================================================
 // Two-step approach: coarse for approach, fine for scan
 constexpr float COARSE_STEP_A = 1.0f;
-constexpr float FINE_STEP_A = 0.1f;
+constexpr float FINE_STEP_A = 0.2f;
 
 // Current threshold for coarse->fine handoff during ramp
 constexpr float RAMP_COARSE_BELOW_A = 8.0f;

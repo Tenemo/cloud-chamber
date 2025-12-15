@@ -72,6 +72,7 @@ class ThermalController {
     unsigned long _ramp_start_time;
     unsigned long _sensor_fault_time;
     Counter _consecutive_stall_detects;
+    unsigned long _dps_disconnect_log_time = 0;
 
     // Hot reset recovery tracking
     bool _hot_reset_active;   // True if we detected hot reset and haven't

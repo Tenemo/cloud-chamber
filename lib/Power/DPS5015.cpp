@@ -12,9 +12,8 @@ DPS5015::DPS5015(Logger &logger, const char *label, HardwareSerial &serial,
       _commanded_voltage(0.0f), _commanded_current(0.0f),
       _commanded_output(false), _state(ModbusState::IDLE),
       _request_start_time(0), _expected_response_length(0),
-      _consecutive_errors(0), _write_retry_count(0), _last_command_time(0),
-      _reads_since_command(0), _current_write{0, 0}, _pending_writes(0),
-      _write_queue_head(0), _write_queue_tail(0),
+      _consecutive_errors(0), _last_command_time(0),
+      _reads_since_command(0), _pending_writes(0),
       _pending_config{0.0f, 0.0f, false, false} {}
 
 void DPS5015::begin(int rxPin, int txPin, unsigned long baud) {
@@ -38,85 +37,65 @@ void DPS5015::update() {
 
     unsigned long current_time = millis();
 
-    switch (_state) {
-    case ModbusState::IDLE: {
-        // Process any pending writes first
-        if (_write_queue_head != _write_queue_tail) {
-            processWriteQueue();
+    // ---------------------------------------------------------------------
+    // If waiting for a response, try to consume it or timeout
+    // ---------------------------------------------------------------------
+    if (_state == ModbusState::WAITING_RESPONSE) {
+        if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
+            handleCommError();
+            _state = ModbusState::IDLE;
+            _last_update_time = current_time;
             return;
         }
 
-        // Check if it's time for a new read
-        if (current_time - _last_update_time < DPS5015_UPDATE_INTERVAL_MS) {
-            return;
+        if (_serial.available() >= (int)_expected_response_length) {
+            if (_active_txn.type == TxnType::ReadHolding) {
+                uint16_t buffer[16]; // enough for 10 registers
+                if (checkReadResponse(_active_txn.value, buffer)) {
+                    handleReadComplete(buffer);
+                } else {
+                    handleCommError();
+                }
+            } else { // Write
+                if (!checkWriteResponse()) {
+                    handleCommError();
+                }
+            }
+            _state = ModbusState::IDLE;
+            _last_update_time = current_time;
         }
+        return;
+    }
 
-        // Start a new read request
-        sendReadRequest(REG_SET_VOLTAGE, 10);
+    // ---------------------------------------------------------------------
+    // Choose next transaction: emergency writes > normal writes > polling
+    // ---------------------------------------------------------------------
+    Txn next{};
+    if (popNextTxn(next)) {
+        if (sendTxn(next)) {
+            _active_txn = next;
+            _state = ModbusState::WAITING_RESPONSE;
+            _request_start_time = current_time;
+            _expected_response_length =
+                (next.type == TxnType::ReadHolding)
+                    ? static_cast<size_t>(5 + next.value * 2)
+                    : 8;
+        }
+        return;
+    }
+
+    // No pending writes - throttle polling to update interval
+    if (current_time - _last_update_time < DPS5015_UPDATE_INTERVAL_MS) {
+        return;
+    }
+
+    // Default polling read of 10 registers starting at 0x0000
+    next = {TxnType::ReadHolding, REG_SET_VOLTAGE, 10};
+    if (sendTxn(next)) {
+        _active_txn = next;
         _state = ModbusState::WAITING_RESPONSE;
         _request_start_time = current_time;
-        _expected_response_length =
-            5 + (10 * 2); // addr + func + count + data + crc
-        break;
-    }
-
-    case ModbusState::WAITING_RESPONSE: {
-        // Check for timeout
-        if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
-            _state = ModbusState::IDLE;
-            _last_update_time = current_time;
-            handleCommError();
-            return;
-        }
-
-        // Check if we have enough data
-        if (_serial.available() >= (int)_expected_response_length) {
-            uint16_t buffer[10];
-            if (checkReadResponse(10, buffer)) {
-                handleReadComplete(buffer);
-            } else {
-                handleCommError();
-            }
-            _state = ModbusState::IDLE;
-            _last_update_time = current_time;
-        }
-        break;
-    }
-
-    case ModbusState::WRITE_PENDING: {
-        // Check for timeout
-        if (current_time - _request_start_time > RESPONSE_TIMEOUT_MS) {
-            _write_retry_count++;
-            if (_write_retry_count < MODBUS_MAX_RETRIES) {
-                // Retry the write
-                sendWriteRequest(_current_write.reg, _current_write.value);
-                _request_start_time = millis();
-                return;
-            }
-            // Max retries exceeded, give up on this write
-            _state = ModbusState::IDLE;
-            _write_retry_count = 0;
-            _logger.log("DPS: write timeout", true);
-            return;
-        }
-
-        // Check if we have the response (8 bytes for write)
-        if (_serial.available() >= 8) {
-            if (!checkWriteResponse()) {
-                _write_retry_count++;
-                if (_write_retry_count < MODBUS_MAX_RETRIES) {
-                    // Retry the write
-                    sendWriteRequest(_current_write.reg, _current_write.value);
-                    _request_start_time = millis();
-                    return;
-                }
-                _logger.log("DPS: write fail", true);
-            }
-            _state = ModbusState::IDLE;
-            _write_retry_count = 0;
-        }
-        break;
-    }
+        _expected_response_length = 5 + (10 * 2);
     }
 }
 
@@ -187,41 +166,63 @@ void DPS5015::handleCommError() {
 }
 
 bool DPS5015::queueWrite(uint16_t reg, uint16_t value) {
-    size_t next_head = (_write_queue_head + 1) % WRITE_QUEUE_SIZE;
-    if (next_head == _write_queue_tail) {
-        // Queue full
-        return false;
-    }
+    uint8_t next = (_normal_head + 1) % NORMAL_QUEUE_SIZE;
+    if (next == _normal_tail)
+        return false; // full
 
-    _write_queue[_write_queue_head].reg = reg;
-    _write_queue[_write_queue_head].value = value;
-    _write_queue_head = next_head;
-
-    // Track pending writes for manual override detection
+    _normal_q[_normal_head] = {TxnType::WriteSingle, reg, value};
+    _normal_head = next;
+    _normal_count++;
     _pending_writes++;
-
     return true;
 }
 
-void DPS5015::processWriteQueue() {
-    if (_write_queue_tail == _write_queue_head) {
-        return; // Queue empty
+bool DPS5015::queueEmergencyWrite(uint16_t reg, uint16_t value) {
+    uint8_t next = (_emerg_head + 1) % EMERGENCY_QUEUE_SIZE;
+    if (next == _emerg_tail)
+        return false; // full
+
+    _emergency_q[_emerg_head] = {TxnType::WriteSingle, reg, value};
+    _emerg_head = next;
+    _emerg_count++;
+    _pending_writes++;
+    return true;
+}
+
+bool DPS5015::popNextTxn(Txn &txn) {
+    // Emergency queue has priority
+    if (_emerg_count > 0) {
+        txn = _emergency_q[_emerg_tail];
+        _emerg_tail = (_emerg_tail + 1) % EMERGENCY_QUEUE_SIZE;
+        _emerg_count--;
+        if (_pending_writes > 0)
+            _pending_writes--;
+        return true;
     }
 
-    WriteRequest &req = _write_queue[_write_queue_tail];
-    _write_queue_tail = (_write_queue_tail + 1) % WRITE_QUEUE_SIZE;
+    if (_normal_count > 0) {
+        txn = _normal_q[_normal_tail];
+        _normal_tail = (_normal_tail + 1) % NORMAL_QUEUE_SIZE;
+        _normal_count--;
+        if (_pending_writes > 0)
+            _pending_writes--;
+        return true;
+    }
 
-    // Save for retry
-    _current_write = req;
-    _write_retry_count = 0;
+    return false;
+}
 
-    sendWriteRequest(req.reg, req.value);
-    _state = ModbusState::WRITE_PENDING;
-    _request_start_time = millis();
-
-    // Decrement pending count (write has been sent, awaiting response)
-    if (_pending_writes > 0)
-        _pending_writes--;
+bool DPS5015::sendTxn(const Txn &txn) {
+    switch (txn.type) {
+    case TxnType::ReadHolding:
+        sendReadRequest(txn.reg, txn.value);
+        return true;
+    case TxnType::WriteSingle:
+        sendWriteRequest(txn.reg, txn.value);
+        return true;
+    default:
+        return false;
+    }
 }
 
 // Helper to clamp float to range and convert to uint16_t safely
@@ -323,37 +324,17 @@ void DPS5015::configure(float voltage, float current, bool outputOn) {
     }
 }
 
-bool DPS5015::writeRegisterImmediate(uint16_t reg, uint16_t value) {
-    // Blocking write with retries for time-critical operations
-    for (int retry = 0; retry < MODBUS_MAX_RETRIES; retry++) {
-        clearSerialBuffer();
-        sendWriteRequest(reg, value);
-
-        // Wait for response with timeout
-        unsigned long start = millis();
-        while (_serial.available() < 8) {
-            if (millis() - start > RESPONSE_TIMEOUT_MS) {
-                break; // Retry on timeout
-            }
-        }
-
-        if (_serial.available() >= 8 && checkWriteResponse()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool DPS5015::setCurrentImmediate(float current) {
+    // Emergency, high-priority write using emergency queue (non-blocking)
     if (!_initialized)
         return false;
 
-    // Clamp current to valid range (0-15A for DPS5015)
     float clamped = current;
     uint16_t value = clampAndConvert(clamped, 100.0f, 15.0f);
-
-    if (writeRegisterImmediate(REG_SET_CURRENT, value)) {
+    if (queueEmergencyWrite(REG_SET_CURRENT, value)) {
         _commanded_current = clamped;
+        _last_command_time = millis();
+        _reads_since_command = 0;
         return true;
     }
     return false;
@@ -363,9 +344,10 @@ bool DPS5015::disableOutput() {
     if (!_initialized)
         return false;
 
-    if (writeRegisterImmediate(REG_OUTPUT, 0)) {
+    if (queueEmergencyWrite(REG_OUTPUT, 0)) {
         _commanded_output = false;
         _last_command_time = millis();
+        _reads_since_command = 0;
         return true;
     }
     return false;

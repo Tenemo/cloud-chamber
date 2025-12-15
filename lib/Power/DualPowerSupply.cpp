@@ -24,6 +24,20 @@ void DualPowerSupply::update() {
     for (auto *psu : _psus) {
         psu->update();
     }
+
+    // Track latest measured current for override classification
+    float sum_current = 0.0f;
+    int count = 0;
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            sum_current += psu->getOutputCurrent();
+            count++;
+        }
+    }
+    if (count > 0) {
+        _last_measure_ms = millis();
+        _last_measure_mA = static_cast<uint16_t>(lround((sum_current / count) * 1000.0f));
+    }
 }
 
 bool DualPowerSupply::setSymmetricCurrent(float current) {
@@ -31,6 +45,7 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
     current = Clamp::current(current);
     _target_current = current;
     _last_setpoint_change_time = millis(); // Record for imbalance suppression
+    _last_command_ms = millis();
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -43,6 +58,7 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
 
 bool DualPowerSupply::enableOutput() {
     _target_output = true;
+    _last_command_ms = millis();
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -55,6 +71,7 @@ bool DualPowerSupply::enableOutput() {
 
 bool DualPowerSupply::disableOutput() {
     _target_output = false;
+    _last_command_ms = millis();
 
     bool success = true;
     for (auto *psu : _psus) {
@@ -66,6 +83,7 @@ bool DualPowerSupply::disableOutput() {
 void DualPowerSupply::configure(float voltage, float current, bool outputOn) {
     _target_current = current;
     _target_output = outputOn;
+    _last_command_ms = millis();
 
     for (auto *psu : _psus) {
         psu->configure(voltage, current, outputOn);
@@ -164,36 +182,75 @@ bool DualPowerSupply::isAsymmetricFailure() const {
 }
 
 OverrideStatus DualPowerSupply::checkManualOverride() {
-    // Skip check if not connected or in grace period
-    if (!areBothConnected())
+    OverrideInfo info = checkOverrideDetail();
+    if (info.cause == OverrideCause::NONE) {
+        _consecutive_mismatches.reset();
         return OverrideStatus::NONE;
+    }
 
+    _consecutive_mismatches.inc();
+    if (_consecutive_mismatches.atLeast(OVERRIDE_CONFIRM_COUNT)) {
+        return OverrideStatus::DETECTED;
+    }
+    return OverrideStatus::PENDING;
+}
+
+OverrideInfo DualPowerSupply::checkOverrideDetail() {
+    OverrideInfo info;
+
+    if (!areBothConnected())
+        return info;
+
+    // Skip during settle or pending writes/busy comms
+    bool any_grace = false;
+    bool any_pending = false;
+    bool any_busy = false;
     for (auto *psu : _psus) {
-        if (psu->isInGracePeriod() || psu->hasPendingWrites())
-            return OverrideStatus::NONE;
+        any_grace |= psu->isInGracePeriod();
+        any_pending |= psu->hasPendingWrites();
+        any_busy |= psu->isBusy();
+    }
+    if (any_grace || any_pending || any_busy)
+        return info;
+
+    const unsigned long now = millis();
+    const float actualA = getAverageOutputCurrent();
+    const float cmdA = _target_current;
+
+    const bool current_mismatch =
+        fabs(actualA - cmdA) > MANUAL_OVERRIDE_CURRENT_TOLERANCE_A;
+    const bool output_mismatch = _target_output != isOutputOn();
+    const bool mismatch = current_mismatch || output_mismatch;
+
+    if (!mismatch) {
+        _consecutive_mismatches.reset();
+        return info;
     }
 
-    // Check for any mismatch (current, voltage, or output state)
-    bool has_mismatch = false;
-    for (auto *psu : _psus) {
-        if (psu->hasAnyMismatch()) {
-            has_mismatch = true;
-            break;
-        }
+    // Give time to settle after last command
+    if (now - _last_command_ms < MANUAL_OVERRIDE_GRACE_MS) {
+        return info; // treat as pending
     }
 
-    if (has_mismatch) {
-        _consecutive_mismatches.inc();
+    // Human override heuristic: current changed without a command in flight
+    const bool measured_recently = (now - _last_measure_ms) < 2000;
+    const bool actual_changed =
+        measured_recently &&
+        (abs((int)(actualA * 1000) - (int)_last_measure_mA) >
+         (int)lround(MANUAL_OVERRIDE_CURRENT_TOLERANCE_A * 1000.0f));
 
-        if (_consecutive_mismatches.atLeast(OVERRIDE_CONFIRM_COUNT)) {
-            return OverrideStatus::DETECTED;
-        }
-        return OverrideStatus::PENDING;
+    if (!any_busy && actual_changed &&
+        (now - _last_command_ms) > MANUAL_OVERRIDE_GRACE_MS) {
+        info.cause = OverrideCause::HUMAN_OVERRIDE;
+        snprintf(info.reason, sizeof(info.reason),
+                 "PSU changed externally: cmd=%.2fA act=%.2fA", cmdA, actualA);
+        return info;
     }
 
-    // No mismatch - reset counter
-    _consecutive_mismatches.reset();
-    return OverrideStatus::NONE;
+    info.cause = OverrideCause::CONTROL_MISMATCH;
+    snprintf(info.reason, sizeof(info.reason),
+             "Command mismatch persists: cmd=%.2fA act=%.2fA", cmdA, actualA);
+    return info;
 }
 
 bool DualPowerSupply::isOutputOn() const {
@@ -334,31 +391,35 @@ bool DualPowerSupply::hasAnyMismatch() const {
 
 float DualPowerSupply::detectHotReset(float min_threshold) {
     // We might be called when only one is connected.
-    // We want to know if *any* connected PSU is outputting power.
+    // We want to know if *any* connected PSU is actually DELIVERING power.
 
     float current_sum = 0.0f;
-    int count = 0;
+    float power_sum = 0.0f;
+    int active_count = 0;
 
     for (auto *psu : _psus) {
-        if (psu->isConnected() && psu->isOutputOn()) {
-            current_sum += psu->getOutputCurrent();
-            count++;
+        if (!psu->isConnected())
+            continue;
+        if (!psu->isOutputOn())
+            continue;
+
+        float i = psu->getOutputCurrent();
+        float p = psu->getOutputPower();
+
+        // Treat as active only if both current and power are meaningful
+        if (i > min_threshold && p > 1.0f) {
+            current_sum += i;
+            power_sum += p;
+            active_count++;
         }
     }
 
-    if (count == 0)
+    if (active_count == 0)
         return 0.0f;
 
-    float avg_current = current_sum / count;
-
-    // Wait for valid reading (Modbus defaults to 0 before first read)
-    // We assume if output is ON, current should be non-zero if working,
-    // but check threshold just in case.
-    if (avg_current <= min_threshold)
-        return 0.0f;
+    float avg_current = current_sum / active_count;
 
     // Hot reset detected - round down to nearest 0.1A for clean values
-    // (our fine step size is 0.1A anyway)
     float rounded_current = floorf(avg_current * 10.0f) / 10.0f;
     rounded_current = fmin(rounded_current, MAX_CURRENT_PER_CHANNEL);
 
