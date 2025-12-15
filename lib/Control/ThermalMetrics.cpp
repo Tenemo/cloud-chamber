@@ -98,8 +98,8 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         // Use same labels as display, two spaces between values
         // Timestamp is added by Logger automatically
         _logger.logf(true,
-                     "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s  "
-                     "V: %.2f V  P total: %.1f%s  External: %.1f%s  Internal: %.1f%s",
+                     "%s: %.2f%s  %s: %.2f%s  %s: %.2f%s  %s: %s  %s: %.2f%s  "
+                     "V: %.2f V  P total: %.1f%s  External: %.2f%s  Internal: %.2f%s",
                      Labels::COLD_PLATE, cold, Units::TEMP, Labels::HOT_PLATE,
                      hot, Units::TEMP, Labels::DELTA_T, delta, Units::TEMP,
                      Labels::RATE, rate_str, Labels::CURRENT, set_current,

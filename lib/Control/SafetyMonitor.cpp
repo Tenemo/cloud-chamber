@@ -133,7 +133,7 @@ SafetyStatus SafetyMonitor::checkThermalLimits() {
     // Critical hot side fault
     if (hot_temp >= Limits::HOT_SIDE_FAULT_C) {
         char buf[32];
-        snprintf(buf, sizeof(buf), "HOT>%.0fC", hot_temp);
+        snprintf(buf, sizeof(buf), "HOT>%.2fC", hot_temp);
         return setFault(SafetyStatus::THERMAL_FAULT, buf);
     }
 
@@ -169,24 +169,24 @@ SafetyStatus SafetyMonitor::checkSensorSanity() {
     // Check cold plate sanity
     if (cold_temp < Limits::COLD_PLATE_MIN_VALID_C) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "Cold=%.1fC impossible", cold_temp);
+        snprintf(buf, sizeof(buf), "Cold=%.2fC impossible", cold_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
     if (cold_temp > Limits::COLD_PLATE_MAX_VALID_C) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "Cold=%.1fC too hot", cold_temp);
+        snprintf(buf, sizeof(buf), "Cold=%.2fC too hot", cold_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
 
     // Check hot plate sanity
     if (hot_temp < Limits::HOT_PLATE_MIN_VALID_C) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "Hot=%.1fC impossible", hot_temp);
+        snprintf(buf, sizeof(buf), "Hot=%.2fC impossible", hot_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
     if (hot_temp > Limits::HOT_PLATE_MAX_VALID_C) {
         char buf[48];
-        snprintf(buf, sizeof(buf), "Hot=%.1fC extreme", hot_temp);
+        snprintf(buf, sizeof(buf), "Hot=%.2fC extreme", hot_temp);
         return setFault(SafetyStatus::SENSOR_FAULT, buf);
     }
 
@@ -209,7 +209,7 @@ SafetyStatus SafetyMonitor::checkPT100Plausibility(float avg_current) {
 
     // If cold plate is extremely cold, hot side MUST be significantly warm
     if (hot_temp < Tuning::PLAUSIBILITY_HOT_THRESHOLD_FOR_CHECK_C) {
-        _logger.logf("PT100 implausible! C=%.1f H=%.1f", cold_temp, hot_temp);
+        _logger.logf("PT100 implausible! C=%.2f H=%.2f", cold_temp, hot_temp);
 
         // Check if current draw supports the cold temperature claim
         // If we're drawing significant current, we expect a temperature delta
@@ -241,11 +241,11 @@ void SafetyMonitor::logCrossSensorWarnings(bool skip_check) {
     if (cold_temp >= hot_temp - Tuning::SENSOR_CROSS_CHECK_MARGIN_C) {
         if (!_cross_check_warning_active) {
             _cross_check_warning_active = true;
-            _logger.logf("WARN: Cold>=Hot! C=%.1f H=%.1f", cold_temp, hot_temp);
+            _logger.logf("WARN: Cold>=Hot! C=%.2f H=%.2f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         } else if (now - _last_cross_check_log_time >=
                    Timing::SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
-            _logger.logf("WARN: Cold>=Hot C=%.1f H=%.1f", cold_temp, hot_temp);
+            _logger.logf("WARN: Cold>=Hot C=%.2f H=%.2f", cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         }
     } else {
