@@ -3,25 +3,6 @@
  * @brief Generic display manager for TFT screen with KV display and live log
  * area
  *
- * WHEN TO USE THIS vs CrashLog:
- * -----------------------------
- * Use Logger for:
- * - State transitions ("TC: -> RAMP_UP")
- * - Debug information (temperature rates, current changes)
- * - Incremental optimization decisions
- * - Anything you want to see on the display
- * - High-frequency logging (PSRAM buffer handles 12,800+ entries)
- *
- * Use CrashLog for:
- * - Events you need after a power cycle (thermal faults, shutdowns)
- * - Sensor failures that may have caused a reset
- * - Self-test failures
- * - Watchdog/brownout reset reasons
- * - Any safety-critical state that should survive reset
- *
- * The PSRAM log buffer is volatile (lost on reset) but large.
- * CrashLog persists to SPIFFS flash but has limited capacity (~50 entries).
- *
  * USAGE:
  * ------
  * 1. Initialize the display (also initializes Serial):

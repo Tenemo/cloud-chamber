@@ -20,7 +20,7 @@ constexpr const char *LINE_POWER = "TC_P";
 
 ThermalMetrics::ThermalMetrics(Logger &logger)
     : _logger(logger), _history(), _last_avg_voltage(0.0f),
-      _last_avg_power(0.0f), _last_temp_log_time(0) {}
+      _last_total_power(0.0f), _last_temp_log_time(0) {}
 
 void ThermalMetrics::begin() {
     // Nothing to initialize - history buffer is ready
@@ -66,7 +66,7 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         }
     }
     _last_avg_voltage = (connected > 0) ? (voltage_sum / connected) : 0.0f;
-    _last_avg_power = (connected > 0) ? (power_sum / connected) : 0.0f;
+    _last_total_power = power_sum;
 
     dps.checkAndLogImbalance(CHANNEL_CURRENT_IMBALANCE_A,
                              CHANNEL_POWER_IMBALANCE_W,
@@ -83,7 +83,7 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         float rate = getColdPlateRate();
         float set_current = sample.set_current;
         float avg_voltage = _last_avg_voltage;
-        float avg_power = _last_avg_power;
+        float total_power = _last_total_power;
 
         // Format rate string (handle insufficient history)
         char rate_str[16];
@@ -97,11 +97,11 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         // Timestamp is added by Logger automatically
         _logger.logf(true,
                      "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s  "
-                     "%s: %.2f%s  %s: %.1f%s",
+                     "V: %.2f V  P total: %.1f%s",
                      LABEL_COLD_PLATE, cold, UNIT_TEMP, LABEL_HOT_PLATE, hot,
                      UNIT_TEMP, LABEL_DELTA_T, delta, UNIT_TEMP, LABEL_RATE,
                      rate_str, LABEL_CURRENT, set_current, UNIT_CURRENT,
-                     "V", avg_voltage, "V", "P", avg_power, UNIT_POWER);
+                     avg_voltage, total_power, UNIT_POWER);
     }
 }
 
@@ -208,8 +208,8 @@ void ThermalMetrics::registerDisplayLines() {
     snprintf(voltage_default, sizeof(voltage_default), "0.0 V");
     _logger.registerTextLine(LINE_VOLTAGE, voltage_label, voltage_default);
 
-    char power_label[12];
-    snprintf(power_label, sizeof(power_label), "P:");
+    char power_label[16];
+    snprintf(power_label, sizeof(power_label), "P total:");
     char power_default[12];
     snprintf(power_default, sizeof(power_default), "0.0 W");
     _logger.registerTextLine(LINE_POWER, power_label, power_default);
@@ -241,7 +241,7 @@ void ThermalMetrics::updateDisplay(const char *state_string,
     _logger.updateLineText(LINE_VOLTAGE, voltage_buf);
 
     char power_buf[16];
-    snprintf(power_buf, sizeof(power_buf), "%.1f %s", _last_avg_power,
+    snprintf(power_buf, sizeof(power_buf), "%.1f %s", _last_total_power,
              UNIT_POWER);
     _logger.updateLineText(LINE_POWER, power_buf);
 }

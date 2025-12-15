@@ -8,7 +8,6 @@
  *
  * Architecture:
  * - Logger: Manages TFT display (KV store + live log area) and Serial output
- * - CrashLog: SPIFFS-based persistent crash logging (survives resets)
  * - PT100Sensor: Temperature monitoring via MAX31865 RTD interface (cold plate)
  * - DS18B20Sensor: Digital temperature sensors via OneWire (hot plate, ambient)
  * - DualPowerSupply: Symmetric control of two DPS5015 units via Modbus RTU
@@ -25,10 +24,9 @@
  * - Normal shutdown is via physical OFF switch (power cut)
  * - DPS5015 units always start in OFF state after power cycle
  * - No software-initiated clean shutdown needed
- * - Crash events are logged to SPIFFS for post-mortem analysis
+ * - Fault events are logged to Serial/display for visibility
  */
 
-#include "CrashLog.h"
 #include "Logger.h"
 #include "TemperatureSensors.h"
 #include "TimeService.h"
@@ -36,20 +34,16 @@
 #include <Arduino.h>
 #include <esp_task_wdt.h>
 
-#if CONTROL_LOOP_ENABLED
 #include "ThermalController.h"
-#endif
 
 Logger logger;
 
 // Temperature sensors (owns PT100 and DS18B20)
 TemperatureSensors sensors(logger);
 
-#if CONTROL_LOOP_ENABLED
 // Thermal controller - coordinates sensors and PSUs (owns DualPowerSupply
 // internally)
 ThermalController thermalController(logger, sensors);
-#endif
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
@@ -63,22 +57,14 @@ static void initializeHardware() {
     logger.initializeDisplay();
     logger.log("=== BOOT ===");
 
-    // Initialize crash logging early (SPIFFS) - captures reset reasons in all
-    // modes
-    CrashLog::begin();
-
-#if WIFI_TIME_SYNC_ENABLED
     // Optional one-shot wall-clock sync via home WiFi + NTP
     TimeService::trySyncFromWifi(
         [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
-#endif
 
     initializeWatchdog();
     sensors.begin();
 
-#if CONTROL_LOOP_ENABLED
     thermalController.begin();
-#endif
 }
 
 void setup() { initializeHardware(); }
@@ -88,7 +74,5 @@ void loop() {
     logger.update();
     sensors.update();
 
-#if CONTROL_LOOP_ENABLED
     thermalController.update();
-#endif
 }

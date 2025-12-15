@@ -20,7 +20,6 @@
 #define THERMAL_METRICS_H
 
 #include "Logger.h"
-#include "RingBuffer.h"
 #include "ThermalConstants.h"
 
 // Forward declarations
@@ -158,13 +157,38 @@ class ThermalMetrics {
     Logger &_logger;
 
     // -------------------------------------------------------------------------
-    // History buffer (circular)
+    // History buffer (circular, local implementation)
     // -------------------------------------------------------------------------
-    RingBuffer<ThermalSample, HISTORY_BUFFER_SIZE> _history;
+    class HistoryBuffer {
+      public:
+        void push(const ThermalSample &item) {
+            _data[_head] = item;
+            _head = (_head + 1) % HISTORY_BUFFER_SIZE;
+            if (_count < HISTORY_BUFFER_SIZE)
+                ++_count;
+        }
+
+        size_t size() const { return _count; }
+
+        const ThermalSample *getFromNewest(size_t idx) const {
+            if (idx >= _count)
+                return nullptr;
+            size_t pos = (_head + HISTORY_BUFFER_SIZE - 1 - idx) %
+                         HISTORY_BUFFER_SIZE;
+            return &_data[pos];
+        }
+
+      private:
+        ThermalSample _data[HISTORY_BUFFER_SIZE];
+        size_t _head = 0;
+        size_t _count = 0;
+    };
+
+    HistoryBuffer _history;
 
     // Cached measurements for display/log convenience
     float _last_avg_voltage = 0.0f; // Average voltage across connected PSUs
-    float _last_avg_power = 0.0f;   // Average power across connected PSUs
+    float _last_total_power = 0.0f; // Sum power across connected PSUs
 
     /**
      * @brief Calculate temperature slope using linear regression

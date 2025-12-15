@@ -19,18 +19,6 @@
 #include <cstddef>
 
 // =============================================================================
-// Control Loop Enable
-// =============================================================================
-// When false, the system runs as a simple sensor logger without PSU control
-#define CONTROL_LOOP_ENABLED 1
-
-// =============================================================================
-// WiFi Time Sync Enable
-// =============================================================================
-// When false, skip WiFi/NTP time sync on boot (faster startup)
-#define WIFI_TIME_SYNC_ENABLED 1
-
-// =============================================================================
 // Sensor Update Intervals
 // =============================================================================
 constexpr unsigned long PT100_UPDATE_INTERVAL_MS = 1000;
