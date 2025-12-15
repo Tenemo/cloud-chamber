@@ -406,7 +406,7 @@ Most timing and threshold values are defined in `config.h` (internal timing cons
 | `SENSOR_RECOVERY_TIMEOUT_MS`          | 60000   | Sensor fault recovery window        |
 | `INIT_TIMEOUT_MS`                     | 30000   | Hardware initialization timeout     |
 | `MANUAL_OVERRIDE_GRACE_MS`            | 3000    | Settling window after command       |
-| `Timing::SHUTDOWN_STEP_MS`            | 500     | Ramp-down step interval (internal)  |
+| `InternalTiming::SHUTDOWN_STEP_MS`   | 500     | Ramp-down step interval (internal)  |
 
 ### Temperature Thresholds
 
@@ -432,8 +432,8 @@ Most timing and threshold values are defined in `config.h` (internal timing cons
 | `STARTUP_CURRENT`                    | 2.0A    | Initial soft-start current          |
 | `DEGRADED_MODE_CURRENT`              | 5.0A    | Single-PSU limit                    |
 | `COARSE_STEP_A`                      | 0.5A    | Coarse step size (far from optimum) |
-| `EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC` | 2.0A/s  | Shutdown ramp rate                  |
-| `Timing::SHUTDOWN_STEP_MS`           | 500ms   | Time between shutdown steps         |
+| `InternalTiming::EMERGENCY_RAMP_DOWN_RATE_A_PER_SEC` | 2.0A/s  | Shutdown ramp rate (internal)       |
+| `InternalTiming::SHUTDOWN_STEP_MS`                  | 500ms   | Time between shutdown steps (internal) |
 
 ---
 

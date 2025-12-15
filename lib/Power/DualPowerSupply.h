@@ -24,7 +24,6 @@
  * // Control:
  * dps.setSymmetricCurrent(5.0f);  // Sets both to 5A
  * dps.enableOutput();
- * dps.disableOutput();
  *
  * // Status:
  * if (dps.areBothConnected()) { ... }
@@ -96,12 +95,6 @@ class DualPowerSupply {
      * @return true if both commands were queued successfully
      */
     bool enableOutput();
-
-    /**
-     * @brief Disable output on both channels (blocking, for emergency use)
-     * @return true if both channels were disabled successfully
-     */
-    bool disableOutput();
 
     /**
      * @brief Configure both PSUs with voltage, current, and output state
@@ -190,11 +183,6 @@ class DualPowerSupply {
      * @brief Get average actual output current
      */
     float getAverageOutputCurrent() const;
-
-    /**
-     * @brief Get total power (sum of both channels)
-     */
-    float getTotalPower() const;
 
     /**
      * @brief Get actual current from specific channel
@@ -317,8 +305,10 @@ class DualPowerSupply {
 
     // Timing for override classification
     unsigned long _last_command_ms = 0;
-    unsigned long _last_measure_ms = 0;
-    uint16_t _last_measure_mA = 0;
+    bool _override_hint_external_change = false;
+    bool _have_last_seen_state[2] = {false, false};
+    float _last_seen_set_current[2] = {0.0f, 0.0f};
+    bool _last_seen_output_on[2] = {false, false};
 
     // Emergency shutdown state
     bool _shutdown_in_progress;

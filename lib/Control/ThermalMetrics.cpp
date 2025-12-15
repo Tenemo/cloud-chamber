@@ -70,7 +70,7 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
 
     dps.checkAndLogImbalance(Tuning::CHANNEL_CURRENT_IMBALANCE_A,
                              Tuning::CHANNEL_POWER_IMBALANCE_W,
-                             Timing::IMBALANCE_LOG_INTERVAL_MS);
+                             InternalTiming::IMBALANCE_LOG_INTERVAL_MS);
 
     // Periodic comprehensive temperature log (serial only)
     unsigned long now = millis();
@@ -84,10 +84,12 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         float set_current = sample.set_current;
         float avg_voltage = _last_avg_voltage;
         float total_power = _last_total_power;
+        float external_temp = sensors.getGlassTopTemperature();
+        float internal_temp = sensors.getInternalTemperature();
 
         // Format rate string (handle insufficient history)
         char rate_str[16];
-        if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
+        if (rate == RATE_INSUFFICIENT_HISTORY) {
             snprintf(rate_str, sizeof(rate_str), "--- %s", Units::RATE);
         } else {
             snprintf(rate_str, sizeof(rate_str), "%.2f %s", rate, Units::RATE);
@@ -97,11 +99,12 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
         // Timestamp is added by Logger automatically
         _logger.logf(true,
                      "%s: %.1f%s  %s: %.1f%s  %s: %.1f%s  %s: %s  %s: %.2f%s  "
-                     "V: %.2f V  P total: %.1f%s",
+                     "V: %.2f V  P total: %.1f%s  External: %.1f%s  Internal: %.1f%s",
                      Labels::COLD_PLATE, cold, Units::TEMP, Labels::HOT_PLATE,
                      hot, Units::TEMP, Labels::DELTA_T, delta, Units::TEMP,
                      Labels::RATE, rate_str, Labels::CURRENT, set_current,
-                     Units::CURRENT, avg_voltage, total_power, Units::POWER);
+                     Units::CURRENT, avg_voltage, total_power, Units::POWER,
+                     external_temp, Units::TEMP, internal_temp, Units::TEMP);
     }
 }
 
@@ -130,6 +133,12 @@ float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
         return RATE_INSUFFICIENT_HISTORY;
     }
 
+    const ThermalSample *t0_sample = _history.getFromNewest(window_samples - 1);
+    if (!t0_sample) {
+        return RATE_INSUFFICIENT_HISTORY;
+    }
+    const uint32_t t0_ms = static_cast<uint32_t>(t0_sample->timestamp);
+
     // Linear regression: y = mx + b
     // We compute slope m using least squares
     float sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
@@ -139,7 +148,11 @@ float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
         const ThermalSample *s = _history.getFromNewest(n - 1 - i);
         if (!s)
             return RATE_INSUFFICIENT_HISTORY;
-        float x = static_cast<float>(i);
+
+        // Use real timestamps so the slope stays correct even if sampling
+        // jitter or loop stalls occur. (x in minutes => slope in K/min)
+        const uint32_t t_ms = static_cast<uint32_t>(s->timestamp);
+        float x = static_cast<float>(t_ms - t0_ms) / 60000.0f;
         float y = use_hot_plate ? s->hot_plate_temp : s->cold_plate_temp;
 
         sum_x += x;
@@ -153,13 +166,10 @@ float ThermalMetrics::calculateSlopeKPerMin(bool use_hot_plate,
         return 0.0f;
     }
 
-    // Slope in degrees per sample
+    // Slope in degrees per minute
     float slope = (n * sum_xy - sum_x * sum_y) / denom;
 
-    // Convert to K/min based on actual sample interval
-    // slope is in degrees/sample, multiply by samples/minute
-    float samples_per_minute = 60000.0f / HISTORY_SAMPLE_INTERVAL_MS;
-    return slope * samples_per_minute;
+    return slope;
 }
 
 float ThermalMetrics::getColdPlateRate() const {
@@ -223,7 +233,7 @@ void ThermalMetrics::updateDisplay(const char *state_string,
     // Format rate as text to avoid mixed updateLine/updateLineText issues
     float rate = getColdPlateRate();
     char rate_buf[16];
-    if (rate <= RATE_INSUFFICIENT_HISTORY + 1.0f) {
+    if (rate == RATE_INSUFFICIENT_HISTORY) {
         snprintf(rate_buf, sizeof(rate_buf), "--- %s", Units::RATE);
     } else {
         snprintf(rate_buf, sizeof(rate_buf), "%.2f %s", rate, Units::RATE);

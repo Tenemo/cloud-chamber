@@ -57,7 +57,12 @@ void DPS5015::update() {
                     handleCommError();
                 }
             } else { // Write
-                if (!checkWriteResponse()) {
+                if (checkWriteResponse()) {
+                    // Any valid transaction breaks a CRC-fail streak.
+                    _crc_fail_streak_start_ms = 0;
+                    _crc_fail_streak_count = 0;
+                    _crc_fail_streak_logged = false;
+                } else {
                     handleCommError();
                 }
             }
@@ -101,6 +106,11 @@ void DPS5015::update() {
 }
 
 void DPS5015::handleReadComplete(uint16_t *buffer) {
+    // Any valid read breaks a CRC-fail streak.
+    _crc_fail_streak_start_ms = 0;
+    _crc_fail_streak_count = 0;
+    _crc_fail_streak_logged = false;
+
     // Reset consecutive error count on successful read
     _consecutive_errors = 0;
 
@@ -279,32 +289,6 @@ bool DPS5015::setOutput(bool on) {
         return true;
     }
     return false;
-}
-
-bool DPS5015::setOCP(float current) {
-    // Set hardware Over Current Protection limit
-    // This is a failsafe that triggers if software commands an invalid current
-    if (!_currently_online && _ever_seen)
-        return false;
-
-    // Clamp to valid OCP range (0-16A, slightly above max for protection
-    // margin)
-    float clamped = current;
-    uint16_t value = clampAndConvert(clamped, 100.0f, 16.0f);
-    return queueWrite(REG_OCP, value);
-}
-
-bool DPS5015::setOVP(float voltage) {
-    // Set hardware Over Voltage Protection limit
-    // Failsafe against Modbus errors commanding excessive voltage
-    if (!_currently_online && _ever_seen)
-        return false;
-
-    // Clamp to valid OVP range (0-55V, slightly above max for protection
-    // margin)
-    float clamped = voltage;
-    uint16_t value = clampAndConvert(clamped, 100.0f, 55.0f);
-    return queueWrite(REG_OVP, value);
 }
 
 void DPS5015::configure(float voltage, float current, bool outputOn) {
@@ -509,7 +493,20 @@ bool DPS5015::checkReadResponse(uint16_t count, uint16_t *buffer) {
         response[expected_length - 2] | (response[expected_length - 1] << 8);
     uint16_t calculated_crc = calculateCRC(response, expected_length - 2);
     if (received_crc != calculated_crc) {
-        _logger.log("DPS: CRC fail", true);
+        // Suppress isolated CRC errors (EMI noise). Only log if we see a burst
+        // of consecutive CRC failures (>=3 within 1 second).
+        unsigned long now = millis();
+        if (_crc_fail_streak_count == 0 ||
+            (now - _crc_fail_streak_start_ms) > 1000) {
+            _crc_fail_streak_start_ms = now;
+            _crc_fail_streak_count = 0;
+            _crc_fail_streak_logged = false;
+        }
+        _crc_fail_streak_count++;
+        if (!_crc_fail_streak_logged && _crc_fail_streak_count >= 3) {
+            _crc_fail_streak_logged = true;
+            _logger.log("DPS: CRC fail", true);
+        }
         return false;
     }
 
