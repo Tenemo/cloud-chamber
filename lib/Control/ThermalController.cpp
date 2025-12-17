@@ -480,6 +480,20 @@ void ThermalController::handleRampUp() {
 void ThermalController::handleSteadyState() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
 
+    // If we're warming up after reaching "steady", react quickly by stepping
+    // down instead of waiting the full recheck interval.
+    unsigned long adjustment_interval_ms = Timing::STEADY_STATE_RECHECK_INTERVAL_MS;
+    const bool has_rate = snapshot.cooling_rate != RATE_INSUFFICIENT_HISTORY;
+    const bool warming =
+        has_rate && snapshot.cooling_rate > Tuning::COOLING_STALL_THRESHOLD_C;
+    const bool temp_regressed =
+        snapshot.cold_temp >
+        (_optimizer.getTempAtOptimal() + Tuning::OVERCURRENT_WARMING_THRESHOLD_C);
+    if (warming && temp_regressed) {
+        adjustment_interval_ms = Timing::CURRENT_EVALUATION_DELAY_MS;
+        _optimizer.setProbeDirection(-1);
+    }
+
     // Reset converged state at recheck interval
     if (_optimizer.isConverged()) {
         if (_metrics.isTimeForAdjustment(_last_adjustment_time,
@@ -493,7 +507,7 @@ void ThermalController::handleSteadyState() {
     bool psus_ready = canControlPower() && _dps.areBothSettled();
     ThermalOptimizationDecision decision = _optimizer.update(
         snapshot, ThermalControlPhase::STEADY_STATE, _last_adjustment_time,
-        Timing::STEADY_STATE_RECHECK_INTERVAL_MS, psus_ready);
+        adjustment_interval_ms, psus_ready);
 
     applyOptimizationDecision(decision, snapshot.now);
 }
