@@ -24,9 +24,24 @@ ThermalController::ThermalController(Logger &logger,
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
       _steady_state_start_time(0), _ramp_start_time(0), _sensor_fault_time(0),
-      _hot_reset_active(false), _hot_reset_current(0.0f) {}
+      _hot_reset_active(false), _hot_reset_current(0.0f),
+      _fixed_current_mode_enabled(false), _fixed_current_target_a(0.0f),
+      _fixed_hold_ms(0), _fixed_hold_start_time(0),
+      _fixed_hold_complete_logged(false), _fixed_rampdown_started(false),
+      _fixed_rampdown_last_step_time(0) {}
 
-void ThermalController::begin() {
+void ThermalController::begin(float fixed_current_a,
+                              unsigned long hold_top_temperature_ms) {
+    _fixed_current_mode_enabled = fixed_current_a > 0.0f;
+    _fixed_current_target_a =
+        _fixed_current_mode_enabled ? Clamp::current(fixed_current_a) : 0.0f;
+    _fixed_hold_ms =
+        _fixed_current_mode_enabled ? hold_top_temperature_ms : 0;
+    _fixed_hold_start_time = 0;
+    _fixed_hold_complete_logged = false;
+    _fixed_rampdown_started = false;
+    _fixed_rampdown_last_step_time = 0;
+
     _state_entry_time = millis();
     _last_sample_time = millis();
 
@@ -35,6 +50,14 @@ void ThermalController::begin() {
     _safety.setMetrics(&_metrics);
 
     registerDisplayLines();
+    if (_fixed_current_mode_enabled) {
+        _logger.logf(false, "TC: Fixed current %.2fA", _fixed_current_target_a);
+        if (_fixed_hold_ms > 0) {
+            const float hold_minutes =
+                static_cast<float>(_fixed_hold_ms) / 60000.0f;
+            _logger.logf(false, "TC: Hold %.1f min", hold_minutes);
+        }
+    }
     _logger.log("Controller initialized.");
 }
 
@@ -60,7 +83,10 @@ void ThermalController::update() {
     _dps.update();
 
     if (now - _last_sample_time >= HISTORY_SAMPLE_INTERVAL_MS) {
-        _metrics.recordSample(_sensors, _dps);
+        const bool in_manual = (_state == ThermalState::MANUAL_OVERRIDE);
+        _metrics.recordSample(_sensors, _dps,
+                              /*enable_imbalance_checks=*/!in_manual,
+                              /*use_reported_set_current=*/in_manual);
         _last_sample_time = now;
     }
 
@@ -221,16 +247,22 @@ void ThermalController::transitionTo(ThermalState newState,
     // State entry actions
     switch (newState) {
     case ThermalState::STARTUP:
+    {
         // Normal boot path - clear hot reset state since we're starting fresh
         _hot_reset_active = false;
         _hot_reset_current = 0.0f;
 
         // Configure PSUs immediately on entering STARTUP
-        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT,
-                       true);
+        float startup_current = Limits::STARTUP_CURRENT;
+        if (_fixed_current_mode_enabled && _fixed_current_target_a > 0.0f &&
+            _fixed_current_target_a < startup_current) {
+            startup_current = _fixed_current_target_a;
+        }
+        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, startup_current, true);
         _logger.logf(false, "TC: Config %.0fV %.2fA",
-                     Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT);
+                     Limits::TEC_VOLTAGE_SETPOINT, startup_current);
         break;
+    }
     case ThermalState::STEADY_STATE:
         // Reached stable operation - clear hot reset recovery state
         _hot_reset_active = false;
@@ -415,6 +447,48 @@ void ThermalController::handleRampUp() {
     float current = snapshot.current_setpoint;
     float cooling_rate = snapshot.cooling_rate;
 
+    if (_fixed_current_mode_enabled) {
+        constexpr float FIXED_CURRENT_EPS_A = 0.05f;
+        const float target = _fixed_current_target_a;
+        const float delta = target - current;
+
+        if (target > 0.0f && fabs(delta) <= FIXED_CURRENT_EPS_A) {
+            transitionTo(ThermalState::STEADY_STATE, "Fixed current reached");
+            return;
+        }
+
+        // Ramp toward fixed setpoint; no optimization/evaluation.
+        const bool psus_ready = canControlPower() && _dps.areBothSettled();
+        if (!psus_ready ||
+            !_metrics.isTimeForAdjustment(_last_adjustment_time,
+                                          Timing::RAMP_ADJUSTMENT_INTERVAL_MS)) {
+            return;
+        }
+
+        // Pre-flight mismatch check before changing current.
+        if (_dps.hasAnyMismatch()) {
+            _logger.log("TC: Pre-flight mismatch detected!");
+            transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+            return;
+        }
+
+        const float step =
+            (fabs(delta) >= Tuning::COARSE_STEP_A) ? Tuning::COARSE_STEP_A
+                                                  : Tuning::FINE_STEP_A;
+        float new_current = current + ((delta > 0) ? step : -step);
+        if ((delta > 0 && new_current > target) ||
+            (delta < 0 && new_current < target)) {
+            new_current = target;
+        }
+        new_current = Clamp::current(new_current);
+
+        _dps.setSymmetricCurrent(new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot.now;
+        _logger.logf(true, "TC: Fixed ramp %.2fA", new_current);
+        return;
+    }
+
     // Check termination conditions via optimizer
     bool has_enough_history =
         _metrics.hasMinimumHistory(COOLING_RATE_WINDOW_SAMPLES * 2);
@@ -479,6 +553,91 @@ void ThermalController::handleRampUp() {
 
 void ThermalController::handleSteadyState() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
+
+    if (_fixed_current_mode_enabled) {
+        constexpr float FIXED_CURRENT_EPS_A = 0.05f;
+        const float target = _fixed_current_target_a;
+        const bool has_hold_duration = _fixed_hold_ms > 0;
+        constexpr unsigned long FIXED_RAMPDOWN_STEP_MS = 1000;
+        constexpr float FIXED_RAMPDOWN_RATE_A_PER_SEC = 0.2f;
+
+        // Keep the PSU target pinned to the fixed setpoint (if we're allowed).
+        const bool psus_ready = canControlPower() && _dps.areBothSettled();
+        if (target > 0.0f && psus_ready && !_fixed_rampdown_started &&
+            (!has_hold_duration || !_fixed_hold_complete_logged) &&
+            fabs(snapshot.current_setpoint - target) > FIXED_CURRENT_EPS_A &&
+            _metrics.isTimeForAdjustment(_last_adjustment_time,
+                                         Timing::RAMP_ADJUSTMENT_INTERVAL_MS)) {
+            if (_dps.hasAnyMismatch()) {
+                _logger.log("TC: Pre-flight mismatch detected!");
+                transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+                return;
+            }
+            _dps.setSymmetricCurrent(target);
+            _dps.resetOverrideCounter();
+            _last_adjustment_time = snapshot.now;
+            _logger.logf(true, "TC: Fixed hold %.2fA", target);
+        }
+
+        // Optional hold timer: start once we've reached the requested current,
+        // then log completion when the hold duration elapses.
+        if (has_hold_duration && !_fixed_hold_complete_logged) {
+            if (_fixed_hold_start_time == 0) {
+                if (fabs(snapshot.current_setpoint - target) <=
+                    FIXED_CURRENT_EPS_A) {
+                    _fixed_hold_start_time = snapshot.now;
+                    const float hold_minutes =
+                        static_cast<float>(_fixed_hold_ms) / 60000.0f;
+                    _logger.logf(true, "TC: Hold start %.1f min", hold_minutes);
+                }
+            } else if ((snapshot.now - _fixed_hold_start_time) >= _fixed_hold_ms) {
+                _fixed_hold_complete_logged = true;
+                const float hold_minutes =
+                    static_cast<float>(_fixed_hold_ms) / 60000.0f;
+                _logger.logf(true, "TC: Hold complete %.1f min", hold_minutes);
+
+                // Automatic power-down after hold completion.
+                if (!_fixed_rampdown_started) {
+                    _fixed_rampdown_started = true;
+                    _fixed_rampdown_last_step_time = snapshot.now;
+                    _logger.log("TC: Hold done, ramping down", true);
+                }
+            }
+        }
+
+        // Controlled ramp-down after hold completion (not an emergency fault).
+        if (_fixed_rampdown_started) {
+            if (!psus_ready) {
+                return;
+            }
+            if ((snapshot.now - _fixed_rampdown_last_step_time) <
+                FIXED_RAMPDOWN_STEP_MS) {
+                return;
+            }
+
+            if (_dps.hasAnyMismatch()) {
+                _logger.log("TC: Pre-flight mismatch detected!");
+                transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+                return;
+            }
+
+            const float step_a = FIXED_RAMPDOWN_RATE_A_PER_SEC *
+                                 (FIXED_RAMPDOWN_STEP_MS / 1000.0f);
+            float new_current = snapshot.current_setpoint - step_a;
+            if (new_current <= 0.0f) {
+                // Final step: set current to 0 and turn outputs off.
+                _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, 0.0f, false);
+                _fixed_rampdown_started = false;
+                _logger.log("TC: Rampdown complete, outputs OFF", true);
+                return;
+            }
+
+            _dps.setSymmetricCurrentAllowZero(new_current);
+            _fixed_rampdown_last_step_time = snapshot.now;
+        }
+
+        return;
+    }
 
     // If we're warming up after reaching "steady", react quickly by stepping
     // down instead of waiting the full recheck interval.
@@ -561,6 +720,18 @@ void ThermalController::handleDpsDisconnected() {
     if (!_dps_restore_in_progress) {
         _logger.log("TC: DPS reconnected");
 
+        // If a fixed-current run already completed, keep outputs OFF on
+        // reconnection instead of restoring operational current.
+        const bool fixed_run_complete =
+            _fixed_current_mode_enabled && _fixed_hold_ms > 0 &&
+            _fixed_hold_complete_logged;
+        if (fixed_run_complete) {
+            _logger.log("TC: Fixed run complete, keeping outputs OFF", true);
+            _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, 0.0f, false);
+            transitionTo(ThermalState::STEADY_STATE, "Fixed run complete");
+            return;
+        }
+
         ThermalState resume_state = _state_before_fault;
         float resume_current = _dps.getTargetCurrent();
 
@@ -628,5 +799,9 @@ void ThermalController::handleDpsDisconnected() {
 }
 
 void ThermalController::updateDisplay() {
-    _metrics.updateDisplay(stateToString(_state), _dps.getTargetCurrent());
+    float display_current = _dps.getTargetCurrent();
+    if (_state == ThermalState::MANUAL_OVERRIDE) {
+        display_current = _dps.getAverageSetCurrent();
+    }
+    _metrics.updateDisplay(stateToString(_state), display_current);
 }

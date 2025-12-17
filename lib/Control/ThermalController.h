@@ -36,7 +36,8 @@ class ThermalController {
   public:
     ThermalController(Logger &logger, TemperatureSensors &sensors);
 
-    void begin();
+    void begin(float fixed_current_a = 0.0f,
+               unsigned long hold_top_temperature_ms = 0);
     void update();
 
     // State accessors
@@ -80,6 +81,15 @@ class ThermalController {
     bool _hot_reset_active;   // True if we detected hot reset and haven't
                               // completed normal startup
     float _hot_reset_current; // Adopted current from hot reset detection
+
+    // Fixed-current mode (optional)
+    bool _fixed_current_mode_enabled;
+    float _fixed_current_target_a;
+    unsigned long _fixed_hold_ms;
+    unsigned long _fixed_hold_start_time;
+    bool _fixed_hold_complete_logged;
+    bool _fixed_rampdown_started;
+    unsigned long _fixed_rampdown_last_step_time;
 
     // =========================================================================
     // State handlers (contain only state-specific logic)

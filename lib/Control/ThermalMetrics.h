@@ -84,8 +84,13 @@ class ThermalMetrics {
      *
      * @param sensors Temperature sensors reference
      * @param dps Dual power supply reference
+     * @param enable_imbalance_checks If true, logs channel imbalance warnings
+     * @param use_reported_set_current If true, uses DPS reported set current
+     *        instead of commanded target current
      */
-    void recordSample(TemperatureSensors &sensors, DualPowerSupply &dps);
+    void recordSample(TemperatureSensors &sensors, DualPowerSupply &dps,
+                      bool enable_imbalance_checks = true,
+                      bool use_reported_set_current = false);
 
     /**
      * @brief Build a snapshot of current thermal state for optimizer
