@@ -39,11 +39,14 @@ void ThermalMetrics::recordSample(const ThermalSample &sample) {
 }
 
 void ThermalMetrics::recordSample(TemperatureSensors &sensors,
-                                  DualPowerSupply &dps) {
+                                  DualPowerSupply &dps,
+                                  bool enable_imbalance_checks,
+                                  bool use_reported_set_current) {
     ThermalSample sample;
     sample.cold_plate_temp = sensors.getColdPlateTemperature();
     sample.hot_plate_temp = sensors.getHotPlateTemperature();
-    sample.set_current = dps.getTargetCurrent();
+    sample.set_current = use_reported_set_current ? dps.getAverageSetCurrent()
+                                                  : dps.getTargetCurrent();
     sample.voltage[0] = dps.getOutputVoltage(0);
     sample.voltage[1] = dps.getOutputVoltage(1);
     sample.current[0] = dps.getOutputCurrent(0);
@@ -68,9 +71,11 @@ void ThermalMetrics::recordSample(TemperatureSensors &sensors,
     _last_avg_voltage = (connected > 0) ? (voltage_sum / connected) : 0.0f;
     _last_total_power = power_sum;
 
-    dps.checkAndLogImbalance(Tuning::CHANNEL_CURRENT_IMBALANCE_A,
-                             Tuning::CHANNEL_POWER_IMBALANCE_W,
-                             InternalTiming::IMBALANCE_LOG_INTERVAL_MS);
+    if (enable_imbalance_checks) {
+        dps.checkAndLogImbalance(Tuning::CHANNEL_CURRENT_IMBALANCE_A,
+                                 Tuning::CHANNEL_POWER_IMBALANCE_W,
+                                 InternalTiming::IMBALANCE_LOG_INTERVAL_MS);
+    }
 
     // Periodic comprehensive temperature log (serial only)
     unsigned long now = millis();
