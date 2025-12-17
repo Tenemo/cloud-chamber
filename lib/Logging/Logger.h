@@ -89,6 +89,10 @@ constexpr size_t MAX_LINE_LABEL_LEN = 12; // e.g., "DC12 V:", "State:"
 constexpr size_t MAX_LINE_VALUE_LEN = 16; // e.g., "12.34 V", "INIT..."
 constexpr size_t MAX_LINE_UNIT_LEN = 6;   // e.g., "K/m", "A"
 
+// Serial/logging formatting buffers (stack-allocated, fixed-size)
+constexpr size_t MAX_LOG_MESSAGE_LEN = 384;      // message body (no timestamps)
+constexpr size_t MAX_LOG_STAMPED_MESSAGE_LEN = 512; // timestamped serial line
+
 struct DisplayLine {
     char name[MAX_LINE_NAME_LEN];        // Line identifier
     char label[MAX_LINE_LABEL_LEN];      // display label (e.g., "Temp:")
