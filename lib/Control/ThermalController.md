@@ -476,7 +476,7 @@ void loop() {
 | Never reaches STEADY_STATE | Hot side limiting       | Improve heat rejection (fans, flow)          |
 | Thermal runaway            | Insufficient cooling    | Reduce max current, improve heatsink         |
 | Channel imbalance logs     | TEC degradation         | Replace TECs or adjust mounting              |
-| "Cold>=Hot" warnings       | Sensors swapped/faulty  | Check sensor wiring and placement            |
+| "Cross-check dT<" warnings | Sensors swapped/faulty  | Check sensor wiring and placement            |
 | "FAULT: impossible" error  | Sensor reading invalid  | Check sensor connections, replace if damaged |
 
 ### Debug Information
