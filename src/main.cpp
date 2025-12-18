@@ -38,18 +38,14 @@
 
 Logger logger;
 
-// Temperature sensors (owns PT100 and DS18B20)
+// Temperature sensors (owns PT100 and DS18B20s)
 TemperatureSensors sensors(logger);
 
-// Thermal controller - coordinates sensors and PSUs (owns DualPowerSupply
-// internally)
+// Thermal controller - coordinates sensors and PSUs
 ThermalController thermalController(logger, sensors);
 
-static constexpr float BENCHMARK_CURRENTS_A[] = {2.0f, 4.0f, 6.0f, 7.0f,
-                                                 8.0f, 9.0f, 10.0f, 11.0f,
-                                                 12.0f, 13.0f, 14.0f};
-static constexpr size_t BENCHMARK_CURRENTS_COUNT =
-    sizeof(BENCHMARK_CURRENTS_A) / sizeof(BENCHMARK_CURRENTS_A[0]);
+static constexpr float BENCHMARK_CURRENTS_A[] = {
+    2.0f, 4.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f};
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
@@ -64,16 +60,15 @@ static void initializeHardware() {
     logger.initializeDisplay();
     logger.log("=== BOOT ===");
 
-    // Optional one-shot wall-clock sync via home WiFi + NTP
+#if FEATURE_WIFI_TIME_SYNC
     TimeService::trySyncFromWifi(
         [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
+#endif
 
     initializeWatchdog();
     sensors.begin();
 
-    thermalController.beginBenchmark(BENCHMARK_CURRENTS_A,
-                                     BENCHMARK_CURRENTS_COUNT,
-                                     20UL * 60UL * 1000UL,
+    thermalController.beginBenchmark(BENCHMARK_CURRENTS_A, 20UL * 60UL * 1000UL,
                                      20.0f);
 }
 

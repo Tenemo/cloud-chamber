@@ -14,6 +14,14 @@
 #include <cstddef>
 
 // =============================================================================
+// Feature Flags (0=disabled, 1=enabled)
+// =============================================================================
+// Can be overridden from build flags, e.g. `-D FEATURE_WIFI_TIME_SYNC=1`.
+#ifndef FEATURE_WIFI_TIME_SYNC
+#define FEATURE_WIFI_TIME_SYNC 0
+#endif
+
+// =============================================================================
 // Sensor Update Intervals
 // =============================================================================
 namespace Intervals {
