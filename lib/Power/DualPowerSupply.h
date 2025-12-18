@@ -191,6 +191,11 @@ class DualPowerSupply {
     float getTargetCurrent() const { return _target_current; }
 
     /**
+     * @brief Get output target (what we commanded)
+     */
+    bool getTargetOutput() const { return _target_output; }
+
+    /**
      * @brief Get average set current reported by the PSUs
      *
      * This reflects the DPS "set current" register (including manual knob

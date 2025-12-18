@@ -20,6 +20,7 @@
 #ifndef THERMAL_CONTROLLER_H
 #define THERMAL_CONTROLLER_H
 
+#include "Benchmark.h"
 #include "DualPowerSupply.h"
 #include "SafetyMonitor.h"
 #include "TemperatureSensors.h"
@@ -28,6 +29,7 @@
 #include "ThermalOptimizer.h"
 #include "ThermalTypes.h"
 #include <cstdint>
+#include <cstddef>
 
 // ThermalState enum is defined in ThermalTypes.h (shared for context-aware
 // checks)
@@ -36,8 +38,10 @@ class ThermalController {
   public:
     ThermalController(Logger &logger, TemperatureSensors &sensors);
 
-    void begin(float fixed_current_a = 0.0f,
-               unsigned long hold_top_temperature_ms = 0);
+    void begin();
+    void beginBenchmark(const float *currents_a, size_t count,
+                        unsigned long hold_ms,
+                        float warmup_temp_c = 20.0f);
     void update();
 
     // State accessors
@@ -57,6 +61,7 @@ class ThermalController {
     ThermalMetrics _metrics;
     ThermalOptimizer _optimizer;
     SafetyMonitor _safety;
+    Benchmark _benchmark;
 
     // State machine
     ThermalState _state;
@@ -75,21 +80,13 @@ class ThermalController {
     bool _dps_restore_in_progress = false;
     unsigned long _dps_restore_start_time = 0;
     float _dps_restore_current = 0.0f;
+    bool _dps_restore_output = true;
     ThermalState _dps_restore_state = ThermalState::STARTUP;
 
     // Hot reset recovery tracking
     bool _hot_reset_active;   // True if we detected hot reset and haven't
                               // completed normal startup
     float _hot_reset_current; // Adopted current from hot reset detection
-
-    // Fixed-current mode (optional)
-    bool _fixed_current_mode_enabled;
-    float _fixed_current_target_a;
-    unsigned long _fixed_hold_ms;
-    unsigned long _fixed_hold_start_time;
-    bool _fixed_hold_complete_logged;
-    bool _fixed_rampdown_started;
-    unsigned long _fixed_rampdown_last_step_time;
 
     // =========================================================================
     // State handlers (contain only state-specific logic)
