@@ -42,6 +42,11 @@ class ThermalController {
     void beginBenchmark(const float *currents_a, size_t count,
                         unsigned long hold_ms,
                         float warmup_temp_c = 20.0f);
+    template <size_t N>
+    void beginBenchmark(const float (&currents_a)[N], unsigned long hold_ms,
+                        float warmup_temp_c = 20.0f) {
+        beginBenchmark(currents_a, N, hold_ms, warmup_temp_c);
+    }
     void update();
 
     // State accessors
