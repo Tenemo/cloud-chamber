@@ -45,7 +45,8 @@ TemperatureSensors sensors(logger);
 ThermalController thermalController(logger, sensors);
 
 static constexpr float BENCHMARK_CURRENTS_A[] = {
-    2.0f, 4.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f, 11.0f, 12.0f, 13.0f, 14.0f};
+    14.0f, 10.5f, 11.5f, 12.5f, 10.5f, 11.5f, 12.5f, 2.0f,  4.0f,  6.0f, 7.0f,
+    8.0f,  9.0f,  10.0f, 10.5f, 11.0f, 11.5f, 12.0f, 12.5f, 13.0f, 14.0f};
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
