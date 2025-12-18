@@ -45,6 +45,12 @@ TemperatureSensors sensors(logger);
 // internally)
 ThermalController thermalController(logger, sensors);
 
+static constexpr float BENCHMARK_CURRENTS_A[] = {2.0f, 4.0f, 6.0f, 7.0f,
+                                                 8.0f, 9.0f, 10.0f, 11.0f,
+                                                 12.0f, 13.0f, 14.0f};
+static constexpr size_t BENCHMARK_CURRENTS_COUNT =
+    sizeof(BENCHMARK_CURRENTS_A) / sizeof(BENCHMARK_CURRENTS_A[0]);
+
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
     // This will reset the ESP32 if loop() hangs for longer than timeout
@@ -65,7 +71,10 @@ static void initializeHardware() {
     initializeWatchdog();
     sensors.begin();
 
-    thermalController.begin(12.0f, 20UL * 60UL * 1000UL);
+    thermalController.beginBenchmark(BENCHMARK_CURRENTS_A,
+                                     BENCHMARK_CURRENTS_COUNT,
+                                     20UL * 60UL * 1000UL,
+                                     20.0f);
 }
 
 void setup() { initializeHardware(); }
