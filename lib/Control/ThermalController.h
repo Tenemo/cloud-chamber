@@ -47,6 +47,7 @@ class ThermalController {
                         float warmup_temp_c = 20.0f) {
         beginBenchmark(currents_a, N, hold_ms, warmup_temp_c);
     }
+    void fixedCurrent(float current_a);
     void update();
 
     // State accessors
@@ -67,6 +68,8 @@ class ThermalController {
     ThermalOptimizer _optimizer;
     SafetyMonitor _safety;
     Benchmark _benchmark;
+    bool _fixed_current_enabled;
+    float _fixed_current_target;
 
     // State machine
     ThermalState _state;
@@ -167,6 +170,7 @@ class ThermalController {
     // =========================================================================
     void registerDisplayLines();
     void updateDisplay();
+    void startController();
 };
 
 #endif // THERMAL_CONTROLLER_H
