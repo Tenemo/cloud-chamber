@@ -44,10 +44,6 @@ TemperatureSensors sensors(logger);
 // Thermal controller - coordinates sensors and PSUs
 ThermalController thermalController(logger, sensors);
 
-static constexpr float BENCHMARK_CURRENTS_A[] = {
-    14.0f, 10.5f, 11.5f, 12.5f, 10.5f, 11.5f, 12.5f, 2.0f,  4.0f,  6.0f, 7.0f,
-    8.0f,  9.0f,  10.0f, 10.5f, 11.0f, 11.5f, 12.0f, 12.5f, 13.0f, 14.0f};
-
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
     // This will reset the ESP32 if loop() hangs for longer than timeout
@@ -69,8 +65,7 @@ static void initializeHardware() {
     initializeWatchdog();
     sensors.begin();
 
-    thermalController.beginBenchmark(BENCHMARK_CURRENTS_A, 20UL * 60UL * 1000UL,
-                                     20.0f);
+    thermalController.begin();
 }
 
 void setup() { initializeHardware(); }

@@ -20,7 +20,8 @@ ThermalController::ThermalController(Logger &logger,
     : _logger(logger), _sensors(sensors), _dps(logger), _metrics(logger),
       _optimizer(logger), _safety(logger, sensors.getColdPlateSensor(),
                                   sensors.getHotPlateSensor(), _dps),
-      _benchmark(logger),
+      _benchmark(logger), _fixed_current_enabled(false),
+      _fixed_current_target(0.0f),
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
@@ -28,6 +29,29 @@ ThermalController::ThermalController(Logger &logger,
       _hot_reset_active(false), _hot_reset_current(0.0f) {}
 
 void ThermalController::begin() {
+    _fixed_current_enabled = false;
+    _fixed_current_target = 0.0f;
+    _benchmark.begin(nullptr, 0, 0);
+    startController();
+}
+
+void ThermalController::beginBenchmark(const float *currents_a, size_t count,
+                                       unsigned long hold_ms,
+                                       float warmup_temp_c) {
+    _fixed_current_enabled = false;
+    _fixed_current_target = 0.0f;
+    _benchmark.begin(currents_a, count, hold_ms, warmup_temp_c);
+    startController();
+}
+
+void ThermalController::fixedCurrent(float current_a) {
+    _benchmark.begin(nullptr, 0, 0);
+    _fixed_current_enabled = true;
+    _fixed_current_target = Clamp::current(current_a);
+    startController();
+}
+
+void ThermalController::startController() {
     _state_entry_time = millis();
     _last_sample_time = millis();
 
@@ -37,13 +61,6 @@ void ThermalController::begin() {
 
     registerDisplayLines();
     _logger.log("Controller initialized.");
-}
-
-void ThermalController::beginBenchmark(const float *currents_a, size_t count,
-                                       unsigned long hold_ms,
-                                       float warmup_temp_c) {
-    _benchmark.begin(currents_a, count, hold_ms, warmup_temp_c);
-    begin();
 }
 
 void ThermalController::registerDisplayLines() {
@@ -427,6 +444,58 @@ void ThermalController::applyOptimizationDecision(
 void ThermalController::handleRampUp() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
 
+    if (_fixed_current_enabled) {
+        constexpr float TARGET_EPS_A = 0.05f;
+        const float target = Clamp::current(_fixed_current_target);
+
+        // If outputs are OFF (e.g., after a fault), re-enable at 0A first.
+        if (!_dps.isOutputOn()) {
+            _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, 0.0f, true);
+            _last_adjustment_time = 0;
+            return;
+        }
+
+        const float current = snapshot.current_setpoint;
+        const float delta = target - current;
+
+        if (fabs(delta) <= TARGET_EPS_A) {
+            transitionTo(ThermalState::STEADY_STATE, "Fixed target reached");
+            return;
+        }
+
+        bool psus_ready = canControlPower() && _dps.areBothSettled();
+        if (!psus_ready) {
+            return;
+        }
+
+        if ((snapshot.now - _last_adjustment_time) <
+            Timing::RAMP_ADJUSTMENT_INTERVAL_MS) {
+            return;
+        }
+
+        if (_dps.hasAnyMismatch()) {
+            _logger.log("TC: Pre-flight mismatch detected!");
+            transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+            return;
+        }
+
+        const float step = (fabs(delta) >= Tuning::COARSE_STEP_A)
+                               ? Tuning::COARSE_STEP_A
+                               : Tuning::FINE_STEP_A;
+        float new_current = current + ((delta > 0.0f) ? step : -step);
+        if ((delta > 0.0f && new_current > target) ||
+            (delta < 0.0f && new_current < target)) {
+            new_current = target;
+        }
+        new_current = Clamp::current(new_current);
+
+        _dps.setSymmetricCurrent(new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot.now;
+        _logger.logf(true, "TC: Fixed ramp %.2fA", new_current);
+        return;
+    }
+
     if (_benchmark.isEnabled()) {
         Benchmark::StepResult step =
             _benchmark.update(_state, snapshot, _dps, _last_adjustment_time);
@@ -503,6 +572,29 @@ void ThermalController::handleRampUp() {
 
 void ThermalController::handleSteadyState() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
+
+    if (_fixed_current_enabled) {
+        constexpr float TARGET_EPS_A = 0.05f;
+        const float target = Clamp::current(_fixed_current_target);
+        const bool psus_ready = canControlPower() && _dps.areBothSettled();
+
+        if (psus_ready &&
+            fabs(snapshot.current_setpoint - target) > TARGET_EPS_A &&
+            (snapshot.now - _last_adjustment_time) >=
+                Timing::RAMP_ADJUSTMENT_INTERVAL_MS) {
+            if (_dps.hasAnyMismatch()) {
+                _logger.log("TC: Pre-flight mismatch detected!");
+                transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+                return;
+            }
+
+            _dps.setSymmetricCurrent(target);
+            _dps.resetOverrideCounter();
+            _last_adjustment_time = snapshot.now;
+            _logger.logf(true, "TC: Fixed hold %.2fA", target);
+        }
+        return;
+    }
 
     if (_benchmark.isEnabled()) {
         Benchmark::StepResult step =
