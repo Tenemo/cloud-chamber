@@ -115,22 +115,18 @@ constexpr float ERROR_MAX_C = 500.0f;  // Above this = sensor error
 // =============================================================================
 namespace Limits {
 // Fixed voltage for cascade TECs
-constexpr float TEC_VOLTAGE_SETPOINT =
-    16.1f; // TEMPORARY, LOWER TO 15V AFTER TESTING
+constexpr float TEC_VOLTAGE_SETPOINT = 15.0f;
 
 // Current limits
-constexpr float MAX_CURRENT_PER_CHANNEL =
-    14.1f; // TEMPORARY, LOWER TO 13A AFTER TESTING
+constexpr float MAX_CURRENT_PER_CHANNEL = 13.0f;
 constexpr float MIN_CURRENT_PER_CHANNEL = 0.5f;
 constexpr float STARTUP_CURRENT = 2.0f;
 constexpr float DEGRADED_MODE_CURRENT =
     5.0f; // Max current when one DPS disconnects
 
 // Hardware protection limits (failsafe in case of software/Modbus errors)
-constexpr float DPS_OVP_LIMIT = 17.0f; // Over Voltage Protection (V) //
-                                       // TEMPORARY, LOWER TO 16 V AFTER TESTING
-constexpr float DPS_OCP_LIMIT = 15.0f; // Over Current Protection (A) //
-                                       // TEMPORARY, LOWER TO 14A AFTER TESTING
+constexpr float DPS_OVP_LIMIT = 16.0f; // Over Voltage Protection (V)
+constexpr float DPS_OCP_LIMIT = 14.0f; // Over Current Protection (A)
 
 // Temperature thresholds (Celsius)
 constexpr float HOT_SIDE_WARNING_C = 55.0f;
