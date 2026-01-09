@@ -65,7 +65,7 @@ static void initializeHardware() {
     initializeWatchdog();
     sensors.begin();
 
-    thermalController.begin();
+    thermalController.fixedCurrent(11.5f);
 }
 
 void setup() { initializeHardware(); }
