@@ -447,7 +447,7 @@ void Logger::log(const char *message, bool serialOnly) {
     // - With wall time: [YYYY-MM-DDTHH:MM:SS][HH:MM:SS.mmm] message
     // - Without wall time: [HH:MM:SS.mmm] message
     const char *serial_out = message;
-    char stamped[256];
+    char stamped[MAX_LOG_STAMPED_MESSAGE_LEN];
     if (iso != nullptr) {
         snprintf(stamped, sizeof(stamped), "[%s][%02u:%02u:%02u.%03u] %s", iso,
                  hours, mins, secs, millis_part, message);
@@ -465,7 +465,7 @@ void Logger::log(const char *message, bool serialOnly) {
         return;
 
     // Use local buffer for word wrap processing
-    char remaining[192];
+    char remaining[MAX_LOG_MESSAGE_LEN];
     strncpy(remaining, message, sizeof(remaining) - 1);
     remaining[sizeof(remaining) - 1] = '\0';
 
@@ -520,7 +520,7 @@ void Logger::log(const char *message, bool serialOnly) {
 }
 
 void Logger::logf(const char *format, ...) {
-    char buf[192];
+    char buf[MAX_LOG_MESSAGE_LEN];
     va_list args;
     va_start(args, format);
     vsnprintf(buf, sizeof(buf), format, args);
@@ -529,7 +529,7 @@ void Logger::logf(const char *format, ...) {
 }
 
 void Logger::logf(bool serialOnly, const char *format, ...) {
-    char buf[192];
+    char buf[MAX_LOG_MESSAGE_LEN];
     va_list args;
     va_start(args, format);
     vsnprintf(buf, sizeof(buf), format, args);

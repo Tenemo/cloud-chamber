@@ -235,23 +235,27 @@ void SafetyMonitor::logCrossSensorWarnings(bool skip_check) {
 
     float cold_temp = _cold_plate.getTemperature();
     float hot_temp = _hot_plate.getTemperature();
+    float delta_t = hot_temp - cold_temp;
+    const float margin_c = Tuning::SENSOR_CROSS_CHECK_MARGIN_C;
     unsigned long now = millis();
 
     // Cold plate should be significantly colder than hot plate
-    if (cold_temp >= hot_temp - Tuning::SENSOR_CROSS_CHECK_MARGIN_C) {
+    if (delta_t < margin_c) {
         if (!_cross_check_warning_active) {
             _cross_check_warning_active = true;
-            _logger.logf("WARN: Cold>=Hot! C=%.2f H=%.2f", cold_temp, hot_temp);
+            _logger.logf("WARN: Cross-check dT<%.2fC (dT=%.2fC) C=%.2f H=%.2f",
+                         margin_c, delta_t, cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         } else if (now - _last_cross_check_log_time >=
                    Timing::SENSOR_CROSS_CHECK_LOG_INTERVAL_MS) {
-            _logger.logf("WARN: Cold>=Hot C=%.2f H=%.2f", cold_temp, hot_temp);
+            _logger.logf("WARN: Cross-check dT<%.2fC (dT=%.2fC) C=%.2f H=%.2f",
+                         margin_c, delta_t, cold_temp, hot_temp);
             _last_cross_check_log_time = now;
         }
     } else {
         if (_cross_check_warning_active) {
             _cross_check_warning_active = false;
-            _logger.log("Cross-check OK: Cold<Hot");
+            _logger.logf("Cross-check OK: dT=%.2fC >= %.2fC", delta_t, margin_c);
         }
     }
 }

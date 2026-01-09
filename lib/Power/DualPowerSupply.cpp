@@ -72,6 +72,28 @@ bool DualPowerSupply::setSymmetricCurrent(float current) {
     return success;
 }
 
+bool DualPowerSupply::setSymmetricCurrentAllowZero(float current) {
+    // Clamp to DPS range (allow 0A for shutdown)
+    if (current < 0.0f) {
+        current = 0.0f;
+    } else if (current > Limits::MAX_CURRENT_PER_CHANNEL) {
+        current = Limits::MAX_CURRENT_PER_CHANNEL;
+    }
+
+    _target_current = current;
+    _last_setpoint_change_time = millis(); // Record for imbalance suppression
+    _last_command_ms = millis();
+    _override_hint_external_change = false;
+
+    bool success = true;
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            success &= psu->setCurrent(current);
+        }
+    }
+    return success;
+}
+
 bool DualPowerSupply::enableOutput() {
     _target_output = true;
     _last_command_ms = millis();
@@ -272,6 +294,20 @@ bool DualPowerSupply::areBothSettled() const {
             return false;
     }
     return true;
+}
+
+float DualPowerSupply::getAverageSetCurrent() const {
+    float sum = 0.0f;
+    int count = 0;
+
+    for (auto *psu : _psus) {
+        if (psu->isConnected()) {
+            sum += psu->getSetCurrent();
+            count++;
+        }
+    }
+
+    return count > 0 ? (sum / count) : 0.0f;
 }
 
 float DualPowerSupply::getAverageOutputCurrent() const {

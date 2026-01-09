@@ -20,6 +20,8 @@ ThermalController::ThermalController(Logger &logger,
     : _logger(logger), _sensors(sensors), _dps(logger), _metrics(logger),
       _optimizer(logger), _safety(logger, sensors.getColdPlateSensor(),
                                   sensors.getHotPlateSensor(), _dps),
+      _benchmark(logger), _fixed_current_enabled(false),
+      _fixed_current_target(0.0f),
       _state(ThermalState::INITIALIZING),
       _state_before_fault(ThermalState::INITIALIZING), _state_entry_time(0),
       _last_sample_time(0), _last_adjustment_time(0),
@@ -27,6 +29,29 @@ ThermalController::ThermalController(Logger &logger,
       _hot_reset_active(false), _hot_reset_current(0.0f) {}
 
 void ThermalController::begin() {
+    _fixed_current_enabled = false;
+    _fixed_current_target = 0.0f;
+    _benchmark.begin(nullptr, 0, 0);
+    startController();
+}
+
+void ThermalController::beginBenchmark(const float *currents_a, size_t count,
+                                       unsigned long hold_ms,
+                                       float warmup_temp_c) {
+    _fixed_current_enabled = false;
+    _fixed_current_target = 0.0f;
+    _benchmark.begin(currents_a, count, hold_ms, warmup_temp_c);
+    startController();
+}
+
+void ThermalController::fixedCurrent(float current_a) {
+    _benchmark.begin(nullptr, 0, 0);
+    _fixed_current_enabled = true;
+    _fixed_current_target = Clamp::current(current_a);
+    startController();
+}
+
+void ThermalController::startController() {
     _state_entry_time = millis();
     _last_sample_time = millis();
 
@@ -60,7 +85,10 @@ void ThermalController::update() {
     _dps.update();
 
     if (now - _last_sample_time >= HISTORY_SAMPLE_INTERVAL_MS) {
-        _metrics.recordSample(_sensors, _dps);
+        const bool in_manual = (_state == ThermalState::MANUAL_OVERRIDE);
+        _metrics.recordSample(_sensors, _dps,
+                              /*enable_imbalance_checks=*/!in_manual,
+                              /*use_reported_set_current=*/in_manual);
         _last_sample_time = now;
     }
 
@@ -209,6 +237,7 @@ void ThermalController::transitionTo(ThermalState newState,
         _dps_restore_in_progress = false;
         _dps_restore_start_time = 0;
         _dps_restore_current = 0.0f;
+        _dps_restore_output = true;
         _dps_restore_state = ThermalState::STARTUP;
     }
 
@@ -221,16 +250,18 @@ void ThermalController::transitionTo(ThermalState newState,
     // State entry actions
     switch (newState) {
     case ThermalState::STARTUP:
+    {
         // Normal boot path - clear hot reset state since we're starting fresh
         _hot_reset_active = false;
         _hot_reset_current = 0.0f;
 
         // Configure PSUs immediately on entering STARTUP
-        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT,
-                       true);
+        const float startup_current = Limits::STARTUP_CURRENT;
+        _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, startup_current, true);
         _logger.logf(false, "TC: Config %.0fV %.2fA",
-                     Limits::TEC_VOLTAGE_SETPOINT, Limits::STARTUP_CURRENT);
+                     Limits::TEC_VOLTAGE_SETPOINT, startup_current);
         break;
+    }
     case ThermalState::STEADY_STATE:
         // Reached stable operation - clear hot reset recovery state
         _hot_reset_active = false;
@@ -412,6 +443,68 @@ void ThermalController::applyOptimizationDecision(
 
 void ThermalController::handleRampUp() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
+
+    if (_fixed_current_enabled) {
+        constexpr float TARGET_EPS_A = 0.05f;
+        const float target = Clamp::current(_fixed_current_target);
+
+        // If outputs are OFF (e.g., after a fault), re-enable at 0A first.
+        if (!_dps.isOutputOn()) {
+            _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, 0.0f, true);
+            _last_adjustment_time = 0;
+            return;
+        }
+
+        const float current = snapshot.current_setpoint;
+        const float delta = target - current;
+
+        if (fabs(delta) <= TARGET_EPS_A) {
+            transitionTo(ThermalState::STEADY_STATE, "Fixed target reached");
+            return;
+        }
+
+        bool psus_ready = canControlPower() && _dps.areBothSettled();
+        if (!psus_ready) {
+            return;
+        }
+
+        if ((snapshot.now - _last_adjustment_time) <
+            Timing::RAMP_ADJUSTMENT_INTERVAL_MS) {
+            return;
+        }
+
+        if (_dps.hasAnyMismatch()) {
+            _logger.log("TC: Pre-flight mismatch detected!");
+            transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+            return;
+        }
+
+        const float step = (fabs(delta) >= Tuning::COARSE_STEP_A)
+                               ? Tuning::COARSE_STEP_A
+                               : Tuning::FINE_STEP_A;
+        float new_current = current + ((delta > 0.0f) ? step : -step);
+        if ((delta > 0.0f && new_current > target) ||
+            (delta < 0.0f && new_current < target)) {
+            new_current = target;
+        }
+        new_current = Clamp::current(new_current);
+
+        _dps.setSymmetricCurrent(new_current);
+        _dps.resetOverrideCounter();
+        _last_adjustment_time = snapshot.now;
+        _logger.logf(true, "TC: Fixed ramp %.2fA", new_current);
+        return;
+    }
+
+    if (_benchmark.isEnabled()) {
+        Benchmark::StepResult step =
+            _benchmark.update(_state, snapshot, _dps, _last_adjustment_time);
+        if (step.should_transition) {
+            transitionTo(step.next_state, step.reason);
+        }
+        return;
+    }
+
     float current = snapshot.current_setpoint;
     float cooling_rate = snapshot.cooling_rate;
 
@@ -479,6 +572,38 @@ void ThermalController::handleRampUp() {
 
 void ThermalController::handleSteadyState() {
     ThermalSnapshot snapshot = _metrics.buildSnapshot(_sensors, _dps, _safety);
+
+    if (_fixed_current_enabled) {
+        constexpr float TARGET_EPS_A = 0.05f;
+        const float target = Clamp::current(_fixed_current_target);
+        const bool psus_ready = canControlPower() && _dps.areBothSettled();
+
+        if (psus_ready &&
+            fabs(snapshot.current_setpoint - target) > TARGET_EPS_A &&
+            (snapshot.now - _last_adjustment_time) >=
+                Timing::RAMP_ADJUSTMENT_INTERVAL_MS) {
+            if (_dps.hasAnyMismatch()) {
+                _logger.log("TC: Pre-flight mismatch detected!");
+                transitionTo(ThermalState::MANUAL_OVERRIDE, "Pre-flight check");
+                return;
+            }
+
+            _dps.setSymmetricCurrent(target);
+            _dps.resetOverrideCounter();
+            _last_adjustment_time = snapshot.now;
+            _logger.logf(true, "TC: Fixed hold %.2fA", target);
+        }
+        return;
+    }
+
+    if (_benchmark.isEnabled()) {
+        Benchmark::StepResult step =
+            _benchmark.update(_state, snapshot, _dps, _last_adjustment_time);
+        if (step.should_transition) {
+            transitionTo(step.next_state, step.reason);
+        }
+        return;
+    }
 
     // If we're warming up after reaching "steady", react quickly by stepping
     // down instead of waiting the full recheck interval.
@@ -563,10 +688,12 @@ void ThermalController::handleDpsDisconnected() {
 
         ThermalState resume_state = _state_before_fault;
         float resume_current = _dps.getTargetCurrent();
+        bool resume_output = _dps.getTargetOutput();
 
         // Hot reset recovery: prefer adopted current and resume path
         if (_hot_reset_active && _hot_reset_current > 0.0f) {
             resume_current = _hot_reset_current;
+            resume_output = true;
             resume_state = (_hot_reset_current >= HOT_RESET_NEAR_MAX_A)
                                ? ThermalState::STEADY_STATE
                                : ThermalState::RAMP_UP;
@@ -583,17 +710,27 @@ void ThermalController::handleDpsDisconnected() {
             resume_state == ThermalState::THERMAL_FAULT) {
             resume_state = ThermalState::STARTUP;
             resume_current = Limits::STARTUP_CURRENT;
+            resume_output = true;
         }
 
         // Clamp to sane operational range (per-channel setpoint)
-        if (resume_current < Limits::MIN_CURRENT_PER_CHANNEL) {
-            resume_current = Limits::STARTUP_CURRENT;
-        } else if (resume_current > Limits::MAX_CURRENT_PER_CHANNEL) {
-            resume_current = Limits::MAX_CURRENT_PER_CHANNEL;
+        if (resume_output) {
+            if (resume_current < Limits::MIN_CURRENT_PER_CHANNEL) {
+                resume_current = Limits::STARTUP_CURRENT;
+            } else if (resume_current > Limits::MAX_CURRENT_PER_CHANNEL) {
+                resume_current = Limits::MAX_CURRENT_PER_CHANNEL;
+            }
+        } else {
+            if (resume_current < 0.0f) {
+                resume_current = 0.0f;
+            } else if (resume_current > Limits::MAX_CURRENT_PER_CHANNEL) {
+                resume_current = Limits::MAX_CURRENT_PER_CHANNEL;
+            }
         }
 
         _dps_restore_state = resume_state;
         _dps_restore_current = resume_current;
+        _dps_restore_output = resume_output;
         _dps_restore_in_progress = true;
         _dps_restore_start_time = now;
 
@@ -605,7 +742,7 @@ void ThermalController::handleDpsDisconnected() {
         }
 
         _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, _dps_restore_current,
-                       true);
+                       _dps_restore_output);
         return;
     }
 
@@ -623,10 +760,14 @@ void ThermalController::handleDpsDisconnected() {
         _logger.log("TC: DPS restore timeout, retrying");
         _dps_restore_start_time = now;
         _dps.configure(Limits::TEC_VOLTAGE_SETPOINT, _dps_restore_current,
-                       true);
+                       _dps_restore_output);
     }
 }
 
 void ThermalController::updateDisplay() {
-    _metrics.updateDisplay(stateToString(_state), _dps.getTargetCurrent());
+    float display_current = _dps.getTargetCurrent();
+    if (_state == ThermalState::MANUAL_OVERRIDE) {
+        display_current = _dps.getAverageSetCurrent();
+    }
+    _metrics.updateDisplay(stateToString(_state), display_current);
 }

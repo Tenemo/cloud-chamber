@@ -20,6 +20,7 @@
 #ifndef THERMAL_CONTROLLER_H
 #define THERMAL_CONTROLLER_H
 
+#include "Benchmark.h"
 #include "DualPowerSupply.h"
 #include "SafetyMonitor.h"
 #include "TemperatureSensors.h"
@@ -28,6 +29,7 @@
 #include "ThermalOptimizer.h"
 #include "ThermalTypes.h"
 #include <cstdint>
+#include <cstddef>
 
 // ThermalState enum is defined in ThermalTypes.h (shared for context-aware
 // checks)
@@ -37,6 +39,15 @@ class ThermalController {
     ThermalController(Logger &logger, TemperatureSensors &sensors);
 
     void begin();
+    void beginBenchmark(const float *currents_a, size_t count,
+                        unsigned long hold_ms,
+                        float warmup_temp_c = 20.0f);
+    template <size_t N>
+    void beginBenchmark(const float (&currents_a)[N], unsigned long hold_ms,
+                        float warmup_temp_c = 20.0f) {
+        beginBenchmark(currents_a, N, hold_ms, warmup_temp_c);
+    }
+    void fixedCurrent(float current_a);
     void update();
 
     // State accessors
@@ -56,6 +67,9 @@ class ThermalController {
     ThermalMetrics _metrics;
     ThermalOptimizer _optimizer;
     SafetyMonitor _safety;
+    Benchmark _benchmark;
+    bool _fixed_current_enabled;
+    float _fixed_current_target;
 
     // State machine
     ThermalState _state;
@@ -74,6 +88,7 @@ class ThermalController {
     bool _dps_restore_in_progress = false;
     unsigned long _dps_restore_start_time = 0;
     float _dps_restore_current = 0.0f;
+    bool _dps_restore_output = true;
     ThermalState _dps_restore_state = ThermalState::STARTUP;
 
     // Hot reset recovery tracking
@@ -155,6 +170,7 @@ class ThermalController {
     // =========================================================================
     void registerDisplayLines();
     void updateDisplay();
+    void startController();
 };
 
 #endif // THERMAL_CONTROLLER_H

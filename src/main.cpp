@@ -38,33 +38,34 @@
 
 Logger logger;
 
-// Temperature sensors (owns PT100 and DS18B20)
+// Temperature sensors (owns PT100 and DS18B20s)
 TemperatureSensors sensors(logger);
 
-// Thermal controller - coordinates sensors and PSUs (owns DualPowerSupply
-// internally)
+// Thermal controller - coordinates sensors and PSUs
 ThermalController thermalController(logger, sensors);
 
 static void initializeWatchdog() {
     // Configure Task Watchdog Timer
     // This will reset the ESP32 if loop() hangs for longer than timeout
     // Using older API compatible with Arduino ESP32 core
-    esp_task_wdt_init(Watchdog::TIMEOUT_SECONDS, true); // timeout, panic on trigger
-    esp_task_wdt_add(NULL); // Add current task (loopTask) to watchdog
+    esp_task_wdt_init(Watchdog::TIMEOUT_SECONDS,
+                      true); // timeout, panic on trigger
+    esp_task_wdt_add(NULL);  // Add current task (loopTask) to watchdog
 }
 
 static void initializeHardware() {
     logger.initializeDisplay();
     logger.log("=== BOOT ===");
 
-    // Optional one-shot wall-clock sync via home WiFi + NTP
+#if FEATURE_WIFI_TIME_SYNC
     TimeService::trySyncFromWifi(
         [](const char *msg, bool serialOnly) { logger.log(msg, serialOnly); });
+#endif
 
     initializeWatchdog();
     sensors.begin();
 
-    thermalController.begin();
+    thermalController.fixedCurrent(11.5f);
 }
 
 void setup() { initializeHardware(); }

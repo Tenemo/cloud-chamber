@@ -14,6 +14,14 @@
 #include <cstddef>
 
 // =============================================================================
+// Feature Flags (0=disabled, 1=enabled)
+// =============================================================================
+// Can be overridden from build flags, e.g. `-D FEATURE_WIFI_TIME_SYNC=1`.
+#ifndef FEATURE_WIFI_TIME_SYNC
+#define FEATURE_WIFI_TIME_SYNC 0
+#endif
+
+// =============================================================================
 // Sensor Update Intervals
 // =============================================================================
 namespace Intervals {
@@ -118,7 +126,7 @@ constexpr float DEGRADED_MODE_CURRENT =
 
 // Hardware protection limits (failsafe in case of software/Modbus errors)
 constexpr float DPS_OVP_LIMIT = 16.0f; // Over Voltage Protection (V)
-constexpr float DPS_OCP_LIMIT = 13.0f; // Over Current Protection (A)
+constexpr float DPS_OCP_LIMIT = 14.0f; // Over Current Protection (A)
 
 // Temperature thresholds (Celsius)
 constexpr float HOT_SIDE_WARNING_C = 55.0f;
@@ -126,7 +134,7 @@ constexpr float HOT_SIDE_WARNING_EXIT_C = 50.0f;
 constexpr float HOT_SIDE_ALARM_C = 65.0f;
 constexpr float HOT_SIDE_ALARM_EXIT_C = 60.0f;
 constexpr float HOT_SIDE_FAULT_C = 70.0f;
-constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN = 5.0f;
+constexpr float HOT_SIDE_RATE_FAULT_C_PER_MIN = 10.0f;
 constexpr float HOT_SIDE_PROBE_HEADROOM_C = 5.0f;
 
 struct ThermalLimit {

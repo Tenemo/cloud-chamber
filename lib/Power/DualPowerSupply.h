@@ -91,6 +91,17 @@ class DualPowerSupply {
     bool setSymmetricCurrent(float current);
 
     /**
+     * @brief Set current symmetrically allowing 0A (for controlled ramp-down)
+     *
+     * Unlike setSymmetricCurrent(), this does not enforce the operational
+     * MIN_CURRENT_PER_CHANNEL clamp, allowing ramp-down all the way to 0A.
+     *
+     * @param current Target current (clamped to [0, MAX_CURRENT_PER_CHANNEL])
+     * @return true if both commands were queued successfully
+     */
+    bool setSymmetricCurrentAllowZero(float current);
+
+    /**
      * @brief Enable output on both channels
      * @return true if both commands were queued successfully
      */
@@ -178,6 +189,20 @@ class DualPowerSupply {
      * @brief Get current target (what we commanded)
      */
     float getTargetCurrent() const { return _target_current; }
+
+    /**
+     * @brief Get output target (what we commanded)
+     */
+    bool getTargetOutput() const { return _target_output; }
+
+    /**
+     * @brief Get average set current reported by the PSUs
+     *
+     * This reflects the DPS "set current" register (including manual knob
+     * changes) and may differ from getTargetCurrent() when manual override is
+     * active or comms are out of sync.
+     */
+    float getAverageSetCurrent() const;
 
     /**
      * @brief Get average actual output current
